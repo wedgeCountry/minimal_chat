@@ -36,6 +36,7 @@ export async function uploadPendingAttachments(sid) {
       refs.push(a);
     }
   }
+  renderAttachments();
   return refs;
 }
 

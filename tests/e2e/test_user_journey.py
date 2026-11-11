@@ -565,6 +565,9 @@ def test_file_upload_user_journey(page, base_url, llm_expect, server_data_dir):
     # 4. Frage zusammen mit der Datei senden; Mock-LLM antwortet auf den Dateiinhalt
     _chat_once(page, "Was steht in der Datei?", 1, llm_expect["lorem"], llm_expect["timeout_ms"])
 
+    # 4b. Nach dem Senden ist die Anhang-Liste ueber dem Eingabefeld geleert
+    page.wait_for_selector('[data-testid^="attachment-chip-"]', state="detached", timeout=llm_expect["timeout_ms"])
+
     # 5. User-Bubble enthaelt sowohl die Frage als auch den Anhang (Input geht nicht verloren)
     user_bubble = page.locator(_bubble("user")).first
     assert "Was steht in der Datei?" in user_bubble.locator('[data-testid="bubble-body"]').inner_text()
