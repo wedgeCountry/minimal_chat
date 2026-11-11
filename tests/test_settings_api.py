@@ -6,7 +6,7 @@ RealAsyncClient = httpx.AsyncClient
 
 DEFAULTS = {
     "base": "http://llm.test/v1",
-    "host": "",
+    "host": "llm.test",
     "port": "",
     "model": "gpt-4o-mini",
     "system_prompt": "",

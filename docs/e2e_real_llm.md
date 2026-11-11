@@ -21,7 +21,7 @@ python3 -m pytest -m e2e tests/e2e -q
 ## Verhalten im Real-LLM-Modus
 
 - `tests/e2e/conftest.py` startet dann **keinen** Mock-LLM; die App bekommt
-  `LEANCHAT_LLM_BASE`/`LEANCHAT_API_KEY` aus den dedizierten Variablen
+  `LEANCHAT_LLM_HOST`/`LEANCHAT_LLM_PORT`/`LEANCHAT_API_KEY` aus den dedizierten Variablen
   `LEANCHAT_E2E_LLM_BASE`/`LEANCHAT_E2E_API_KEY` (nicht aus der `.env`, damit
   der Lauf nie versehentlich mit Beispielwerten startet).
 - Ohne `LEANCHAT_E2E_REAL_LLM=1` bleibt alles beim Mock — CI und lokale

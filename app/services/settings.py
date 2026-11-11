@@ -44,13 +44,14 @@ def base_from_host_port(host: str, port: str) -> str | None:
 def resolve_base_url(stored: dict[str, str], config) -> str:
     """Single Source of Truth fuer die LLM-Base-URL.
 
-    Prioritaet: aus User-host/port berechnet > aus Server-Default-host/port
-    berechnet (LEANCHAT_LLM_HOST/PORT) > gespeicherte base > LEANCHAT_LLM_BASE.
+    Prioritaet: aus User-host/port berechnet > gespeicherte User-base (Legacy)
+    > aus Server-Default-host/port berechnet (LEANCHAT_LLM_HOST/PORT)
+    > Default 127.0.0.1:1234.
     Wird von Settings-GET/PUT-Test und vom Chat-Router verwendet.
     """
     return (
         base_from_host_port(stored.get("host") or "", stored.get("port") or "")
-        or base_from_host_port(config.default_llm_host, config.default_llm_port)
         or stored.get("base")
-        or config.default_llm_base
+        or base_from_host_port(config.default_llm_host, config.default_llm_port)
+        or base_from_host_port("127.0.0.1", "1234")
     )
