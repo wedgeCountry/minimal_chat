@@ -22,7 +22,6 @@ export const state = {
     show_image_button: false,
   },
   streaming: false,
-  abortCtrl: null,
   pendingAttachments: [],
 };
 

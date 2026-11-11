@@ -33,6 +33,7 @@ class SessionOut(BaseModel):
     id: str
     name: str
     ts: int
+    generating: bool = False
 
 
 class SessionDetail(SessionOut):
@@ -80,9 +81,14 @@ class ChatMessage(BaseModel):
 
 
 class ChatRequest(BaseModel):
+    session_id: str
     model: str
     stream: bool = True
     messages: list[ChatMessage]
+
+
+class ChatAbortRequest(BaseModel):
+    session_id: str
 
 
 class ClientLogIn(BaseModel):

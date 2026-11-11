@@ -1,12 +1,11 @@
-import { api, streamChat } from "./api.js";
+import { api } from "./api.js";
 import { activeSession, state } from "./state.js";
 import { $, esc } from "./util.js";
 import { ICONS } from "./icons.js";
-import { bubbleEl, setBubbleMode, setBubbleText } from "./bubbles.js";
+import { bubbleEl } from "./bubbles.js";
 import { buildChatPayload } from "./payload.js";
-import { parseSSE } from "./sse.js";
 import { loadSessions, newSession, changed } from "./sessions.js";
-import { confirmModal, showError } from "./confirm.js";
+import { confirmModal } from "./confirm.js";
 import { isBubbleVisible } from "./visibility.js";
 
 export function setStreamingUI(on) {
@@ -20,7 +19,8 @@ export function setStreamingUI(on) {
 }
 
 export function abortStream() {
-  state.abortCtrl?.abort();
+  const s = activeSession();
+  if (s) api.post("/chat/abort", { session_id: s.id }).catch(() => {});
 }
 
 export function sortMessagesForRender(messages) {
@@ -97,17 +97,42 @@ const handlers = {
   },
 };
 
-export function applyToolCallDelta(toolCalls, tc) {
-  const idx = tc.index ?? toolCalls.size;
-  let entry = toolCalls.get(idx);
-  if (!entry) {
-    entry = { name: "", args: "", msg: { role: "assistant", type: "toolcall", text: "", in_context: false }, el: null };
-    toolCalls.set(idx, entry);
+// Polling des Server-seitigen Generierungsstands: die LLM-Generierung laeuft
+// serverseitig in einer Hintergrund-Task und wird in die Session persistiert.
+// Dadurch geht nichts verloren, wenn die App in den Hintergrund wechselt.
+const POLL_MS = 1200;
+let pollTimer = null;
+let pollInFlight = false;
+
+export async function pollOnce() {
+  if (pollInFlight) return;
+  pollInFlight = true;
+  try {
+    await loadSessions().catch(() => {});
+    const s = activeSession();
+    if (s) {
+      try {
+        const detail = await api.get(`/sessions/${s.id}`);
+        if (JSON.stringify(detail.messages) !== JSON.stringify(lastMessages)) renderChat(detail.messages);
+      } catch {}
+    }
+    setStreamingUI(!!s?.generating);
+    if (state.sessions.some((x) => x.generating)) ensurePolling();
+    else stopPolling();
+  } finally {
+    pollInFlight = false;
   }
-  entry.name += tc.function?.name || "";
-  entry.args += tc.function?.arguments || "";
-  entry.msg.text = `${entry.name || "tool"}(${entry.args})`;
-  return entry;
+}
+
+export function ensurePolling() {
+  if (!pollTimer) pollTimer = setInterval(pollOnce, POLL_MS);
+}
+
+export function stopPolling() {
+  if (pollTimer) {
+    clearInterval(pollTimer);
+    pollTimer = null;
+  }
 }
 
 export async function send(textOverride, attachmentsOverride) {
@@ -124,7 +149,7 @@ export async function send(textOverride, attachmentsOverride) {
     await newSession(true);
     s = activeSession();
   }
-  const userMsg = await api.post(`/sessions/${s.id}/messages`, {
+  await api.post(`/sessions/${s.id}/messages`, {
     role: "user",
     type: "message",
     text,
@@ -139,84 +164,20 @@ export async function send(textOverride, attachmentsOverride) {
   }
   changed();
 
-  const aiMsg = { role: "assistant", type: "message", text: "", in_context: true };
-  const thinkMsg = { role: "assistant", type: "reasoning", text: "", in_context: false };
-  let hasThink = false;
-  const toolCalls = new Map();
-  const chat = $("chat");
-  const aiEl = bubbleEl(aiMsg, handlers);
-  chat.appendChild(aiEl);
-  let thinkEl = null;
-  setStreamingUI(true);
-  state.abortCtrl = new AbortController();
-
-  const persist = async (m) => {
-    try {
-      return await api.post(`/sessions/${s.id}/messages`, m);
-    } catch {
-      return null;
-    }
-  };
-
+  const detail = await api.get(`/sessions/${s.id}`);
+  const payload = buildChatPayload({ model: state.settings.model, messages: detail.messages });
   try {
-    const detail = await api.get(`/sessions/${s.id}`);
-    const payload = buildChatPayload({ model: state.settings.model, messages: detail.messages });
-    const res = await streamChat(payload, state.abortCtrl.signal);
-    const reader = res.body.getReader();
-    for await (const j of parseSSE(reader)) {
-      if (j.error) throw new Error(j.error);
-      const delta = j.choices?.[0]?.delta || {};
-      const reasoning = delta.reasoning_content ?? delta.reasoning;
-      if (reasoning && state.settings.show_reasoning !== false) {
-        if (!hasThink) {
-          hasThink = true;
-          thinkEl = bubbleEl(thinkMsg, handlers);
-          setBubbleMode(thinkEl, "full");
-          chat.appendChild(thinkEl);
-        }
-        thinkMsg.text += reasoning;
-        setBubbleText(thinkEl, thinkMsg.text);
-      }
-      if (delta.content) {
-        aiMsg.text += delta.content;
-        setBubbleText(aiEl, aiMsg.text);
-      }
-      if (delta.tool_calls && state.settings.show_tool_output !== false) {
-        for (const tc of delta.tool_calls) {
-          const entry = applyToolCallDelta(toolCalls, tc);
-          if (!entry.el) {
-            entry.el = bubbleEl(entry.msg, handlers);
-            chat.appendChild(entry.el);
-          }
-          setBubbleText(entry.el, entry.msg.text);
-        }
-      }
-      chat.scrollTop = chat.scrollHeight;
-    }
+    await api.post("/chat", { session_id: s.id, ...payload });
   } catch (err) {
-    if (err.name !== "AbortError") {
-      if (err.message.includes("LLM-Server nicht erreichbar")) {
-        await showError(err.message);
-      } else {
-        const em = { role: "system", type: "message", text: "Fehler: " + err.message, in_context: false };
-        if (isBubbleVisible(em, state.settings)) chat.appendChild(bubbleEl(em, handlers));
-        await persist(em);
-      }
-    }
-  } finally {
-    setStreamingUI(false);
-    state.abortCtrl = null;
-    // Reasoning/Toolcalls vor der Antwort persistieren, damit die id-Reihenfolge
-    // der gewuenschten Anzeigereihenfolge entspricht (Thinking vor Antwort).
-    if (hasThink && thinkMsg.text) await persist(thinkMsg);
-    for (const entry of toolCalls.values()) if (entry.msg.text) await persist(entry.msg);
-    if (aiMsg.text) {
-      const saved = await persist(aiMsg);
-      if (saved) aiMsg.id = saved.id;
-    }
+    const em = { role: "system", type: "message", text: "Fehler: " + err.message, in_context: false };
+    await api.post(`/sessions/${s.id}/messages`, em).catch(() => {});
     await loadSessions();
     changed();
+    return;
   }
+  setStreamingUI(true);
+  await pollOnce();
+  ensurePolling();
 }
 
 export function renderHeader() {

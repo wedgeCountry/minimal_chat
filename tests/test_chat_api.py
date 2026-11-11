@@ -1,8 +1,13 @@
 from __future__ import annotations
 
+import asyncio
 import json
+import time
 
 import httpx
+
+from app.db import database as dbq
+from app.services import generation
 
 RealAsyncClient = httpx.AsyncClient
 
@@ -15,20 +20,21 @@ SSE_BODY = (
 )
 
 
-def _mock_llm(monkeypatch):
+def _mock_llm(monkeypatch, body: bytes = SSE_BODY, head_status: int = 200):
     seen = {}
 
     def handler(request: httpx.Request) -> httpx.Response:
         seen["url"] = str(request.url)
         seen["auth"] = request.headers.get("authorization")
-        # Handle HEAD request for connectivity check
         if request.method == "HEAD":
+            if head_status >= 400:
+                return httpx.Response(head_status)
             return httpx.Response(200)
         seen["body"] = json.loads(request.content)
         return httpx.Response(
             200,
             headers={"content-type": "text/event-stream"},
-            content=SSE_BODY,
+            content=body,
         )
 
     def factory(**kwargs):
@@ -39,21 +45,154 @@ def _mock_llm(monkeypatch):
     return seen
 
 
-def test_chat_streams_sse(client, auth_headers, monkeypatch):
-    seen = _mock_llm(monkeypatch)
+def _new_session(client, auth_headers, name="Test") -> str:
+    res = client.post("/api/sessions", json={"name": name}, headers=auth_headers)
+    assert res.status_code == 201, res.text
+    return res.json()["id"]
+
+
+def _post_user_message(client, auth_headers, sid: str, text="Hi") -> None:
     res = client.post(
-        "/api/chat",
-        json={"model": "gpt-4o-mini", "messages": [{"role": "user", "content": "Hi"}]},
+        f"/api/sessions/{sid}/messages",
+        json={"role": "user", "type": "message", "text": text, "in_context": True},
         headers=auth_headers,
     )
-    assert res.status_code == 200
-    assert res.headers["content-type"].startswith("text/event-stream")
-    assert b"Hallo" in res.content and b"[DONE]" in res.content
-    assert b"reasoning_content" in res.content and b"tool_calls" in res.content
+    assert res.status_code == 201, res.text
+
+
+def _start_chat(client, auth_headers, sid: str, messages=None) -> httpx.Response:
+    return client.post(
+        "/api/chat",
+        json={
+            "session_id": sid,
+            "model": "gpt-4o-mini",
+            "messages": messages if messages is not None else [{"role": "user", "content": "Hi"}],
+        },
+        headers=auth_headers,
+    )
+
+
+def _wait_generation(client, auth_headers, sid: str, timeout: float = 10.0) -> dict:
+    """Pollt die Session, bis die serverseitige Generierung fertig ist."""
+    deadline = time.time() + timeout
+    last = None
+    while time.time() < deadline:
+        res = client.get(f"/api/sessions/{sid}", headers=auth_headers)
+        assert res.status_code == 200, res.text
+        last = res.json()
+        if not last["generating"]:
+            return last
+        time.sleep(0.05)
+    raise AssertionError(f"Generierung wurde nicht fertig ( letzter Stand: {last})")
+
+
+def test_chat_starts_background_generation_and_persists(client, auth_headers, monkeypatch):
+    seen = _mock_llm(monkeypatch)
+    sid = _new_session(client, auth_headers)
+    _post_user_message(client, auth_headers, sid)
+
+    res = _start_chat(client, auth_headers, sid)
+    assert res.status_code == 202
+    assert res.json() == {"status": "started"}
+
+    detail = _wait_generation(client, auth_headers, sid)
     assert seen["url"] == "http://llm.test/v1/chat/completions"
     assert seen["auth"] == "Bearer test-api-key"
     assert seen["body"]["stream"] is True
     assert seen["body"]["messages"] == [{"role": "user", "content": "Hi"}]
+
+    texts = [(m["role"], m["type"], m["text"]) for m in detail["messages"]]
+    assert ("user", "message", "Hi") in texts
+    assert ("assistant", "reasoning", "denke") in texts
+    assert ("assistant", "message", "Hallo Welt") in texts
+    assert ("assistant", "toolcall", "f({})") in texts
+    # Reasoning wurde vor der Antwort persistiert (id-Reihenfolge)
+    ids = {m["type"]: m["id"] for m in detail["messages"] if m["role"] == "assistant"}
+    assert ids["reasoning"] < ids["message"]
+
+
+def test_chat_marks_session_generating_while_running(client, auth_headers, monkeypatch):
+    release = asyncio.Event()
+
+    async def fake_gen(db, user, sid, *args, **kwargs):
+        with db.user_db(user) as con:
+            dbq.q_set_generating(con, sid, True)
+        try:
+            await asyncio.wait_for(release.wait(), timeout=10)
+        finally:
+            with db.user_db(user) as con:
+                dbq.q_set_generating(con, sid, False)
+
+    monkeypatch.setattr("app.routers.chat.run_generation", fake_gen)
+    sid = _new_session(client, auth_headers)
+    _post_user_message(client, auth_headers, sid)
+
+    res = _start_chat(client, auth_headers, sid)
+    assert res.status_code == 202
+
+    deadline = time.time() + 5
+    while time.time() < deadline:
+        s = client.get(f"/api/sessions/{sid}", headers=auth_headers).json()
+        if s["generating"]:
+            break
+        time.sleep(0.05)
+    assert s["generating"] is True
+    assert client.get("/api/sessions", headers=auth_headers).json()[0]["generating"] is True
+
+    # zweite Generierung fuer dieselbe Session wird abgelehnt
+    res = _start_chat(client, auth_headers, sid)
+    assert res.status_code == 409
+
+    release.set()
+    _wait_generation(client, auth_headers, sid)
+
+
+def test_chat_requires_auth(client):
+    res = client.post("/api/chat", json={"session_id": "x", "model": "m", "messages": []})
+    assert res.status_code == 401
+
+
+def test_chat_unknown_session_404(client, auth_headers):
+    res = _start_chat(client, auth_headers, "does-not-exist")
+    assert res.status_code == 404
+
+
+def test_chat_abort_endpoint(client, auth_headers, monkeypatch):
+    observed = {}
+
+    async def fake_gen(db, user, sid, *args, **kwargs):
+        key = f"{user['uid']}:{sid}"
+        ev = asyncio.Event()
+        generation._abort_events[key] = ev
+        try:
+            await asyncio.wait_for(ev.wait(), timeout=10)
+            observed["aborted"] = True
+        finally:
+            generation._abort_events.pop(key, None)
+
+    monkeypatch.setattr("app.routers.chat.run_generation", fake_gen)
+    sid = _new_session(client, auth_headers)
+    _post_user_message(client, auth_headers, sid)
+    assert _start_chat(client, auth_headers, sid).status_code == 202
+
+    deadline = time.time() + 5
+    while time.time() < deadline and not any(k.endswith(":" + sid) for k in generation._abort_events):
+        time.sleep(0.05)
+    assert any(k.endswith(":" + sid) for k in generation._abort_events)
+
+    res = client.post("/api/chat/abort", json={"session_id": sid}, headers=auth_headers)
+    assert res.status_code == 200
+    assert res.json() == {"status": "aborted"}
+
+    deadline = time.time() + 5
+    while time.time() < deadline and not observed:
+        time.sleep(0.05)
+    assert observed.get("aborted") is True
+
+
+def test_chat_abort_unknown_session_404(client, auth_headers):
+    res = client.post("/api/chat/abort", json={"session_id": "nope"}, headers=auth_headers)
+    assert res.status_code == 404
 
 
 def test_chat_filters_reasoning_and_tool_output_server_side(client, auth_headers, monkeypatch):
@@ -63,33 +202,31 @@ def test_chat_filters_reasoning_and_tool_output_server_side(client, auth_headers
         json={"show_reasoning": False, "show_tool_output": False},
         headers=auth_headers,
     )
-    res = client.post(
-        "/api/chat",
-        json={"model": "m", "messages": [{"role": "user", "content": "Hi"}]},
-        headers=auth_headers,
-    )
-    assert res.status_code == 200
-    assert b"Hallo" in res.content
-    assert b"reasoning_content" not in res.content
-    assert b"tool_calls" not in res.content
-    assert b"[DONE]" in res.content
+    sid = _new_session(client, auth_headers)
+    _post_user_message(client, auth_headers, sid)
+    assert _start_chat(client, auth_headers, sid).status_code == 202
+    detail = _wait_generation(client, auth_headers, sid)
+    types = [(m["role"], m["type"]) for m in detail["messages"]]
+    assert ("assistant", "message") in types
+    assert ("assistant", "reasoning") not in types
+    assert ("assistant", "toolcall") not in types
 
 
 def test_chat_filters_system_prompt_from_request_server_side(client, auth_headers, monkeypatch):
     seen = _mock_llm(monkeypatch)
     client.put("/api/settings", json={"show_system_prompt": False}, headers=auth_headers)
-    res = client.post(
-        "/api/chat",
-        json={
-            "model": "m",
-            "messages": [
-                {"role": "system", "content": "Du bist ein Assistent."},
-                {"role": "user", "content": "Hi"},
-            ],
-        },
-        headers=auth_headers,
-    )
-    assert res.status_code == 200
+    sid = _new_session(client, auth_headers)
+    _post_user_message(client, auth_headers, sid)
+    assert _start_chat(
+        client,
+        auth_headers,
+        sid,
+        messages=[
+            {"role": "system", "content": "Du bist ein Assistent."},
+            {"role": "user", "content": "Hi"},
+        ],
+    ).status_code == 202
+    _wait_generation(client, auth_headers, sid)
     assert seen["body"]["messages"] == [{"role": "user", "content": "Hi"}]
 
 
@@ -100,23 +237,18 @@ def test_chat_uses_per_user_settings_and_key(client, auth_headers, monkeypatch):
         json={"base": "http://per-user.test/v1", "api_key": "sk-user"},
         headers=auth_headers,
     )
-    res = client.post(
-        "/api/chat",
-        json={"model": "m", "messages": [{"role": "user", "content": "x"}]},
-        headers=auth_headers,
-    )
-    assert res.status_code == 200
+    sid = _new_session(client, auth_headers)
+    _post_user_message(client, auth_headers, sid)
+    assert _start_chat(client, auth_headers, sid).status_code == 202
+    _wait_generation(client, auth_headers, sid)
     assert seen["url"] == "http://per-user.test/v1/chat/completions"
     assert seen["auth"] == "Bearer sk-user"
 
 
-def test_chat_requires_auth(client):
-    res = client.post("/api/chat", json={"model": "m", "messages": []})
-    assert res.status_code == 401
-
-
-def test_chat_upstream_error_forwarded(client, auth_headers, monkeypatch):
+def test_chat_upstream_error_persisted_as_system_message(client, auth_headers, monkeypatch):
     def handler(request):
+        if request.method == "HEAD":
+            return httpx.Response(200)
         return httpx.Response(500, content=b"boom")
 
     def factory(**kwargs):
@@ -124,16 +256,15 @@ def test_chat_upstream_error_forwarded(client, auth_headers, monkeypatch):
         return RealAsyncClient(transport=httpx.MockTransport(handler))
 
     monkeypatch.setattr("app.services.chat.httpx.AsyncClient", factory)
-    res = client.post(
-        "/api/chat",
-        json={"model": "m", "messages": [{"role": "user", "content": "x"}]},
-        headers=auth_headers,
-    )
-    assert res.status_code == 200
-    assert b"HTTP 500" in res.content
+    sid = _new_session(client, auth_headers)
+    _post_user_message(client, auth_headers, sid)
+    assert _start_chat(client, auth_headers, sid).status_code == 202
+    detail = _wait_generation(client, auth_headers, sid)
+    errors = [m["text"] for m in detail["messages"] if m["role"] == "system"]
+    assert any("HTTP 500" in e for e in errors)
 
 
-def test_chat_server_unreachable(client, auth_headers, monkeypatch):
+def test_chat_server_unreachable_persisted_as_system_message(client, auth_headers, monkeypatch):
     def handler(request):
         if request.method == "HEAD":
             raise httpx.ConnectError("Connection refused")
@@ -144,94 +275,21 @@ def test_chat_server_unreachable(client, auth_headers, monkeypatch):
         return RealAsyncClient(transport=httpx.MockTransport(handler))
 
     monkeypatch.setattr("app.services.chat.httpx.AsyncClient", factory)
-    res = client.post(
-        "/api/chat",
-        json={"model": "m", "messages": [{"role": "user", "content": "x"}]},
-        headers=auth_headers,
-    )
-    assert res.status_code == 200
-    assert b"LLM-Server nicht erreichbar" in res.content
-    assert b"[DONE]" in res.content
-
-
-def test_chat_server_timeout(client, auth_headers, monkeypatch):
-    """Test that a timeout error during connectivity check is handled properly."""
-    def handler(request):
-        if request.method == "HEAD":
-            raise httpx.TimeoutException("Connection timed out")
-        return httpx.Response(200, content=SSE_BODY)
-
-    def factory(**kwargs):
-        kwargs.pop("timeout", None)
-        return RealAsyncClient(transport=httpx.MockTransport(handler))
-
-    monkeypatch.setattr("app.services.chat.httpx.AsyncClient", factory)
-    res = client.post(
-        "/api/chat",
-        json={"model": "m", "messages": [{"role": "user", "content": "x"}]},
-        headers=auth_headers,
-    )
-    assert res.status_code == 200
-    assert b"LLM-Server nicht erreichbar" in res.content
-    assert b"[DONE]" in res.content
-
-
-def test_chat_server_network_error(client, auth_headers, monkeypatch):
-    """Test that a network error during connectivity check is handled properly."""
-    def handler(request):
-        if request.method == "HEAD":
-            raise httpx.NetworkError("Network unreachable")
-        return httpx.Response(200, content=SSE_BODY)
-
-    def factory(**kwargs):
-        kwargs.pop("timeout", None)
-        return RealAsyncClient(transport=httpx.MockTransport(handler))
-
-    monkeypatch.setattr("app.services.chat.httpx.AsyncClient", factory)
-    res = client.post(
-        "/api/chat",
-        json={"model": "m", "messages": [{"role": "user", "content": "x"}]},
-        headers=auth_headers,
-    )
-    assert res.status_code == 200
-    assert b"LLM-Server nicht erreichbar" in res.content
-    assert b"[DONE]" in res.content
-
-
-def test_chat_server_reachable_but_completions_fail(client, auth_headers, monkeypatch):
-    """Test that connectivity check passes but POST to completions fails."""
-    def handler(request):
-        if request.method == "HEAD":
-            return httpx.Response(200)
-        # POST to /chat/completions fails
-        return httpx.Response(500, content=b"Internal Server Error")
-
-    def factory(**kwargs):
-        kwargs.pop("timeout", None)
-        return RealAsyncClient(transport=httpx.MockTransport(handler))
-
-    monkeypatch.setattr("app.services.chat.httpx.AsyncClient", factory)
-    res = client.post(
-        "/api/chat",
-        json={"model": "m", "messages": [{"role": "user", "content": "x"}]},
-        headers=auth_headers,
-    )
-    assert res.status_code == 200
-    # Should get the HTTP 500 error, not the connectivity error
-    assert b"HTTP 500" in res.content
-    assert b"LLM-Server nicht erreichbar" not in res.content
-    assert b"[DONE]" in res.content
+    sid = _new_session(client, auth_headers)
+    _post_user_message(client, auth_headers, sid)
+    assert _start_chat(client, auth_headers, sid).status_code == 202
+    detail = _wait_generation(client, auth_headers, sid)
+    errors = [m["text"] for m in detail["messages"] if m["role"] == "system"]
+    assert any("LLM-Server nicht erreichbar" in e for e in errors)
 
 
 def test_chat_prepends_system_prompt_from_settings(client, auth_headers, monkeypatch):
     seen = _mock_llm(monkeypatch)
     client.put("/api/settings", json={"system_prompt": "Sei freundlich."}, headers=auth_headers)
-    res = client.post(
-        "/api/chat",
-        json={"model": "m", "messages": [{"role": "user", "content": "Hi"}]},
-        headers=auth_headers,
-    )
-    assert res.status_code == 200
+    sid = _new_session(client, auth_headers)
+    _post_user_message(client, auth_headers, sid)
+    assert _start_chat(client, auth_headers, sid).status_code == 202
+    _wait_generation(client, auth_headers, sid)
     msgs = seen["body"]["messages"]
     assert msgs[0] == {"role": "system", "content": "Sei freundlich."}
     assert msgs[1] == {"role": "user", "content": "Hi"}
@@ -240,11 +298,10 @@ def test_chat_prepends_system_prompt_from_settings(client, auth_headers, monkeyp
 def test_chat_system_prompt_filtered_when_disabled(client, auth_headers, monkeypatch):
     seen = _mock_llm(monkeypatch)
     client.put("/api/settings", json={"system_prompt": "Sei freundlich.", "show_system_prompt": False}, headers=auth_headers)
-    client.post(
-        "/api/chat",
-        json={"model": "m", "messages": [{"role": "user", "content": "Hi"}]},
-        headers=auth_headers,
-    )
+    sid = _new_session(client, auth_headers)
+    _post_user_message(client, auth_headers, sid)
+    assert _start_chat(client, auth_headers, sid).status_code == 202
+    _wait_generation(client, auth_headers, sid)
     assert seen["body"]["messages"] == [{"role": "user", "content": "Hi"}]
 
 
@@ -252,12 +309,10 @@ def test_chat_uses_host_port_computed_base_url(client, auth_headers, monkeypatch
     """Regression: host/port settings must drive the chat URL (single source of truth)."""
     seen = _mock_llm(monkeypatch)
     client.put("/api/settings", json={"host": "192.168.1.10", "port": "8000"}, headers=auth_headers)
-    res = client.post(
-        "/api/chat",
-        json={"model": "m", "messages": [{"role": "user", "content": "Hi"}]},
-        headers=auth_headers,
-    )
-    assert res.status_code == 200
+    sid = _new_session(client, auth_headers)
+    _post_user_message(client, auth_headers, sid)
+    assert _start_chat(client, auth_headers, sid).status_code == 202
+    _wait_generation(client, auth_headers, sid)
     assert seen["url"] == "http://192.168.1.10:8000/v1/chat/completions"
 
 
@@ -266,9 +321,8 @@ def test_chat_uses_env_default_llm_host_port(client, auth_headers, monkeypatch, 
     seen = _mock_llm(monkeypatch)
     app.state.config.default_llm_host = "10.9.8.7"
     app.state.config.default_llm_port = "9999"
-    client.post(
-        "/api/chat",
-        json={"model": "m", "messages": [{"role": "user", "content": "Hi"}]},
-        headers=auth_headers,
-    )
+    sid = _new_session(client, auth_headers)
+    _post_user_message(client, auth_headers, sid)
+    assert _start_chat(client, auth_headers, sid).status_code == 202
+    _wait_generation(client, auth_headers, sid)
     assert seen["url"] == "http://10.9.8.7:9999/v1/chat/completions"

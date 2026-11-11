@@ -33,7 +33,3 @@ export const api = {
   put: (path, body) => request(path, { method: "PUT", body }),
   del: (path) => request(path, { method: "DELETE" }),
 };
-
-export function streamChat(payload, signal) {
-  return request("/chat", { method: "POST", body: payload, raw: true, signal });
-}

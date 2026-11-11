@@ -1,9 +1,10 @@
 -- LeanChat SQL-Schema pro User (eine verschluesselte SQLite-Datei pro User)
 
 CREATE TABLE IF NOT EXISTS sessions (
-    id   TEXT PRIMARY KEY,
-    name TEXT NOT NULL,
-    ts   INTEGER NOT NULL
+    id         TEXT PRIMARY KEY,
+    name       TEXT NOT NULL,
+    ts         INTEGER NOT NULL,
+    generating INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS messages (

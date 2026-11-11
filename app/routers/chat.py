@@ -1,27 +1,38 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends
-from fastapi.responses import StreamingResponse
+import asyncio
+
+from fastapi import APIRouter, Depends, HTTPException
 
 from ..config import AppConfig
 from ..db import database as dbq
 from ..db.database import Database
 from ..deps import get_config, get_current_user, get_db
-from ..models import ChatRequest
-from ..services.chat import stream_completion
+from ..models import ChatAbortRequest, ChatRequest
+from ..services.generation import request_abort, run_generation
 from ..services.settings import BOOL_SETTINGS, resolve_base_url, stored_bool
 
 router = APIRouter(prefix="/api/chat", tags=["chat"])
 
 
-@router.post("")
+@router.post("", status_code=202)
 async def chat(
     req: ChatRequest,
     user: dict = Depends(get_current_user),
     db: Database = Depends(get_db),
     config: AppConfig = Depends(get_config),
-) -> StreamingResponse:
+) -> dict:
+    """Startet eine serverseitige Generierung als Hintergrund-Task.
+
+    Der LLM-Stream wird nicht mehr an den Client durchgereicht, sondern in der
+    per-user DB persistiert; der Client pollt ``GET /api/sessions/{id}``.
+    """
     with db.user_db(user) as con:
+        session = dbq.q_get_session(con, req.session_id)
+        if not session:
+            raise HTTPException(status_code=404, detail="Session nicht gefunden")
+        if session["generating"]:
+            raise HTTPException(status_code=409, detail="Es läuft bereits eine Generierung für diese Session")
         stored = dbq.q_get_user_settings(con)
     base_url = resolve_base_url(stored, config)
     api_key = stored.get("api_key") or config.default_api_key
@@ -35,8 +46,18 @@ async def chat(
         "stream": True,
         "messages": messages,
     }
-    return StreamingResponse(
-        stream_completion(base_url, api_key, payload, settings=flags),
-        media_type="text/event-stream",
-        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
-    )
+    asyncio.create_task(run_generation(db, user, req.session_id, base_url, api_key, payload, flags))
+    return {"status": "started"}
+
+
+@router.post("/abort")
+async def abort(
+    req: ChatAbortRequest,
+    user: dict = Depends(get_current_user),
+    db: Database = Depends(get_db),
+) -> dict:
+    with db.user_db(user) as con:
+        if not dbq.q_get_session(con, req.session_id):
+            raise HTTPException(status_code=404, detail="Session nicht gefunden")
+    request_abort(user, req.session_id)
+    return {"status": "aborted"}
