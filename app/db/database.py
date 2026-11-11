@@ -62,6 +62,8 @@ def _row_to_message(row: sqlite3.Row) -> dict:
         "text": row["text"],
         "in_context": bool(row["in_context"]),
         "attachments": json.loads(row["attachments"] or "[]"),
+        # created_at hat Sekundenaufloesung; als ms-Ts fuer die clientseitige Sortierung
+        "ts": row["created_at"] * 1000,
     }
 
 

@@ -51,6 +51,35 @@ def _reasoning_bubble():
     return _bubble("assistant", "reasoning")
 
 
+def _open_user_db(data_dir, email):
+    """Entschluesselt die per-user DB aus dem Server-Datenverzeichnis (read-only via :memory:)."""
+    import base64
+    import sqlite3
+
+    from cryptography.fernet import Fernet
+
+    reg = sqlite3.connect(str(data_dir / "user_registry.db"))
+    uid, key_hex = reg.execute("SELECT id, encryption_key FROM users WHERE email = ?", (email,)).fetchone()
+    reg.close()
+    fernet_key = base64.urlsafe_b64encode(bytes.fromhex(key_hex))
+    token = (data_dir / "users" / f"{uid}.db.enc").read_bytes()
+    con = sqlite3.connect(":memory:")
+    con.deserialize(Fernet(fernet_key).decrypt(token))
+    return con
+
+
+def _db_session_state(data_dir, email, sid):
+    con = _open_user_db(data_dir, email)
+    try:
+        session = con.execute("SELECT id, name, ts FROM sessions WHERE id = ?", (sid,)).fetchone()
+        messages = con.execute(
+            "SELECT role, type, text FROM messages WHERE session_id = ? ORDER BY id", (sid,)
+        ).fetchall()
+    finally:
+        con.close()
+    return session, messages
+
+
 def _register_client(base_url, email, password):
     """Registriert einen User direkt per API; der Client haelt danach den Session-Cookie."""
     client = httpx.Client(base_url=base_url, timeout=10)
@@ -107,7 +136,7 @@ def _chat_once(page, text, n, expect, timeout_ms, attach=None):
         )
 
 
-def test_full_user_journey(page, base_url, tmp_path, llm_expect):
+def test_full_user_journey(page, base_url, tmp_path, llm_expect, server_data_dir):
     # Setup: User per API anlegen, System-Prompt-Anzeige serverseitig deaktivieren
     # (damit er in der Journey "am Anfang versteckt" ist).
     api_client = _register_client(base_url, USER["email"], USER["password"])
@@ -143,6 +172,18 @@ def test_full_user_journey(page, base_url, tmp_path, llm_expect):
     assert "Krokodil-Ledertasche" in (
         page.locator(_bubble("assistant")).nth(1).locator('[data-testid="bubble-body"]').inner_text()
     )
+
+    # 3b. Persistenz direkt in der per-user DB pruefen: Session-Eintrag und alle
+    #     Messages (inkl. Reasoning) liegen auf der Platte, sobald die Antworten fertig sind
+    #     (sid wurde oben beim Seeden des System-Prompts ermittelt; die Session wurde
+    #     inzwischen per Auto-Rename umbenannt)
+    session, messages = _db_session_state(server_data_dir, USER["email"], sid)
+    assert session is not None and session[2] > 0, "Session-Eintrag mit ts muss in der DB existieren"
+    db_texts = [(r, t, x) for r, t, x in messages]
+    assert ("user", "message", "Nachricht 1") in db_texts
+    assert ("user", "message", "Nachricht 3") in db_texts
+    assert sum(1 for r, t, _ in db_texts if r == "assistant" and t == "message") == 3
+    assert any(t == "reasoning" for _, t, _ in db_texts), "Reasoning-Messages muessen persistiert sein"
 
     # 4. Neue Session erstellen und einmal chatten
     page.click(T["new_session"])
@@ -341,6 +382,43 @@ def test_reasoning_bubbles_can_be_expanded(page, base_url, llm_expect):
         timeout=llm_expect["timeout_ms"]
     )
     assert reasoning_bubble.get_attribute("data-mode") == "collapsed", "Nach dem dritten Klick sollte der Mode wieder 'collapsed' sein"
+
+
+def test_session_db_updated_immediately_when_user_message_sent(page, base_url, llm_expect, server_data_dir):
+    """Session-Eintrag und User-Message muessen direkt nach dem Absenden in der
+    per-user DB stehen (noch bevor die LLM-Antwort fertig ist)."""
+    email = "persist-user@example.com"
+    api_client = _register_client(base_url, email, "Geheim-123")
+    _login(page, base_url, email, "Geheim-123")
+    page.click(T["new_session"])
+    page.wait_for_selector(f'{T["session_tile"]}.active')
+    sid = api_client.get("/api/sessions").json()[0]["id"]
+
+    session0, messages0 = _db_session_state(server_data_dir, email, sid)
+    assert session0 is not None and session0[2] > 0
+    assert messages0 == []
+
+    page.fill(T["chat_input"], "Sofort-Persistiert")
+    page.click(T["send_btn"])
+    page.wait_for_function(
+        "() => document.querySelectorAll('[data-testid=\"chat\"] .bubble[data-role=\"user\"]').length === 1",
+        timeout=llm_expect["timeout_ms"],
+    )
+
+    # User-Message und aktualisierter Session-Timestamp liegen jetzt schon in der DB
+    session1, messages1 = _db_session_state(server_data_dir, email, sid)
+    assert ("user", "message", "Sofort-Persistiert") in messages1
+    assert session1[2] >= session0[2], "Session-ts muss nach dem User-Message aktualisiert sein"
+
+    # Nach fertiger Antwort liegen auch Assistant-Messages in der DB
+    page.wait_for_function(
+        "() => document.querySelectorAll('[data-testid=\"chat\"] .bubble[data-role=\"assistant\"][data-type=\"message\"]').length === 1"
+        " && !document.querySelector('[data-testid=\"send-btn\"]').classList.contains('abort')",
+        timeout=llm_expect["timeout_ms"],
+    )
+    session2, messages2 = _db_session_state(server_data_dir, email, sid)
+    assert any(r == "assistant" and t == "message" for r, t, _ in messages2)
+    assert session2[2] >= session1[2]
 
 
 def test_login_rejects_wrong_password(page, base_url):

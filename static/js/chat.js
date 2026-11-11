@@ -24,18 +24,13 @@ export function abortStream() {
 }
 
 export function sortMessagesForRender(messages) {
-  const getPriority = (m) => {
-    if (m.role === "system") return 0;
-    if (m.type === "reasoning") return 1;
-    if (m.type === "message") return 2;
-    return 3;
-  };
-
+  // Chronologisch nach Zeitstempel, bei Gleichstand (Sekundenaufloesung)
+  // nach id (Einfuegereihenfolge) - so landet der Reasoning-Bubble direkt
+  // vor seiner Antwort, weil er vor ihr persistiert wird.
   return [...messages].sort((a, b) => {
-    if (a.ts === b.ts) {
-      return getPriority(a) - getPriority(b);
-    }
-    return a.ts - b.ts;
+    const d = (a.ts ?? 0) - (b.ts ?? 0);
+    if (d !== 0) return d;
+    return (a.id ?? 0) - (b.id ?? 0);
   });
 }
 
@@ -158,12 +153,14 @@ export async function send() {
   } finally {
     setStreamingUI(false);
     state.abortCtrl = null;
+    // Reasoning/Toolcalls vor der Antwort persistieren, damit die id-Reihenfolge
+    // der gewuenschten Anzeigereihenfolge entspricht (Thinking vor Antwort).
+    if (hasThink && thinkMsg.text) await persist(thinkMsg);
+    for (const tm of toolMsgs) await persist(tm);
     if (aiMsg.text) {
       const saved = await persist(aiMsg);
       if (saved) aiMsg.id = saved.id;
     }
-    if (hasThink && thinkMsg.text) await persist(thinkMsg);
-    for (const tm of toolMsgs) await persist(tm);
     await loadSessions();
     changed();
   }

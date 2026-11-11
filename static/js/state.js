@@ -1,7 +1,9 @@
+const _ss = typeof sessionStorage !== "undefined" ? sessionStorage : null;
+
 export const state = {
   username: null,
   sessions: [],
-  activeId: sessionStorage.getItem("leanchat.active") || null,
+  activeId: _ss?.getItem("leanchat.active") || null,
   settings: {
     base: "",
     model: "",
@@ -22,6 +24,7 @@ export const activeSession = () => state.sessions.find((s) => s.id === state.act
 
 export function setActiveId(id) {
   state.activeId = id;
-  if (id) sessionStorage.setItem("leanchat.active", id);
-  else sessionStorage.removeItem("leanchat.active");
+  if (!_ss) return;
+  if (id) _ss.setItem("leanchat.active", id);
+  else _ss.removeItem("leanchat.active");
 }
