@@ -118,3 +118,15 @@ def test_app_config_default_app_name(tmp_path):
 
     cfg = AppConfig(data_dir=tmp_path, secret="s", registry_path=tmp_path / "r.db", users_dir=tmp_path / "u")
     assert cfg.app_name == "LeanChat"
+
+
+def test_load_config_reads_llm_host_port_from_env(tmp_path, monkeypatch):
+    from app.config import load_config
+
+    monkeypatch.setenv("LEANCHAT_LLM_HOST", "llm.example.com")
+    monkeypatch.setenv("LEANCHAT_LLM_PORT", "8443")
+    cfg = load_config(data_dir=tmp_path / "data", secret="s")
+    assert cfg.default_llm_host == "llm.example.com"
+    assert cfg.default_llm_port == "8443"
+    assert cfg.to_dict()["default_llm_host"] == "llm.example.com"
+    assert cfg.to_dict()["default_llm_port"] == "8443"

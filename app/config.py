@@ -28,6 +28,8 @@ class AppConfig:
     registry_path: Path
     users_dir: Path
     default_llm_base: str = "https://api.openai.com/v1"
+    default_llm_host: str = ""
+    default_llm_port: str = ""
     default_api_key: str = ""
     default_model: str = "gpt-4o-mini"
     app_name: str = "LeanChat"
@@ -44,6 +46,8 @@ class AppConfig:
             "registry_path": str(self.registry_path),
             "users_dir": str(self.users_dir),
             "default_llm_base": self.default_llm_base,
+            "default_llm_host": self.default_llm_host,
+            "default_llm_port": self.default_llm_port,
             "default_api_key": self.default_api_key,
             "default_model": self.default_model,
             "app_name": self.app_name,
@@ -134,6 +138,8 @@ def load_config(
         registry_path=Path(os.environ.get("LEANCHAT_REGISTRY_PATH", str(data / "user_registry.db"))).resolve(),
         users_dir=Path(os.environ.get("LEANCHAT_USERS_DIR", str(data / "users"))).resolve(),
         default_llm_base=os.environ.get("LEANCHAT_LLM_BASE", "https://api.openai.com/v1"),
+        default_llm_host=os.environ.get("LEANCHAT_LLM_HOST", ""),
+        default_llm_port=os.environ.get("LEANCHAT_LLM_PORT", ""),
         default_api_key=os.environ.get("LEANCHAT_API_KEY", ""),
         default_model=os.environ.get("LEANCHAT_MODEL", "gpt-4o-mini"),
         app_name=os.environ.get("LEANCHAT_APP_NAME", "LeanChat"),
