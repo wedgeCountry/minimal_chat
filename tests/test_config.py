@@ -1,6 +1,43 @@
 from __future__ import annotations
 
-from app.config import ensure_env_file, load_config, load_env_file, parse_env_text
+from pathlib import Path
+
+from app.config import AppConfig, ensure_env_file, load_config, load_env_file, parse_env_text
+from app.main import create_app
+
+
+def _make_config(tmp_path) -> AppConfig:
+    data = tmp_path / "data"
+    return AppConfig(
+        data_dir=data,
+        secret="cfg-secret",
+        registry_path=data / "user_registry.db.enc",
+        users_dir=data / "users",
+        default_llm_base="http://llm.test/v1",
+        default_api_key="cfg-key",
+        port=9001,
+    )
+
+
+def test_app_config_file_roundtrip(tmp_path):
+    cfg = _make_config(tmp_path)
+    path = cfg.save(tmp_path / "out" / "app_config.json")
+    loaded = AppConfig.load(path)
+    assert loaded.to_dict() == cfg.to_dict()
+    assert loaded.data_dir == cfg.data_dir
+    assert loaded.port == 9001
+
+
+def test_create_app_generates_config_file_and_ignores_env(tmp_path, monkeypatch):
+    monkeypatch.setenv("LEANCHAT_API_KEY", "env-key-wins-nicht")
+    monkeypatch.setenv("LEANCHAT_MODEL", "env-model")
+    cfg = _make_config(tmp_path)
+    app = create_app(config=cfg)
+    assert app.state.config.default_api_key == "cfg-key"
+    assert app.state.config.default_model == "gpt-4o-mini"
+    generated = cfg.data_dir / "app_config.json"
+    assert generated.exists()
+    assert AppConfig.load(generated).secret == "cfg-secret"
 
 
 def test_parse_env_text_skips_comments_and_quotes():
