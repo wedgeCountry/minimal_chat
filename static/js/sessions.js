@@ -6,6 +6,8 @@ import { confirmModal } from "./confirm.js";
 
 export const changed = () => document.dispatchEvent(new CustomEvent("leanchat:changed"));
 
+const selected = () => document.dispatchEvent(new CustomEvent("leanchat:session-selected"));
+
 export function sortedSessions() {
   return [...state.sessions].sort((a, b) => b.ts - a.ts);
 }
@@ -49,12 +51,16 @@ export function renderSessions() {
 export async function newSession(open = true) {
   const s = await api.post("/sessions", { name: "Neue Session" });
   state.sessions.unshift(s);
-  if (open) setActiveId(s.id);
+  if (open) {
+    setActiveId(s.id);
+    selected();
+  }
   changed();
 }
 
 export function openSession(id) {
   setActiveId(id);
+  selected();
   changed();
 }
 

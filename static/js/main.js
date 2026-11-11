@@ -236,6 +236,9 @@ function initEvents() {
   }
 
   document.addEventListener("leanchat:changed", renderAll);
+  document.addEventListener("leanchat:session-selected", () => {
+    if (isMobileInput()) $("side").classList.add("hidden");
+  });
   document.addEventListener("leanchat:unauthorized", () => goToLogin());
   // Zurueck aus dem Hintergrund: Server-Stand sofort abrufen, damit eine
   // laufende Generierung (Progress-Bar, neue Bubbles) direkt sichtbar ist.
