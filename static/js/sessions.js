@@ -20,17 +20,20 @@ export function renderSessions() {
   const nt = document.createElement("div");
   nt.className = "tile";
   nt.id = "newTile";
-  nt.innerHTML = `${ICONS.plus}<span>Neue Session</span>`;
+  nt.dataset.testid = "new-session-tile";
+  nt.innerHTML = `${ICONS.plus}<span data-testid="new-session-label">Neue Session</span>`;
   nt.onclick = () => newSession(true);
   box.appendChild(nt);
   for (const s of sortedSessions()) {
     const t = document.createElement("div");
     t.className = "tile" + (s.id === state.activeId ? " active" : "");
+    t.dataset.testid = `session-tile-${s.id}`;
+    t.dataset.sessionId = s.id;
     t.innerHTML = `
-      <div class="sessionRow">
-        <span class="sessionName" data-name="${s.id}">${esc(s.name)}</span>
-        <button class="iconBtn editBtn" title="Umbenennen">${ICONS.edit}</button>
-        <button class="iconBtn delBtn" title="Löschen">${ICONS.trash}</button>
+      <div class="sessionRow" data-testid="session-row-${s.id}">
+        <span class="sessionName" data-name="${s.id}" data-testid="session-name-${s.id}">${esc(s.name)}</span>
+        <button class="iconBtn editBtn" data-testid="session-rename-btn-${s.id}" title="Umbenennen">${ICONS.edit}</button>
+        <button class="iconBtn delBtn" data-testid="session-delete-btn-${s.id}" title="Löschen">${ICONS.trash}</button>
       </div>`;
     t.onclick = (e) => {
       if (e.target.closest("button")) return;
@@ -60,6 +63,7 @@ export async function renameSession(id) {
   const nameEl = document.querySelector(`[data-name="${id}"]`);
   if (!nameEl) return;
   const inp = document.createElement("input");
+  inp.dataset.testid = `session-rename-input-${id}`;
   inp.value = s.name;
   nameEl.replaceChildren(inp);
   inp.focus();

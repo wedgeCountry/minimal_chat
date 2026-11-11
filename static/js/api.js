@@ -25,6 +25,7 @@ async function request(path, { method = "GET", body, raw = false, signal } = {})
     const text = await res.text().catch(() => "");
     throw new Error(text || res.statusText);
   }
+  if (res.status === 204) return null;
   return raw ? res : res.json();
 }
 

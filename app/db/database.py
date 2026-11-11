@@ -235,8 +235,12 @@ def q_delete_session(con: sqlite3.Connection, sid: str) -> None:
 
 
 def q_get_messages(con: sqlite3.Connection, sid: str) -> list[dict]:
+    # System-Prompts immer ganz oben, danach chronologisch nach Zeitstempel
+    # (id als Tiebreaker, created_at hat nur Sekundenaufloesung).
     rows = con.execute(
-        "SELECT * FROM messages WHERE session_id = ? ORDER BY id", (sid,)
+        "SELECT * FROM messages WHERE session_id = ? "
+        "ORDER BY (role = 'system') DESC, created_at ASC, id ASC",
+        (sid,),
     ).fetchall()
     return [_row_to_message(r) for r in rows]
 

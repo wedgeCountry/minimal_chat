@@ -47,6 +47,22 @@ def test_user_db_persists_across_reopen(db):
         assert q_get_messages(con, s["id"])[0]["text"] == "Hallo"
 
 
+def test_messages_sorted_by_timestamp_with_system_first(db):
+    user = _make_user(db)
+    with db.user_db(user) as con:
+        s = q_create_session(con, "Sortierung")
+        m1 = q_add_message(con, s["id"], {"role": "user", "text": "erste"})
+        m2 = q_add_message(con, s["id"], {"role": "assistant", "text": "zweite"})
+        m3 = q_add_message(con, s["id"], {"role": "system", "text": "system-prompt"})
+        m4 = q_add_message(con, s["id"], {"role": "user", "text": "dritte"})
+        # Zeitstempel explizit setzen (created_at hat nur Sekundenaufloesung):
+        # id-Reihenfolge != Zeitstempel-Reihenfolge, System-Prompt zuletzt angelegt.
+        for mid, ts in ((m1["id"], 300), (m2["id"], 100), (m3["id"], 50), (m4["id"], 200)):
+            con.execute("UPDATE messages SET created_at = ? WHERE id = ?", (ts, mid))
+        ordered = [m["text"] for m in q_get_messages(con, s["id"])]
+        assert ordered == ["system-prompt", "zweite", "dritte", "erste"]
+
+
 def test_wrong_key_cannot_decrypt(db):
     user = _make_user(db)
     with db.user_db(user) as con:

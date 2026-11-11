@@ -1,15 +1,15 @@
-<div id="chatWrap">
-  <div id="chat"></div>
-  <div id="progress"></div>
-  <div id="composerWrap">
-    <div id="attachments"></div>
-    <div id="composer">
-      <button id="attachBtn" title="Datei anhängen"><svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button>
-      <button id="camBtn" title="Foto aufnehmen"><svg viewBox="0 0 24 24"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg></button>
-      <button id="micBtn" title="Nachricht einsprechen"><svg viewBox="0 0 24 24"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/></svg></button>
-      <textarea id="input" rows="1" placeholder="Nachricht schreiben…"></textarea>
-      <button id="sendBtn" title="Senden"><svg viewBox="0 0 24 24"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2" fill="currentColor" stroke="none"/></svg></button>
+<div id="chatWrap" data-testid="chat-wrap">
+  <div id="chat" data-testid="chat"></div>
+  <div id="progress" data-testid="progress"></div>
+  <div id="composerWrap" data-testid="composer-wrap">
+    <div id="attachments" data-testid="attachments"></div>
+    <div id="composer" data-testid="composer">
+      <button id="attachBtn" data-testid="attach-btn" title="Datei anhängen"><svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button>
+      <button id="camBtn" data-testid="cam-btn" title="Foto aufnehmen"><svg viewBox="0 0 24 24"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg></button>
+      <button id="micBtn" data-testid="mic-btn" title="Nachricht einsprechen"><svg viewBox="0 0 24 24"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/></svg></button>
+      <textarea id="input" data-testid="chat-input" rows="1" placeholder="Nachricht schreiben…"></textarea>
+      <button id="sendBtn" data-testid="send-btn" title="Senden"><svg viewBox="0 0 24 24"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2" fill="currentColor" stroke="none"/></svg></button>
     </div>
-    <div class="hint">Enter sendet · Shift+Enter neue Zeile</div>
+    <div class="hint" data-testid="composer-hint">Enter sendet · Shift+Enter neue Zeile</div>
   </div>
 </div>

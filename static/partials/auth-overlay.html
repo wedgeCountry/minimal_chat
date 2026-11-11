@@ -1,13 +1,13 @@
-<div id="authOverlay">
-  <div class="modal authModal">
-    <h2>LeanChat</h2>
-    <p class="authHint" id="authHint">Anmelden oder registrieren</p>
-    <div class="field"><label>Benutzername</label><input id="authUser" autocomplete="username" /></div>
-    <div class="field"><label>Passwort</label><input id="authPass" type="password" autocomplete="current-password" /></div>
-    <div class="authErr" id="authErr"></div>
-    <div class="row">
-      <button class="btn" id="authSwitch">Registrieren</button>
-      <button class="btn primary" id="authSubmit">Anmelden</button>
+<div id="authOverlay" data-testid="auth-overlay">
+  <div class="modal authModal" data-testid="auth-modal">
+    <h2 data-testid="auth-title">LeanChat</h2>
+    <p class="authHint" id="authHint" data-testid="auth-hint">Anmelden oder registrieren</p>
+    <div class="field" data-testid="auth-username-field"><label data-testid="auth-username-label">Benutzername</label><input id="authUser" data-testid="auth-username" autocomplete="username" /></div>
+    <div class="field" data-testid="auth-password-field"><label data-testid="auth-password-label">Passwort</label><input id="authPass" data-testid="auth-password" type="password" autocomplete="current-password" /></div>
+    <div class="authErr" id="authErr" data-testid="auth-error"></div>
+    <div class="row" data-testid="auth-actions">
+      <button class="btn" id="authSwitch" data-testid="auth-switch">Registrieren</button>
+      <button class="btn primary" id="authSubmit" data-testid="auth-submit">Anmelden</button>
     </div>
   </div>
 </div>

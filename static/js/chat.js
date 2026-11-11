@@ -30,6 +30,7 @@ export function renderChat(messages) {
   const s = activeSession();
   if (!s || !messages?.length) {
     const empty = document.createElement("div");
+    empty.dataset.testid = "chat-empty";
     empty.style.cssText = "margin:auto;color:var(--muted);font-size:14px;text-align:center";
     empty.textContent = s ? "Neue Session – schreibe die erste Nachricht." : "Erstelle eine neue Session, um zu starten.";
     chat.appendChild(empty);
