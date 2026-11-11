@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { BUBBLE_MODES, NORMAL_MAX_LINES, clampText, nextBubbleMode, bubbleModeTitle } from "../../static/js/bubbleMode.js";
+import { BUBBLE_MODES, NORMAL_MAX_LINES, clampText, isClamped, nextBubbleMode, bubbleModeTitle } from "../../static/js/bubbleMode.js";
 
 const long = Array.from({ length: 15 }, (_, i) => `Zeile ${i + 1}`).join("\n");
 
@@ -33,15 +33,25 @@ test("clampText behandelt null/undefined als leeren String", () => {
   assert.equal(clampText(undefined, "collapsed"), "");
 });
 
-test("nextBubbleMode zyklisch: normal -> collapsed -> full -> normal", () => {
-  assert.equal(nextBubbleMode("normal"), "collapsed");
-  assert.equal(nextBubbleMode("collapsed"), "full");
-  assert.equal(nextBubbleMode("full"), "normal");
-  assert.deepEqual(BUBBLE_MODES, ["normal", "collapsed", "full"]);
+test("isClamped: true nur wenn der Text im Modus gekuerzt wird", () => {
+  assert.equal(isClamped(long, "normal"), true);
+  assert.equal(isClamped(long, "collapsed"), true);
+  assert.equal(isClamped(long, "full"), false);
+  assert.equal(isClamped("kurz", "normal"), false);
+  assert.equal(isClamped("kurz", "collapsed"), false);
+  assert.equal(isClamped(null, "normal"), false);
+  assert.equal(isClamped(undefined, "collapsed"), false);
+});
+
+test("nextBubbleMode zyklisch: normal -> full -> collapsed -> normal", () => {
+  assert.equal(nextBubbleMode("normal"), "full");
+  assert.equal(nextBubbleMode("full"), "collapsed");
+  assert.equal(nextBubbleMode("collapsed"), "normal");
+  assert.deepEqual(BUBBLE_MODES, ["normal", "full", "collapsed"]);
 });
 
 test("bubbleModeTitle liefert deutsche Tooltips pro Zustand", () => {
-  assert.equal(bubbleModeTitle("normal"), "Einklappen");
-  assert.equal(bubbleModeTitle("collapsed"), "Voll anzeigen");
-  assert.equal(bubbleModeTitle("full"), "Ausklappen");
+  assert.equal(bubbleModeTitle("normal"), "Alles anzeigen");
+  assert.equal(bubbleModeTitle("full"), "Einklappen");
+  assert.equal(bubbleModeTitle("collapsed"), "Ausklappen");
 });
