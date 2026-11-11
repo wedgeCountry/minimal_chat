@@ -144,7 +144,7 @@ def load_config(
         default_model=os.environ.get("LEANCHAT_MODEL", "gpt-4o-mini"),
         app_name=os.environ.get("LEANCHAT_APP_NAME", "LeanChat"),
         host=os.environ.get("LEANCHAT_HOST", "127.0.0.1"),
-        port=int(os.environ.get("LEANCHAT_PORT", "8000")),
+        port=int(os.environ.get("LEANCHAT_PORT", "1234")),
         ssl_certfile=Path(os.environ["LEANCHAT_SSL_CERTFILE"]) if os.environ.get("LEANCHAT_SSL_CERTFILE") else None,
         ssl_keyfile=Path(os.environ["LEANCHAT_SSL_KEYFILE"]) if os.environ.get("LEANCHAT_SSL_KEYFILE") else None,
         app_config_path=Path(os.environ["LEANCHAT_CONFIG_PATH"]) if os.environ.get("LEANCHAT_CONFIG_PATH") else None,
