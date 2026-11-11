@@ -1,13 +1,15 @@
 """Beispiel-Unit-Test fuer Datei-Anhaenge (Textdateien) im Chat-Request.
 
 Nutzt eine echte Datei (tests/fixtures/lorem_ipsum.txt, 20 Zeilen Lorem ipsum)
-und prueft, dass der komplette Dateiinhalt unverkuerzt im Request an das LLM
-und in der persistierten Session landet.
+und prueft gegen die serverseitige Generierung (POST /api/chat -> Hintergrund-Task,
+Client pollt die Session), dass der komplette Dateiinhalt unverkuerzt im Request
+an das LLM und in der persistierten Session landet.
 """
 
 from __future__ import annotations
 
 import json
+import time
 from pathlib import Path
 
 import httpx
@@ -36,22 +38,61 @@ def _mock_llm(monkeypatch):
     return seen
 
 
+def _wait_generation(client, auth_headers, sid: str, timeout: float = 10.0) -> dict:
+    """Pollt die Session, bis die serverseitige Generierung fertig ist."""
+    deadline = time.time() + timeout
+    last = None
+    while time.time() < deadline:
+        res = client.get(f"/api/sessions/{sid}", headers=auth_headers)
+        assert res.status_code == 200, res.text
+        last = res.json()
+        if not last["generating"]:
+            return last
+        time.sleep(0.05)
+    raise AssertionError(f"Generierung wurde nicht fertig (letzter Stand: {last})")
+
+
+def _file_content_part(name: str, text: str) -> dict:
+    """Content-Part exakt so gebaut wie static/js/payload.js aus einem Text-Anhang."""
+    return {"type": "text", "text": f"[Datei: {name}]\n{text}"}
+
+
 def test_text_file_reaches_llm_request_untruncated(client, auth_headers, monkeypatch):
     """Die komplette Textdatei landet als Text-Content-Part im LLM-Request (alle 20 Zeilen)."""
     seen = _mock_llm(monkeypatch)
     content = FIXTURE.read_text(encoding="utf-8")
     lines = content.splitlines()
     assert len(lines) == 20
-    # Content-Part exakt so gebaut wie static/js/payload.js aus einem Text-Anhang
+
+    sid = client.post("/api/sessions", json={"name": "Dateitest"}, headers=auth_headers).json()["id"]
+    attachment = {"name": "lorem_ipsum.txt", "type": "text/plain", "text": content}
+    res = client.post(
+        f"/api/sessions/{sid}/messages",
+        json={
+            "role": "user",
+            "type": "message",
+            "text": "Was steht in der Datei?",
+            "in_context": True,
+            "attachments": [attachment],
+        },
+        headers=auth_headers,
+    )
+    assert res.status_code == 201
+
+    # Payload wie vom Client gebaut (buildChatPayload): Anhang als Text-Part vor dem Message-Text
     message = {
         "role": "user",
-        "content": [
-            {"type": "text", "text": f"[Datei: lorem_ipsum.txt]\n{content}"},
-            {"type": "text", "text": "Was steht in der Datei?"},
-        ],
+        "content": [_file_content_part("lorem_ipsum.txt", content), {"type": "text", "text": "Was steht in der Datei?"}],
     }
-    res = client.post("/api/chat", json={"model": "m", "messages": [message]}, headers=auth_headers)
-    assert res.status_code == 200
+    res = client.post(
+        "/api/chat",
+        json={"session_id": sid, "model": "m", "messages": [message]},
+        headers=auth_headers,
+    )
+    assert res.status_code == 202
+    assert res.json() == {"status": "started"}
+
+    _wait_generation(client, auth_headers, sid)
     sent_parts = seen["body"]["messages"][0]["content"]
     assert sent_parts[1] == {"type": "text", "text": "Was steht in der Datei?"}
     sent_file = sent_parts[0]["text"]
