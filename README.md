@@ -21,8 +21,8 @@ app/                  FastAPI backend (uvicorn)
   services/chat.py    SSE-Streaming-Passthrough zum LLM-Endpunkt
 static/               Frontend (statisch, ohne Build-Schritt)
   index.html          schlanke Shell mit Partial-Platzhaltern
-  partials/           eigene HTML-Dateien: auth-overlay, side-panel,
-                      chat-window, settings-overlay (werden per js/html.js geladen)
+  partials/           eigene HTML-Dateien: side-panel, chat-window,
+                      settings-overlay (werden per js/html.js geladen)
   css/                base.css, components.css, bubbles.css (variables-gesteuertes
                       Bubble-Styling: Rolle + collapsed/expanded/compact/selected),
                       responsive.css

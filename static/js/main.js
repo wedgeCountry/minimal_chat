@@ -1,7 +1,7 @@
 import { api } from "./api.js";
 import { state, activeSession } from "./state.js";
 import { $, } from "./util.js";
-import { initAuth, showAuth } from "./auth.js";
+import { goToLogin } from "./auth.js";
 import { loadSessions, renderSessions, changed } from "./sessions.js";
 import { abortStream, renderChat, renderHeader, send } from "./chat.js";
 import { addAttachments, renderAttachments } from "./attachments.js";
@@ -54,9 +54,9 @@ async function bootstrap() {
     const me = await api.get("/auth/me");
     state.username = me.email;
   } catch (err) {
-    // Only show auth overlay if auto-login is not enabled
+    // Only redirect to the auth page if auto-login is not enabled
     if (!autoLoginEnabled) {
-      showAuth();
+      goToLogin();
       return;
     }
     // If auto-login is enabled but /auth/me still fails, something is wrong
@@ -108,7 +108,7 @@ function initEvents() {
     state.activeId = null;
     sessionStorage.removeItem("leanchat.active");
     document.documentElement.classList.remove("dark");
-    showAuth();
+    goToLogin();
   };
   $("abortBtnSide").onclick = abortStream;
   $("sendBtn").onclick = send;
@@ -175,10 +175,9 @@ function initEvents() {
   }
 
   document.addEventListener("leanchat:changed", renderAll);
-  document.addEventListener("leanchat:unauthorized", () => showAuth());
+  document.addEventListener("leanchat:unauthorized", () => goToLogin());
 }
 
 await initPartials();
 initEvents();
-initAuth(bootstrap);
 bootstrap();

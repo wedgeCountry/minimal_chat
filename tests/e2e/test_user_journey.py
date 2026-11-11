@@ -14,12 +14,10 @@ USER = {"email": "journey-user@example.com", "password": "Geheim-123"}
 SYSTEM_PROMPT = "Du bist ein hilfsbereiter Assistent (Journey-System-Prompt)."
 
 T = {
-    "auth_overlay": '[data-testid="auth-overlay"]',
-    "auth_username": '[data-testid="auth-username"]',
-    "auth_password": '[data-testid="auth-password"]',
-    "auth_submit": '[data-testid="auth-submit"]',
-    "auth_switch": '[data-testid="auth-switch"]',
-    "auth_error": '[data-testid="auth-error"]',
+    "login_email": '[data-testid="login-email"]',
+    "login_password": '[data-testid="login-password"]',
+    "login_submit": '[data-testid="login-submit"]',
+    "login_error": '[data-testid="login-error"]',
     "new_session": '[data-testid="new-session-tile"]',
     "session_tile": '[data-testid^="session-tile-"]',
     "chat": '[data-testid="chat"]',
@@ -91,12 +89,16 @@ def _register_client(base_url, email, password):
 
 
 def _login(page, base_url, email, password):
+    # Unauthentifizierte Besucher werden auf die user_registry-Login-Seite umgeleitet
     page.goto(base_url)
-    page.wait_for_selector(f'{T["auth_overlay"]}.open')
-    page.fill(T["auth_username"], email)
-    page.fill(T["auth_password"], password)
-    page.click(T["auth_submit"])
-    page.wait_for_selector(f'{T["auth_overlay"]}:not(.open)', state="attached")
+    page.wait_for_url("**/auth/login")
+    page.wait_for_selector(T["login_email"])
+    page.fill(T["login_email"], email)
+    page.fill(T["login_password"], password)
+    page.click(T["login_submit"])
+    # Nach erfolgreichem Login leitet die Auth-Seite zurueck auf "/"
+    page.wait_for_url(base_url + "/")
+    page.wait_for_selector(T["new_session"])
 
 
 def _chat_once(page, text, n, expect, timeout_ms, attach=None):
@@ -243,10 +245,11 @@ def test_full_user_journey(page, base_url, tmp_path, llm_expect, server_data_dir
     assert first_bubble.get_attribute("data-role") == "system"
     assert SYSTEM_PROMPT in system_bubble.locator('[data-testid="bubble-body"]').inner_text()
 
-    # 8. Logout
+    # 8. Logout leitet auf die Login-Seite um
     page.click(T["burger_btn"])
     page.click(T["logout_btn"])
-    page.wait_for_selector(f'{T["auth_overlay"]}.open')
+    page.wait_for_url("**/auth/login")
+    page.wait_for_selector(T["login_submit"])
 
 
 
@@ -468,12 +471,13 @@ def test_bubble_width_resizable_and_persisted(page, base_url, llm_expect):
 def test_login_rejects_wrong_password(page, base_url):
     _register_client(base_url, "journey-user-2@example.com", "Geheim-123")
     page.goto(base_url)
-    page.wait_for_selector(f'{T["auth_overlay"]}.open')
-    page.fill(T["auth_username"], "journey-user-2@example.com")
-    page.fill(T["auth_password"], "Falsch-123")
-    page.click(T["auth_submit"])
-    page.wait_for_selector(f'{T["auth_error"]}:not(:empty)')
-    assert page.locator(f'{T["auth_overlay"]}.open').count() == 1
+    page.wait_for_url("**/auth/login")
+    page.wait_for_selector(T["login_email"])
+    page.fill(T["login_email"], "journey-user-2@example.com")
+    page.fill(T["login_password"], "Falsch-123")
+    page.click(T["login_submit"])
+    page.wait_for_selector(f'{T["login_error"]}:visible')
+    assert "auth/login" in page.url
 
 
 def test_error_popup_when_llm_unreachable(page, base_url, llm_expect, server_data_dir):
