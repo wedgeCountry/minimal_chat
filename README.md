@@ -1,40 +1,81 @@
 # LeanChat
 
-A lean, single-file chat UI for OpenAI-compatible endpoints. No build tools, no dependencies, no backend: one `index.html` you can open directly in your browser.
+A lean chat UI for OpenAI-compatible endpoints — now with a **FastAPI backend** and **encrypted per-user SQLite storage**.
 
 Born as a minimalist alternative to OpenWebUI: only the features you actually need, an elegant light/dark theme, and nothing else.
 
+## Architecture
+
+```
+app/                  FastAPI backend (uvicorn)
+  main.py             App-Factory, Router, StaticFiles
+  config.py           Konfiguration (Env: LEANCHAT_DATA_DIR, LEANCHAT_SECRET, LEANCHAT_API_KEY, LEANCHAT_LLM_BASE)
+  security.py         Passwort-Hashing (PBKDF2) + signierte Tokens (HMAC)
+  models.py           Pydantic-Schemas
+  deps.py             FastAPI-Dependencies (Auth)
+  db/
+    schema.sql        SQL-Schema (eigene Datei)
+    crypto.py         Fernet-Ver-/Entschluesselung
+    database.py       Einziger Zugriff auf die SQLite-Dateien (verschluesselt pro User)
+  routers/            auth.py, sessions.py, settings.py, chat.py (SSE-Proxy)
+  services/chat.py    SSE-Streaming-Passthrough zum LLM-Endpunkt
+static/               Frontend (statisch, ohne Build-Schritt)
+  index.html
+  css/                base.css, components.css, responsive.css
+  js/                 ES-Module: main, api, auth, state, sessions, chat, bubbles,
+                      attachments, settings, theme, sse, payload, util, icons
+tests/
+  test_*.py           Python-Unit-Tests (pytest + httpx TestClient)
+  js/*.test.js        JS-Unit-Tests (node:test, ohne npm-Abhaengigkeiten)
+  e2e/                Playwright-GUI-Tests der User Journey (+ Mock-LLM)
+```
+
+## Data storage
+
+- Pro User genau eine **verschluesselte SQLite-Datei** (`data/users/<uid>.db.enc`, Fernet).
+- Der Verschluesselungsschluessel wird **einmalig clientseitig** (WebCrypto, 32 Bytes) bei der Registrierung erzeugt und mitgeschickt.
+- Das SQL-Schema liegt in [`app/db/schema.sql`](app/db/schema.sql); der gesamte DB-Zugriff in [`app/db/database.py`](app/db/database.py).
+- Der Benutzerindex (`data/users.index.enc`) ist mit dem Server-Secret verschluesselt.
+
 ## Features
 
-- **Sessions** – collapsible side panel with chronologically sorted session tiles; create, rename (inline), delete
-- **Streaming** – SSE chunk streaming from any OpenAI-compatible endpoint, rendered live, with an animated progress bar
-- **Cancel** – abort a running generation via the X button (Send button or side panel); partial output is kept
-- **Message bubbles** – role (user/assistant/system) and type (message, tool-call, reasoning/thinking), collapsible, minimum height, copy-to-clipboard, text-to-speech
-- **Context control** – per-message checkbox decides whether it is included in the next request
-- **Attachments** – attach files via the + button, capture photos via camera (mobile), dictate messages via microphone (Web Speech API)
-- **Settings** – base URL, API key, model, theme (light by default)
-- **Logout** – wipes the local key, settings and sessions
-- **Persistence** – sessions and settings are stored in `localStorage`
+- **Auth** – Registrieren/Anmelden (Token), Logout; Daten sind pro User getrennt
+- **Sessions** – Side-Panel mit chronologisch sortierten Tiles; anlegen, inline umbenennen, löschen
+- **Streaming** – SSE vom OpenAI-kompatiblen Endpunkt wird ueber das FastAPI-Backend (`POST /api/chat`) live durchgereicht
+- **Cancel** – laufende Generierung per X abbrechen, Teilausgabe bleibt erhalten
+- **Message bubbles** – Rolle/Typ (message, tool-call, reasoning), kollabierbar, kopieren, vorlesen, Kontext-Checkbox, löschen
+- **Attachments** – Dateien, Kamera (mobil), Spracheingabe (Web Speech API)
+- **Settings** – Base-URL, Modell, Theme; API-Schlüssel serverseitig (write-only, Env-Fallback)
+- **Theme** – hell/dunkel via CSS Custom Properties
 
 ## Getting started
 
-1. Download `index.html` (or clone this repository)
-2. Open it in your browser
-3. Open the burger menu → **Einstellungen**, enter your **Base-URL**, **API key** and **model** (e.g. `https://api.openai.com/v1` and `gpt-4o-mini`)
-4. Start chatting
+```bash
+pip install -e ".[dev]"          # fastapi, uvicorn, httpx, cryptography, pytest, playwright
+export LEANCHAT_API_KEY="sk-..." # optional; auch pro User in den Einstellungen
+uvicorn app.main:app --host 127.0.0.1 --port 8000
+```
 
-> **Note:** the endpoint must allow CORS for requests from your browser origin. When in doubt, serve the file from the same origin as your API or use a small proxy.
+Dann `http://127.0.0.1:8000` im Browser öffnen, registrieren und chatten.
+
+## Tests
+
+```bash
+python -m pytest                  # Python-Unit-Tests (API, DB, Krypto, Chat-Proxy)
+npm test                          # JS-Unit-Tests (node:test)
+python -m pytest -m e2e tests/e2e # GUI-Tests mit Playwright (braucht `playwright install chromium`)
+```
 
 ## Specification
 
-See [SPEC.md](SPEC.md) for the full design specification (German).
+See [SPEC.md](SPEC.md) for the original design specification (German).
 
 ## Tech
 
-- Single file: inline CSS and vanilla JavaScript
+- Backend: FastAPI + uvicorn, httpx (SSE-Proxy), cryptography (Fernet), SQLite (stdlib)
+- Frontend: statische HTML/CSS + vanilla JS als ES-Module, kein Build-Tool
 - OpenAI-compatible protocol: `POST {baseURL}/chat/completions`, `Authorization: Bearer {key}`, `stream: true`
-- Supports `delta.content`, `delta.reasoning_content` (thinking bubbles) and `delta.tool_calls`
-- Light/dark theme via CSS custom properties, default light, follows system preference until configured
+- Supports `delta.content`, `delta.reasoning_content` and `delta.tool_calls`
 
 ## License
 

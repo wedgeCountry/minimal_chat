@@ -1,0 +1,37 @@
+:root{
+  --accent:#4f6ef7; --bg:#f7f8fa; --panel:#ffffff; --chat-bg:#f2f3f6;
+  --text:#1b1d22; --muted:#7a7f8c; --border:#e3e5ea; --bubble-user:#4f6ef7;
+  --bubble-user-text:#fff; --bubble-ai:#ffffff; --system:#eef0f4;
+  --danger:#e5484d; --shadow:0 1px 3px rgba(0,0,0,.07);
+}
+html.dark{
+  --accent:#7c8cff; --bg:#15171c; --panel:#1c1f26; --chat-bg:#15171c;
+  --text:#e8eaf0; --muted:#8b90a0; --border:#2a2e38; --bubble-user:#5468e8;
+  --bubble-user-text:#fff; --bubble-ai:#21242d; --system:#262a34;
+  --danger:#ff6b6f; --shadow:0 1px 3px rgba(0,0,0,.4);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--text);overflow:hidden}
+button{background:none;border:none;cursor:pointer;color:inherit;display:inline-flex;align-items:center;justify-content:center;border-radius:8px;padding:6px}
+button:hover{background:rgba(128,128,128,.12)}
+svg{width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;flex:none}
+input,textarea{font:inherit;color:inherit}
+
+/* Header */
+#header{height:46px;display:flex;align-items:center;gap:6px;padding:0 8px;background:var(--panel);border-bottom:1px solid var(--border);position:relative;z-index:30}
+#header .title{flex:1;font-size:14px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#burgerWrap{position:relative}
+#burgerMenu{position:absolute;right:0;top:100%;margin-top:6px;background:var(--panel);border:1px solid var(--border);border-radius:10px;box-shadow:var(--shadow);min-width:170px;display:none;z-index:50;padding:4px}
+#burgerMenu.open{display:block}
+#burgerMenu button{width:100%;justify-content:flex-start;gap:10px;padding:9px 10px;font-size:14px;border-radius:8px}
+#burgerMenu .sep{height:1px;background:var(--border);margin:4px 6px}
+
+/* Layout */
+#main{display:flex;height:calc(100% - 46px)}
+#side{width:230px;flex:none;background:var(--panel);border-right:1px solid var(--border);display:flex;flex-direction:column;transition:margin-left .2s ease}
+#side.hidden{margin-left:-230px}
+#chatWrap{flex:1;display:flex;flex-direction:column;min-width:0}
+
+::-webkit-scrollbar{width:8px}
+::-webkit-scrollbar-thumb{background:rgba(128,128,128,.3);border-radius:4px}

@@ -1,0 +1,1 @@
+"""LeanChat - FastAPI-Backend."""
