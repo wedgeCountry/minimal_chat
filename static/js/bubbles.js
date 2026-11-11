@@ -85,9 +85,8 @@ export function bubbleEl(m, handlers = {}) {
   b.dataset.mode = mode;
   if (m.type === "message") b.classList.add(m.inContext !== false ? "selected" : "deselected");
   const label = m.type === "message" ? m.role : typeLabels[m.type] || m.role;
-  const isUser = m.role === "user";
   const showChk = m.type === "message" && isUserBubbleCheckable(state.settings);
-  const showDel = isBubbleDeletable(state.settings) && (!isUser || isUserBubbleDeletable(state.settings));
+  const showDel = isBubbleDeletable(state.settings) && isUserBubbleDeletable(state.settings);
   const attach = (m.attachments || [])
     .map((a) => `<div class="attachChip" data-testid="bubble-attachment">${ICONS.attach}<span data-testid="bubble-attachment-name">${esc(a.name)}</span></div>`)
     .join("");
