@@ -10,7 +10,7 @@ from fastapi.staticfiles import StaticFiles
 from .auth import init_auth
 from .config import AppConfig, bootstrap_env, is_auto_login_enabled, load_config
 from .db.database import Database
-from .routers import auth, chat, log, meta, sessions, settings
+from .routers import auth, chat, log, meta, sessions, settings, voice
 
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
 
@@ -46,6 +46,7 @@ def create_app(
     app.include_router(chat.router)
     app.include_router(log.router)
     app.include_router(meta.router)
+    app.include_router(voice.router)
     app.mount("/", StaticFiles(directory=STATIC_DIR, html=True), name="static")
     return app
 

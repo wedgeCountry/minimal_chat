@@ -32,6 +32,7 @@ class AppConfig:
     default_api_key: str = ""
     default_model: str = "gpt-4o-mini"
     app_name: str = "LeanChat"
+    voice_base: str = "http://127.0.0.1:8001"
     host: str = "127.0.0.1"
     port: int = 8000
     ssl_certfile: Path | None = None
@@ -49,6 +50,7 @@ class AppConfig:
             "default_llm_port": self.default_llm_port,
             "default_model": self.default_model,
             "app_name": self.app_name,
+            "voice_base": self.voice_base,
             "host": self.host,
             "port": self.port,
             "ssl_certfile": str(self.ssl_certfile) if self.ssl_certfile else None,
@@ -142,6 +144,7 @@ def load_config(
         default_api_key=os.environ.get("LEANCHAT_API_KEY", ""),
         default_model=os.environ.get("LEANCHAT_MODEL", "gpt-4o-mini"),
         app_name=os.environ.get("LEANCHAT_APP_NAME", "LeanChat"),
+        voice_base=os.environ.get("LEANCHAT_VOICE_BASE", "http://127.0.0.1:8001"),
         host=os.environ.get("LEANCHAT_HOST", "127.0.0.1"),
         port=int(os.environ.get("LEANCHAT_PORT", "8000")),
         ssl_certfile=Path(os.environ["LEANCHAT_SSL_CERTFILE"]) if os.environ.get("LEANCHAT_SSL_CERTFILE") else None,

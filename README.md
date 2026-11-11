@@ -48,7 +48,8 @@ tests/
 - **Streaming** – die Generierung laeuft serverseitig als Hintergrund-Task (`POST /api/chat` -> `202`); der LLM-SSE-Stream wird chunk-weise in der per-user DB persistiert, der Client pollt `GET /api/sessions/{id}`
 - **Cancel** – laufende Generierung per X abbrechen, Teilausgabe bleibt erhalten
 - **Message bubbles** – Rolle/Typ (message, tool-call, reasoning), kollabierbar, kopieren, vorlesen, Kontext-Checkbox, löschen; die letzte Nutzernachricht hat zusätzlich **Bearbeiten** (Stift, Inline-Edit direkt in der Bubble: Textarea in den Bubble-Farben mit X-Button rechts daneben, Enter sendet, Esc bricht ab) und **Erneut senden** (Refresh) – beide nutzen denselben Pfad: die Nachricht wird per `PATCH` übernommen, alle Nachrichten danach (Assistenten-Antworten) gelöscht (`DELETE /api/sessions/{id}/messages/after/{mid}`) und die Antwort neu generiert
-- **Attachments** – Dateien, Kamera (mobil), Spracheingabe (Web Speech API); Datei-Uploads gehen als Multipart (`POST /api/sessions/{id}/attachments`) an den Server und werden serverseitig verarbeitet (Tabelle `attachments`)
+- **Attachments** – Dateien, Kamera (mobil), Spracheingabe (Mikrofon-Button nutzt STT des Voice Companion); Datei-Uploads gehen als Multipart (`POST /api/sessions/{id}/attachments`) an den Server und werden serverseitig verarbeitet (Tabelle `attachments`)
+- **Voice** – Vorlesen (Lautsprecher-Button) und Spracheingabe (Mikrofon-Button) laufen ueber den **Voice Companion** (vendored Wheel in `vendors/`, eigener Server, Base-URL via `LEANCHAT_VOICE_BASE`, Default `http://127.0.0.1:8001`). Funktionspruefung per `GET /api/voice/status`; ist der Dienst nicht erreichbar, erscheint beim Klick auf Lautsprecher/Mikrofon eine Fehlermeldung ("Sprachdienst nicht verfügbar")
 - **Settings** – Base-URL, Modell, Theme; API-Schlüssel serverseitig (write-only, Env-Fallback) sowie sechs Darstellungsschalter im Settings-Overlay: *Bubbles Deletable* (X-Button), *Bubbles Checkable* (Kontext-Checkbox) und *Bubbles Speaker* (Vorlesen) gelten fuer alle Bubbles (User + Assistant), dazu *Show System Prompt*, *Show Tool Output*, *Show Reasoning*. Diese steuern clientseitig das Bubble-Rendering und werden serverseitig als Filter auf Request (System-Prompt) und LLM-SSE-Response (Reasoning, Tool-Calls) angewendet
 - **Theme** – hell/dunkel via CSS Custom Properties
 
@@ -61,6 +62,7 @@ Beim ersten Programmstart wird automatisch eine **`.env`** aus der gecheckten **
 ```bash
 pip install -e ".[dev]"   # fastapi, uvicorn, httpx, cryptography, pytest, playwright, argon2-cffi, itsdangerous
 pip install ./vendors/user_registry-0.1.0-py3-none-any.whl   # Login/Registrierung (user_registry)
+pip install ./vendors/voice_companion-0.1.0-py3-none-any.whl  # STT/TTS-Server (Voice Companion, eigener Port)
 python -m app              # startet uvicorn (Host/Port aus der .env), .env wird falls noetig erzeugt
 # oder: uvicorn app.main:app --host 127.0.0.1 --port 8000
 ```

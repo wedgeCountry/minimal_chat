@@ -6,7 +6,9 @@ import { loadSessions, renderSessions, newSession } from "./sessions.js";
 import { abortStream, pollOnce, renderChat, renderHeader, send } from "./chat.js";
 import { addAttachments } from "./attachments.js";
 import { initSettings, loadSettings, openSettings } from "./settings.js";
-import { initConfirm } from "./confirm.js";
+import { initConfirm, showError } from "./confirm.js";
+import { transcribeAudio, encodeWav, VOICE_UNAVAILABLE_MSG } from "./voice.js";
+import { speechMode, controlsVisible, selectedModeAvailable, refreshSpeechAvailability, SYSTEM_UNAVAILABLE_MSG } from "./speech.js";
 import { initPartials } from "./html.js";
 import { initGlobalErrorHandling } from "./errors.js";
 
@@ -48,6 +50,52 @@ function renderAll() {
   renderHeader();
   refreshChat();
   applyComposerButtons();
+}
+
+async function startWavRecorder(input) {
+  const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  const Ctx = window.AudioContext || window.webkitAudioContext;
+  const ctx = new Ctx();
+  const sampleRate = ctx.sampleRate;
+  const src = ctx.createMediaStreamSource(stream);
+  const proc = ctx.createScriptProcessor(4096, 1, 1);
+  const gain = ctx.createGain();
+  gain.gain.value = 0;
+  const chunks = [];
+  let stopped = false;
+  proc.onaudioprocess = (e) => {
+    if (!stopped) chunks.push(new Float32Array(e.inputBuffer.getChannelData(0)));
+  };
+  src.connect(proc);
+  proc.connect(gain);
+  gain.connect(ctx.destination);
+  return {
+    stop: async () => {
+      stopped = true;
+      try {
+        src.disconnect();
+        proc.disconnect();
+        gain.disconnect();
+      } catch {}
+      stream.getTracks().forEach((t) => t.stop());
+      await ctx.close().catch(() => {});
+      const n = chunks.reduce((a, c) => a + c.length, 0);
+      if (!n) return;
+      const samples = new Float32Array(n);
+      let off = 0;
+      for (const c of chunks) {
+        samples.set(c, off);
+        off += c.length;
+      }
+      try {
+        const text = await transcribeAudio(encodeWav(samples, sampleRate));
+        if (text) input.value = input.value ? input.value.trimEnd() + " " + text : text;
+        input.focus();
+      } catch (err) {
+        await showError(err.message || "Spracheingabe fehlgeschlagen.");
+      }
+    },
+  };
 }
 
 async function bootstrap() {
@@ -189,45 +237,36 @@ function initEvents() {
     $("chat").addEventListener("pointerdown", () => $("side").classList.add("hidden"));
   }
 
-  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (!SR) {
-    $("micBtn").style.display = "none";
-  } else {
-    let rec = null;
-    let recOn = false;
-    $("micBtn").onclick = () => {
-      if (recOn) {
-        rec.stop();
-        return;
-      }
-      rec = new SR();
-      rec.lang = "de-DE";
-      rec.interimResults = true;
-      rec.continuous = false;
-      let final = "";
-      rec.onresult = (e) => {
-        let interim = "";
-        for (const r of e.results) {
-          if (r.isFinal) final += r[0].transcript;
-          else interim += r[0].transcript;
-        }
-        input.value = final + interim;
-        syncInputSize();
-      };
-      rec.onend = () => {
-        recOn = false;
-        $("micBtn").classList.remove("on");
-        input.focus();
-      };
-      rec.onerror = () => {
-        recOn = false;
-        $("micBtn").classList.remove("on");
-      };
-      recOn = true;
-      $("micBtn").classList.add("on");
-      rec.start();
-    };
-  }
+  let recorder = null;
+  const stopRecorder = () => {
+    if (!recorder) return;
+    const r = recorder;
+    recorder = null;
+    $("micBtn").classList.remove("on");
+    r.stop();
+  };
+  $("micBtn").onclick = async () => {
+    if (recorder) {
+      stopRecorder();
+      return;
+    }
+    if (!(await voiceAvailable())) {
+      await showError(VOICE_UNAVAILABLE_MSG);
+      return;
+    }
+    if (!navigator.mediaDevices?.getUserMedia) {
+      await showError("Mikrofon im Browser nicht verfügbar.");
+      return;
+    }
+    try {
+      recorder = await startWavRecorder(input);
+    } catch {
+      recorder = null;
+      await showError("Mikrofon nicht verfügbar.");
+      return;
+    }
+    $("micBtn").classList.add("on");
+  };
 
   document.addEventListener("leanchat:changed", renderAll);
   document.addEventListener("leanchat:session-selected", () => {

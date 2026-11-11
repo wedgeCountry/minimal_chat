@@ -109,3 +109,9 @@ class ClientLogIn(BaseModel):
 class SettingsTestIn(BaseModel):
     base: str | None = None
     api_key: str | None = None
+
+
+class VoiceTTSRequest(BaseModel):
+    text: str
+    voice: str | None = None
+    language: Literal["en", "de"] | None = None

@@ -2,11 +2,23 @@ import { esc } from "./util.js";
 import { ICONS } from "./icons.js";
 import { state } from "./state.js";
 import { isBubbleDeletable, isBubbleCheckable, isBubbleSpeaker } from "./visibility.js";
+import { voiceAvailable, synthesizeSpeech, VOICE_UNAVAILABLE_MSG } from "./voice.js";
+import { showError } from "./confirm.js";
 import { BUBBLE_MODES, clampText, isClamped, nextBubbleMode, bubbleModeTitle } from "./bubbleMode.js";
 
 const typeLabels = { message: "", toolcall: "Tool-Call", reasoning: "Thinking", system: "System" };
 
 let tmpBubbleSeq = 0;
+
+let activeAudio = null;
+
+function stopActiveSpeech() {
+  if (activeAudio) {
+    activeAudio.pause();
+    activeAudio = null;
+    document.querySelectorAll(".ttsBtn.on").forEach((x) => x.classList.remove("on"));
+  }
+}
 
 const MIN_BUBBLE_WIDTH = 260;
 const _ss = typeof sessionStorage !== "undefined" ? sessionStorage : null;
@@ -200,18 +212,31 @@ export function bubbleEl(m, handlers = {}, opts = {}) {
   _makeResizable(b, m);
   const tts = b.querySelector(".ttsBtn");
   if (tts)
-  tts.onclick = () => {
-    if (!("speechSynthesis" in window)) return;
-    if (speechSynthesis.speaking) {
-      speechSynthesis.cancel();
-      document.querySelectorAll(".ttsBtn.on").forEach((x) => x.classList.remove("on"));
+  tts.onclick = async () => {
+    if (activeAudio) {
+      stopActiveSpeech();
       return;
     }
-    const u = new SpeechSynthesisUtterance(b._msg?.text || "");
-    u.lang = "de-DE";
-    u.onend = () => tts.classList.remove("on");
-    tts.classList.add("on");
-    speechSynthesis.speak(u);
+    if (!(await voiceAvailable())) {
+      await showError(VOICE_UNAVAILABLE_MSG);
+      return;
+    }
+    try {
+      const blob = await synthesizeSpeech(m.text || "");
+      const audio = new Audio(URL.createObjectURL(blob));
+      activeAudio = audio;
+      tts.classList.add("on");
+      audio.onended = () => {
+        tts.classList.remove("on");
+        if (activeAudio === audio) activeAudio = null;
+      };
+      audio.onerror = audio.onended;
+      await audio.play();
+    } catch (err) {
+      tts.classList.remove("on");
+      if (activeAudio) activeAudio = null;
+      await showError(err.message || "Vorlesen fehlgeschlagen.");
+    }
   };
   return b;
 }
