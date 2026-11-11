@@ -14,8 +14,8 @@ router = APIRouter(prefix="/api/settings", tags=["settings"])
 
 
 def _settings_out(stored: dict[str, str], config: AppConfig) -> SettingsOut:
-    host = stored.get("host") or ""
-    port = stored.get("port") or ""
+    host = stored.get("host") or config.default_llm_host
+    port = stored.get("port") or config.default_llm_port
     base = resolve_base_url(stored, config)
     return SettingsOut(
         base=base,

@@ -187,3 +187,12 @@ def test_connection_test_http_error_is_red(client, auth_headers, monkeypatch):
     _mock_llm_models(monkeypatch, handler)
     res = client.post("/api/settings/test", json={}, headers=auth_headers)
     assert res.json() == {"ok": False, "detail": "http://llm.test/v1/models -> HTTP 401"}
+
+
+def test_settings_out_uses_env_default_host_port(client, auth_headers, app):
+    app.state.config.default_llm_host = "10.9.8.7"
+    app.state.config.default_llm_port = "9999"
+    got = client.get("/api/settings", headers=auth_headers).json()
+    assert got["host"] == "10.9.8.7"
+    assert got["port"] == "9999"
+    assert got["base"] == "http://10.9.8.7:9999/v1"

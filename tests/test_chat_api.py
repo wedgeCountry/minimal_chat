@@ -259,3 +259,16 @@ def test_chat_uses_host_port_computed_base_url(client, auth_headers, monkeypatch
     )
     assert res.status_code == 200
     assert seen["url"] == "http://192.168.1.10:8000/v1/chat/completions"
+
+
+def test_chat_uses_env_default_llm_host_port(client, auth_headers, monkeypatch, app):
+    """Server-Default host/port (LEANCHAT_LLM_HOST/PORT) drives the chat URL."""
+    seen = _mock_llm(monkeypatch)
+    app.state.config.default_llm_host = "10.9.8.7"
+    app.state.config.default_llm_port = "9999"
+    client.post(
+        "/api/chat",
+        json={"model": "m", "messages": [{"role": "user", "content": "Hi"}]},
+        headers=auth_headers,
+    )
+    assert seen["url"] == "http://10.9.8.7:9999/v1/chat/completions"
