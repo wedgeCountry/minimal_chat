@@ -19,7 +19,7 @@ function sideHidden() {
   try {
     return localStorage.getItem(SIDE_HIDDEN_KEY) === "1";
   } catch {
-    return false;
+    return true;
   }
 }
 
