@@ -69,13 +69,13 @@ Darstellung nach Typ:
 - **reasoning/thinking**: schlichter, gedämpfter Stil, Label „Thinking", mitkimmt optional ins `reasoning`-Feld bzw. wird nicht gesendet
 - **toolcall**: monospace, zeigt Werkzeugnamen und Argumente (falls vom Endpunkt geliefert)
 
-## 4. Streaming und Fortschritt
+## 4. Generierung und Fortschritt
 
-- Requests per `fetch` mit `stream: true`, Auswertung von SSE-Zeilen (`data: {...}`, `data: [DONE]`)
-- `delta.content` wird Chunk-weise angehängt und live gerendert
-- `delta.reasoning_content` / `reasoning` (falls geliefert) landet in einer separaten Thinking-Bubble
-- Während der Generierung: dezente **Progress-Anzeige** (Ladebalken/indikator im Composer-Bereich, z. B. animierter Balken oder pulsierender Punkt)
-- Abbrechen per X-Symbol (sowohl im Header/Side-Panel als auch im Composer) via `AbortController`; die bis dahin gestreamte Antwort bleibt in der Session erhalten
+- Die Generierung läuft **serverseitig** in einer Hintergrund-Task (`POST /api/chat` → `202`, Task persistiert den LLM-SSE-Stream chunk-weise in die Session-DB); das Session-Feld `generating` signalisiert den laufenden Stand
+- Der Client hält **keinen** LLM-Stream mehr, sondern pollt `GET /api/sessions/{id}` und rendert die persistierten Nachrichten (live im Vordergrund, nach App-Wechsel/Re-Attach per `visibilitychange`/`pageshow` sofort)
+- `delta.content` landet in der Assistant-Message, `delta.reasoning_content` / `reasoning` in einer separaten Thinking-Bubble, `tool_calls` als Toolcall-Bubbles — serverseitig persistiert
+- Während der Generierung: dezente **Progress-Anzeige** (Ladebalken), angesteuert über das serverseitige `generating`-Flag
+- Abbrechen per X-Symbol (Header/Side-Panel und Composer) via `POST /api/chat/abort`; die bis dahin generierte Antwort bleibt in der Session erhalten
 
 ## 5. Einstellungen
 

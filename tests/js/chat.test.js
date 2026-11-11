@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { sortMessagesForRender, findLastUserMessage, applyToolCallDelta } from "../../static/js/chat.js";
+import { sortMessagesForRender, findLastUserMessage } from "../../static/js/chat.js";
 
 test("sortMessagesForRender: chronological by ts", () => {
   const messages = [
@@ -87,31 +87,4 @@ test("findLastUserMessage: ignores reasoning/toolcall/system, null when none", (
   assert.equal(findLastUserMessage(messages).id, 1);
   assert.equal(findLastUserMessage([{ role: "assistant", type: "message", text: "A", ts: 1, id: 1 }]), null);
   assert.equal(findLastUserMessage([]), null);
-});
-
-test("applyToolCallDelta: accumulates chunks of one tool call by index", () => {
-  const calls = new Map();
-  const e1 = applyToolCallDelta(calls, { index: 0, function: { name: "get_", arguments: '{"q":' } });
-  const e2 = applyToolCallDelta(calls, { index: 0, function: { name: "weather", arguments: '"Berlin"}' } });
-  const e3 = applyToolCallDelta(calls, { index: 0 }); // continuation chunk ohne function
-  assert.equal(calls.size, 1);
-  assert.equal(e1, e2);
-  assert.equal(e2, e3);
-  assert.equal(e1.msg.text, 'get_weather({"q":"Berlin"})');
-  assert.equal(e1.msg.type, "toolcall");
-});
-
-test("applyToolCallDelta: separate indices become separate tool calls", () => {
-  const calls = new Map();
-  applyToolCallDelta(calls, { index: 0, function: { name: "a", arguments: "" } });
-  applyToolCallDelta(calls, { index: 1, function: { name: "b", arguments: "" } });
-  assert.equal(calls.size, 2);
-  assert.equal(calls.get(0).msg.text, "a()");
-  assert.equal(calls.get(1).msg.text, "b()");
-});
-
-test("applyToolCallDelta: defaults to sequential index and tool fallback name", () => {
-  const calls = new Map();
-  const e = applyToolCallDelta(calls, { function: { arguments: "{}" } });
-  assert.equal(e.msg.text, "tool({})");
 });

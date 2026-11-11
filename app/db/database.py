@@ -55,7 +55,7 @@ def _row_to_message(row: sqlite3.Row) -> dict:
 
 
 def _row_to_session(row: sqlite3.Row) -> dict:
-    return {"id": row["id"], "name": row["name"], "ts": row["ts"]}
+    return {"id": row["id"], "name": row["name"], "ts": row["ts"], "generating": bool(row["generating"])}
 
 
 class Database:
@@ -100,6 +100,10 @@ class Database:
                 if path.exists():
                     con.deserialize(crypto.decrypt(key, path.read_bytes()))
                 con.executescript(SCHEMA_PATH.read_text(encoding="utf-8"))
+                # Migration fuer bestehende DBs: generating-Spalte nachziehen
+                cols = {r[1] for r in con.execute("PRAGMA table_info(sessions)").fetchall()}
+                if "generating" not in cols:
+                    con.execute("ALTER TABLE sessions ADD COLUMN generating INTEGER NOT NULL DEFAULT 0")
                 yield con
                 con.commit()
                 self._write_encrypted(user, con.serialize())
@@ -111,7 +115,7 @@ class Database:
 
 
 def q_list_sessions(con: sqlite3.Connection) -> list[dict]:
-    rows = con.execute("SELECT id, name, ts FROM sessions ORDER BY ts DESC").fetchall()
+    rows = con.execute("SELECT id, name, ts, generating FROM sessions ORDER BY ts DESC").fetchall()
     return [_row_to_session(r) for r in rows]
 
 
@@ -123,7 +127,7 @@ def q_create_session(con: sqlite3.Connection, name: str) -> dict:
 
 
 def q_get_session(con: sqlite3.Connection, sid: str) -> dict | None:
-    row = con.execute("SELECT id, name, ts FROM sessions WHERE id = ?", (sid,)).fetchone()
+    row = con.execute("SELECT id, name, ts, generating FROM sessions WHERE id = ?", (sid,)).fetchone()
     return _row_to_session(row) if row else None
 
 
@@ -133,6 +137,10 @@ def q_rename_session(con: sqlite3.Connection, sid: str, name: str) -> None:
 
 def q_delete_session(con: sqlite3.Connection, sid: str) -> None:
     con.execute("DELETE FROM sessions WHERE id = ?", (sid,))
+
+
+def q_set_generating(con: sqlite3.Connection, sid: str, on: bool) -> None:
+    con.execute("UPDATE sessions SET generating = ? WHERE id = ?", (1 if on else 0, sid))
 
 
 # --- Messages ---

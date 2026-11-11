@@ -3,7 +3,7 @@ import { state, activeSession } from "./state.js";
 import { $, } from "./util.js";
 import { goToLogin } from "./auth.js";
 import { loadSessions, renderSessions, changed } from "./sessions.js";
-import { abortStream, renderChat, renderHeader, send } from "./chat.js";
+import { abortStream, pollOnce, renderChat, renderHeader, send } from "./chat.js";
 import { addAttachments, renderAttachments } from "./attachments.js";
 import { initSettings, loadSettings, openSettings } from "./settings.js";
 import { initConfirm } from "./confirm.js";
@@ -107,6 +107,9 @@ async function bootstrap() {
   await loadSessions();
   $("side").classList.toggle("hidden", sideHidden());
   renderAll();
+  // Falls serverseitig noch eine Generierung laeuft (z.B. nach App-Neustart
+  // oder Wechsel aus einer anderen App): sofort synchronisieren und polln.
+  await pollOnce();
 }
 
 function initEvents() {
@@ -234,6 +237,14 @@ function initEvents() {
 
   document.addEventListener("leanchat:changed", renderAll);
   document.addEventListener("leanchat:unauthorized", () => goToLogin());
+  // Zurueck aus dem Hintergrund: Server-Stand sofort abrufen, damit eine
+  // laufende Generierung (Progress-Bar, neue Bubbles) direkt sichtbar ist.
+  const resync = () => pollOnce();
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) resync();
+  });
+  window.addEventListener("pageshow", resync);
+  window.addEventListener("focus", resync);
 }
 
 initGlobalErrorHandling();
