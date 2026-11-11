@@ -9,6 +9,7 @@ DEFAULTS = {
     "host": "",
     "port": "",
     "model": "gpt-4o-mini",
+    "system_prompt": "",
     "theme": "light",
     "bubbles_deletable": True,
     "bubbles_checkable": True,
@@ -108,6 +109,15 @@ def test_host_without_port_and_legacy_base_fallback(client, auth_headers):
     client.put("/api/settings", json={"host": "", "base": "http://legacy.test/v1"}, headers=auth_headers)
     got = client.get("/api/settings", headers=auth_headers).json()
     assert got["base"] == "http://legacy.test/v1"
+
+
+def test_system_prompt_roundtrip_and_clear(client, auth_headers):
+    res = client.put("/api/settings", json={"system_prompt": "Sei freundlich."}, headers=auth_headers)
+    assert res.json()["system_prompt"] == "Sei freundlich."
+    got = client.get("/api/settings", headers=auth_headers).json()
+    assert got["system_prompt"] == "Sei freundlich."
+    client.put("/api/settings", json={"system_prompt": ""}, headers=auth_headers)
+    assert client.get("/api/settings", headers=auth_headers).json()["system_prompt"] == ""
 
 
 def test_settings_require_auth(client):

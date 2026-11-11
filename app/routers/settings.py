@@ -30,6 +30,7 @@ def _settings_out(stored: dict[str, str], config: AppConfig) -> SettingsOut:
         host=host,
         port=port,
         model=stored.get("model") or config.default_model,
+        system_prompt=stored.get("system_prompt") or "",
         theme=stored.get("theme") or "light",
         **{key: stored_bool(stored, key) for key in BOOL_SETTINGS},
     )
@@ -69,11 +70,10 @@ def put_settings(
     config: AppConfig = Depends(get_config),
 ) -> SettingsOut:
     with db.user_db(user) as con:
-        for key in ("base", "host", "port", "model", "theme", "api_key"):
+        for key in ("base", "host", "port", "model", "system_prompt", "theme", "api_key"):
             value = getattr(body, key)
-            # host/port duerfen per leerem String geloescht werden (Base-URL faellt
-            # dann wieder auf gespeicherte base / Default zurueck)
-            if value is not None and (value != "" or key in ("host", "port")):
+            # host/port/system_prompt duerfen per leerem String geloescht werden
+            if value is not None and (value != "" or key in ("host", "port", "system_prompt")):
                 dbq.q_set_user_setting(con, key, value)
         for key in BOOL_SETTINGS:
             value = getattr(body, key)

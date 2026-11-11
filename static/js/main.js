@@ -97,6 +97,13 @@ async function bootstrap() {
     return;
   }
   await loadSettings();
+  try {
+    const meta = await api.get("/meta");
+    if (meta?.app_name) {
+      state.appName = meta.app_name;
+      document.title = meta.app_name;
+    }
+  } catch {}
   await loadSessions();
   $("side").classList.toggle("hidden", sideHidden());
   renderAll();
@@ -175,6 +182,7 @@ function initEvents() {
     input.style.height = Math.min(input.scrollHeight, 180) + "px";
   });
   $("composerWrap").addEventListener("pointerdown", () => $("side").classList.add("hidden"));
+  $("chat").addEventListener("pointerdown", () => $("side").classList.add("hidden"));
 
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SR) {

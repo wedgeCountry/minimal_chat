@@ -44,6 +44,7 @@ class SettingsIn(BaseModel):
     host: str | None = None
     port: str | None = None
     model: str | None = None
+    system_prompt: str | None = None
     theme: Literal["light", "dark"] | None = None
     api_key: str | None = None
     bubbles_deletable: bool | None = None
@@ -61,6 +62,7 @@ class SettingsOut(BaseModel):
     host: str = ""
     port: str = ""
     model: str
+    system_prompt: str = ""
     theme: str
     bubbles_deletable: bool = False
     bubbles_checkable: bool = False

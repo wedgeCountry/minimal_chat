@@ -67,6 +67,7 @@ export function initSettings() {
       host: $("setHost").value.trim(),
       port: $("setPort").value.trim(),
       model: $("setModel").value.trim(),
+      system_prompt: $("setSystemPrompt").value,
       theme: $("setTheme").value,
     };
     for (const [key, id] of Object.entries(CHECK_IDS)) body[key] = $(id).checked;
@@ -87,6 +88,7 @@ export function openSettings() {
     : state.settings.base;
   $("setKey").value = "";
   $("setModel").value = state.settings.model;
+  $("setSystemPrompt").value = state.settings.system_prompt || "";
   $("setTheme").value = state.settings.theme;
   for (const [key, id] of Object.entries(CHECK_IDS)) $(id).checked = state.settings[key] !== false;
   $("overlay").classList.add("open");

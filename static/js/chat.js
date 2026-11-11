@@ -60,6 +60,10 @@ export function renderChat(messages) {
   const sortedMessages = sortMessagesForRender(messages);
   lastMessages = sortedMessages;
   const lastUser = findLastUserMessage(sortedMessages);
+  const sysPrompt = state.settings.system_prompt;
+  if (sysPrompt && state.settings.show_system_prompt !== false) {
+    chat.appendChild(bubbleEl({ role: "system", type: "message", text: sysPrompt, in_context: true }, handlers));
+  }
   sortedMessages.filter((m) => isBubbleVisible(m, state.settings)).forEach((m) => chat.appendChild(bubbleEl(m, handlers, { showResend: m === lastUser })));
   chat.scrollTop = chat.scrollHeight;
 }
@@ -216,7 +220,7 @@ export async function send(textOverride, attachmentsOverride) {
 
 export function renderHeader() {
   const s = activeSession();
-  $("headerTitle").textContent = s ? `LeanChat · ${s.name}` : "LeanChat";
+  $("headerTitle").textContent = s ? `${state.appName} · ${s.name}` : state.appName;
 }
 
 export { esc };

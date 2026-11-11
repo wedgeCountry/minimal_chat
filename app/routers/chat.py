@@ -26,10 +26,14 @@ async def chat(
     base_url = stored.get("base") or config.default_llm_base
     api_key = stored.get("api_key") or config.default_api_key
     flags = {key: stored_bool(stored, key) for key in BOOL_SETTINGS}
+    messages = [m.model_dump() for m in req.messages]
+    system_prompt = stored.get("system_prompt") or ""
+    if system_prompt:
+        messages.insert(0, {"role": "system", "content": system_prompt})
     payload = {
         "model": req.model,
         "stream": True,
-        "messages": [m.model_dump() for m in req.messages],
+        "messages": messages,
     }
     return StreamingResponse(
         stream_completion(base_url, api_key, payload, settings=flags),

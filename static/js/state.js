@@ -2,6 +2,7 @@ const _ss = typeof sessionStorage !== "undefined" ? sessionStorage : null;
 
 export const state = {
   username: null,
+  appName: "LeanChat",
   sessions: [],
   activeId: _ss?.getItem("leanchat.active") || null,
   settings: {
@@ -9,6 +10,7 @@ export const state = {
     host: "",
     port: "",
     model: "",
+    system_prompt: "",
     theme: "light",
     bubbles_deletable: true,
     bubbles_checkable: true,
