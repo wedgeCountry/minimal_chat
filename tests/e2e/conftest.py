@@ -35,8 +35,16 @@ def _wait_for_port(port: int, timeout: float = 15.0) -> None:
     raise RuntimeError(f"Server auf Port {port} nicht erreichbar")
 
 
+def real_llm_requested() -> bool:
+    """Manueller Lauf gegen ein echtes LLM (Opt-in, nie automatisch)."""
+    return os.environ.get("LEANCHAT_E2E_REAL_LLM", "").lower() in ("1", "true", "yes")
+
+
 @pytest.fixture(scope="session")
 def mock_llm_port():
+    if real_llm_requested():
+        yield None  # kein Mock: LEANCHAT_LLM_BASE kommt aus der Umgebung
+        return
     port = _free_port()
     proc = subprocess.Popen(
         [sys.executable, "-m", "uvicorn", "mock_llm:app", "--host", "127.0.0.1", "--port", str(port)],
@@ -53,15 +61,37 @@ def mock_llm_port():
 
 
 @pytest.fixture(scope="session")
+def llm_expect(mock_llm_port):
+    """Erwartete LLM-Antworten je nach Modus (Mock vs. echtes LLM)."""
+    if mock_llm_port is None:
+        return {
+            "default": None,  # echtes LLM: beliebige nicht-leere Antwort
+            "file": "Krokodil-Ledertasche",  # Dateiinhalt muss in der Antwort stehen
+            "timeout_ms": 120000,
+        }
+    return {"default": "Hallo Welt", "file": "Krokodil-Ledertasche", "timeout_ms": 30000}
+
+
+@pytest.fixture(scope="session")
 def server_port(tmp_path_factory, mock_llm_port):
     data_dir = tmp_path_factory.mktemp("leanchat-e2e-data")
     port = _free_port()
+    if mock_llm_port is not None:
+        llm_base = f"http://127.0.0.1:{mock_llm_port}/v1"
+        api_key = "e2e-api-key"
+    else:
+        # Dedizierte Variablen, damit der Lauf nie versehentlich aus der .env
+        # uebernommen wird: explizites Opt-in fuer den manuellen Real-LLM-Lauf.
+        llm_base = os.environ.get("LEANCHAT_E2E_LLM_BASE", "")
+        api_key = os.environ.get("LEANCHAT_E2E_API_KEY", "")
+        if not llm_base:
+            pytest.skip("LEANCHAT_E2E_REAL_LLM=1 gesetzt, aber LEANCHAT_E2E_LLM_BASE fehlt in der Umgebung")
     env = dict(
         os.environ,
         LEANCHAT_DATA_DIR=str(data_dir),
         LEANCHAT_SECRET="e2e-secret",
-        LEANCHAT_API_KEY="e2e-api-key",
-        LEANCHAT_LLM_BASE=f"http://127.0.0.1:{mock_llm_port}/v1",
+        LEANCHAT_API_KEY=api_key,
+        LEANCHAT_LLM_BASE=llm_base,
     )
     proc = subprocess.Popen(
         [sys.executable, "-m", "uvicorn", "app.main:app", "--host", "127.0.0.1", "--port", str(port)],

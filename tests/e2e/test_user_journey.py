@@ -66,30 +66,46 @@ def _login(page, base_url, username, password):
     page.wait_for_selector(f'{T["auth_overlay"]}:not(.open)', state="attached")
 
 
-def _chat_once(page, text, n, expect="Hallo Welt", attach=None):
-    """Schickt die n-te Nachricht (optional mit Datei-Anhang) und wartet auf die Mock-Antwort."""
+def _chat_once(page, text, n, expect, timeout_ms, attach=None):
+    """Schickt die n-te Nachricht (optional mit Datei-Anhang) und wartet auf die LLM-Antwort.
+
+    ``expect=None`` wartet auf eine beliebige nicht-leere Antwort (echtes LLM).
+    """
     if attach is not None:
         page.set_input_files('[data-testid="file-input"]', attach)
         page.wait_for_selector('[data-testid^="attachment-chip-"]')
     page.fill(T["chat_input"], text)
     page.click(T["send_btn"])
     page.wait_for_function(
-        f"() => document.querySelectorAll('[data-testid=\"chat\"] .bubble[data-role=\"user\"]').length === {n}"
+        f"() => document.querySelectorAll('[data-testid=\"chat\"] .bubble[data-role=\"user\"]').length === {n}",
+        timeout=timeout_ms,
     )
     page.wait_for_function(
         f"() => document.querySelectorAll('[data-testid=\"chat\"] .bubble[data-role=\"assistant\"][data-type=\"message\"]').length === {n}"
-        " && !document.querySelector('[data-testid=\"send-btn\"]').classList.contains('abort')"
+        " && !document.querySelector('[data-testid=\"send-btn\"]').classList.contains('abort')",
+        timeout=timeout_ms,
     )
-    page.wait_for_function(
-        f"""() => {{
-          const msgs = [...document.querySelectorAll('[data-testid="chat"] .bubble[data-role="assistant"][data-type="message"]')];
-          const last = msgs[msgs.length - 1];
-          return !!last && last.querySelector('[data-testid="bubble-body"]').textContent.includes({expect!r});
-        }}"""
-    )
+    if expect:
+        page.wait_for_function(
+            f"""() => {{
+              const msgs = [...document.querySelectorAll('[data-testid="chat"] .bubble[data-role="assistant"][data-type="message"]')];
+              const last = msgs[msgs.length - 1];
+              return !!last && last.querySelector('[data-testid="bubble-body"]').textContent.includes({expect!r});
+            }}""",
+            timeout=timeout_ms,
+        )
+    else:
+        page.wait_for_function(
+            """() => {
+              const msgs = [...document.querySelectorAll('[data-testid="chat"] .bubble[data-role="assistant"][data-type="message"]')];
+              const last = msgs[msgs.length - 1];
+              return !!last && last.querySelector('[data-testid="bubble-body"]').textContent.trim() !== '';
+            }""",
+            timeout=timeout_ms,
+        )
 
 
-def test_full_user_journey(page, base_url, tmp_path):
+def test_full_user_journey(page, base_url, tmp_path, llm_expect):
     # Setup: User per API anlegen, System-Prompt-Anzeige serverseitig deaktivieren
     # (damit er in der Journey "am Anfang versteckt" ist).
     token = _register_api(base_url, USER["username"], USER["password"])
@@ -127,9 +143,9 @@ def test_full_user_journey(page, base_url, tmp_path):
     #    antwortet mit dem Dateiinhalt.
     secret_file = tmp_path / "geheim.txt"
     secret_file.write_text("Krokodil-Ledertasche", encoding="utf-8")
-    _chat_once(page, "Nachricht 1", 1)
-    _chat_once(page, "Was steht in der Datei?", 2, expect="Krokodil-Ledertasche", attach=secret_file)
-    _chat_once(page, "Nachricht 3", 3)
+    _chat_once(page, "Nachricht 1", 1, llm_expect["default"], llm_expect["timeout_ms"])
+    _chat_once(page, "Was steht in der Datei?", 2, llm_expect["file"], llm_expect["timeout_ms"], attach=secret_file)
+    _chat_once(page, "Nachricht 3", 3, llm_expect["default"], llm_expect["timeout_ms"])
     assert page.locator(_bubble("user")).count() == 3
     assert page.locator(_bubble("assistant")).count() == 3
     assert "Krokodil-Ledertasche" in (
@@ -141,7 +157,7 @@ def test_full_user_journey(page, base_url, tmp_path):
     page.wait_for_function(
         "() => document.querySelectorAll('[data-testid^=\"session-tile-\"]').length === 2"
     )
-    _chat_once(page, "Zweite Nachricht", 1)
+    _chat_once(page, "Zweite Nachricht", 1, llm_expect["default"], llm_expect["timeout_ms"])
     assert page.locator(_bubble("user")).count() == 1
 
     # 5. Erste Session umbenennen, zweite Session loeschen
