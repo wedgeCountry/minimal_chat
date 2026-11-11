@@ -5,15 +5,12 @@ Alle Selektoren laufen ueber die ``data-testid``-Attribute der UI-Elemente.
 
 from __future__ import annotations
 
-import base64
-import os
-
 import httpx
 import pytest
 
 pytestmark = pytest.mark.e2e
 
-USER = {"username": "journey-user", "password": "geheim123"}
+USER = {"email": "journey-user@example.com", "password": "Geheim-123"}
 SYSTEM_PROMPT = "Du bist ein hilfsbereiter Assistent (Journey-System-Prompt)."
 
 T = {
@@ -50,26 +47,18 @@ def _bubble(role, type_="message"):
     return f'[data-testid="chat"] .bubble[data-role="{role}"][data-type="{type_}"]'
 
 
-def _register_api(base_url, username, password):
-    """Registriert einen User direkt per API und gibt das Token zurueck."""
-    key = base64.b64encode(os.urandom(32)).decode()
-    res = httpx.post(
-        f"{base_url}/api/auth/register",
-        json={"username": username, "password": password, "key": key},
-        timeout=10,
-    )
+def _register_client(base_url, email, password):
+    """Registriert einen User direkt per API; der Client haelt danach den Session-Cookie."""
+    client = httpx.Client(base_url=base_url, timeout=10)
+    res = client.post("/api/auth/register", json={"email": email, "password": password})
     assert res.status_code == 201, res.text
-    return res.json()["token"]
+    return client
 
 
-def _auth_headers(token):
-    return {"Authorization": f"Bearer {token}"}
-
-
-def _login(page, base_url, username, password):
+def _login(page, base_url, email, password):
     page.goto(base_url)
     page.wait_for_selector(f'{T["auth_overlay"]}.open')
-    page.fill(T["auth_username"], username)
+    page.fill(T["auth_username"], email)
     page.fill(T["auth_password"], password)
     page.click(T["auth_submit"])
     page.wait_for_selector(f'{T["auth_overlay"]}:not(.open)', state="attached")
@@ -117,30 +106,23 @@ def _chat_once(page, text, n, expect, timeout_ms, attach=None):
 def test_full_user_journey(page, base_url, tmp_path, llm_expect):
     # Setup: User per API anlegen, System-Prompt-Anzeige serverseitig deaktivieren
     # (damit er in der Journey "am Anfang versteckt" ist).
-    token = _register_api(base_url, USER["username"], USER["password"])
-    res = httpx.put(
-        f"{base_url}/api/settings",
-        headers=_auth_headers(token),
-        json={"show_system_prompt": False},
-        timeout=10,
-    )
+    api_client = _register_client(base_url, USER["email"], USER["password"])
+    res = api_client.put("/api/settings", json={"show_system_prompt": False})
     assert res.status_code == 200, res.text
 
     # 1. Anmelden
-    _login(page, base_url, USER["username"], USER["password"])
+    _login(page, base_url, USER["email"], USER["password"])
 
     # 2. Neue Session eroeffnen
     page.click(T["new_session"])
     page.wait_for_selector(f'{T["session_tile"]}.active')
 
     # System-Prompt als erste Nachricht der Session seeden (ueber API, id 1 -> ganz oben).
-    sessions = httpx.get(f"{base_url}/api/sessions", headers=_auth_headers(token), timeout=10).json()
+    sessions = api_client.get("/api/sessions").json()
     sid = next(s["id"] for s in sessions if s["name"] == "Neue Session")
-    res = httpx.post(
-        f"{base_url}/api/sessions/{sid}/messages",
-        headers=_auth_headers(token),
+    res = api_client.post(
+        f"/api/sessions/{sid}/messages",
         json={"role": "system", "type": "message", "text": SYSTEM_PROMPT, "in_context": True},
-        timeout=10,
     )
     assert res.status_code == 201, res.text
 
@@ -221,11 +203,11 @@ def test_full_user_journey(page, base_url, tmp_path, llm_expect):
 
 
 def test_login_rejects_wrong_password(page, base_url):
-    _register_api(base_url, "journey-user-2", "geheim123")
+    _register_client(base_url, "journey-user-2@example.com", "Geheim-123")
     page.goto(base_url)
     page.wait_for_selector(f'{T["auth_overlay"]}.open')
-    page.fill(T["auth_username"], "journey-user-2")
-    page.fill(T["auth_password"], "falsches-passwort")
+    page.fill(T["auth_username"], "journey-user-2@example.com")
+    page.fill(T["auth_password"], "Falsch-123")
     page.click(T["auth_submit"])
     page.wait_for_selector(f'{T["auth_error"]}:not(:empty)')
     assert page.locator(f'{T["auth_overlay"]}.open').count() == 1

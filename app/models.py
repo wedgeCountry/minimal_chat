@@ -4,23 +4,14 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
-USERNAME_PATTERN = r"^[A-Za-z0-9_.-]{3,32}$"
-
-
-class Credentials(BaseModel):
-    username: str = Field(pattern=USERNAME_PATTERN)
-    password: str = Field(min_length=6, max_length=128)
-    key: str | None = None
+class RegisterRequest(BaseModel):
+    email: str
+    password: str = Field(min_length=8, max_length=1024)
 
 
 class LoginRequest(BaseModel):
-    username: str
+    email: str
     password: str
-
-
-class TokenResponse(BaseModel):
-    token: str
-    username: str
 
 
 class MessageIn(BaseModel):

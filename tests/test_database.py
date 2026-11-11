@@ -23,8 +23,8 @@ def db(tmp_path):
     return Database(tmp_path / "data", secret="unit-secret")
 
 
-def _make_user(db, name="alice", key=None):
-    return db.create_user(name, "geheim123", key or crypto.new_key())
+def _make_user(db, email="alice@example.com", key=None, uid="uid-alice"):
+    return db.create_local_user(uid, email, key or crypto.new_key())
 
 
 def test_user_db_file_is_encrypted(db):
@@ -73,19 +73,23 @@ def test_wrong_key_cannot_decrypt(db):
             pass
 
 
-def test_credentials_live_in_separate_user_registry_db(db):
-    user = _make_user(db, "alice")
-    registry_path = db.data_dir / "user_registry.db.enc"
-    assert registry_path.exists()
-    raw = registry_path.read_bytes()
-    assert b"alice" not in raw
-    assert base64.b64decode(user["salt"])
-    assert db.registry.get_by_name("alice")["uid"] == user["uid"]
-    assert db.registry.get_by_id(user["uid"])["username"] == "alice"
-    assert db.registry.verify_login("alice", "geheim123")["uid"] == user["uid"]
-    assert db.registry.verify_login("alice", "falsch") is None
-    with pytest.raises(ValueError):
-        db.create_user("alice", "geheim123")
+def test_local_users_table_stores_no_credentials(db):
+    user = _make_user(db)
+    db.create_local_user("uid-bob", "bob@example.com", crypto.new_key())
+    raw = db.users_db_path.read_bytes()
+    assert b"alice@example.com" in raw  # Zuordnung E-Mail -> uid liegt lokal
+    assert b"geheim" not in raw  # keine Passwoerter lokal
+    import sqlite3
+
+    con = sqlite3.connect(db.users_db_path)
+    rows = con.execute("SELECT uid, email, key FROM users ORDER BY uid").fetchall()
+    con.close()
+    assert [r[0] for r in rows] == ["uid-alice", "uid-bob"]
+    # Schluessel at rest verschluesselt abgelegt (nicht als base64-Klartext)
+    assert rows[0][2] != user["key"]
+    assert db.get_user_by_email("ALICE@example.com")["uid"] == user["uid"]
+    assert db.get_user_by_id("uid-bob")["email"] == "bob@example.com"
+    assert db.get_user_by_email("niemand@example.com") is None
 
 
 def test_user_settings_table_roundtrip(db):

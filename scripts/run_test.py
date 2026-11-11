@@ -226,14 +226,13 @@ def main() -> None:
             
             # Auto-create a test user and set up auto-login
             print("Creating test user and setting up auto-login...", flush=True)
-            test_username = "testuser"
-            test_password = "testpass123"
+            test_email = "testuser@example.com"
+            test_password = "Test-1234"
             
             # Prepare the registration request
             register_data = json.dumps({
-                "username": test_username,
+                "email": test_email,
                 "password": test_password,
-                "key": "test-key-12345678901234567890123456789012"  # 32-byte key for encryption
             }).encode("utf-8")
             
             register_req = urllib.request.Request(
@@ -243,13 +242,10 @@ def main() -> None:
                 method="POST"
             )
             
-            test_token = ""
             try:
                 with urllib.request.urlopen(register_req, timeout=10) as response:
                     result = json.loads(response.read().decode("utf-8"))
-                    test_token = result.get("token", "")
-                    
-                    if test_token:
+                    if result.get("email"):
                         # Create a temporary index.html with auto-login
                         try:
                             static_dir = REPO_ROOT / "static"
@@ -261,8 +257,8 @@ def main() -> None:
                             
                             # Insert auto-login script before the main script
                             auto_login_script = f"""<script>
-// Auto-login for test mode
-sessionStorage.setItem('leanchat.token', '{test_token}');
+// Auto-login for test mode (Session-Cookie per /api/auth/login)
+fetch('/api/auth/login', {{method: 'POST', headers: {{'Content-Type': 'application/json'}}, body: JSON.stringify({{email: '{test_email}', password: '{test_password}'}})}}).then(function () {{ location.reload(); }});
 </script>"""
                             
                             # Find the position to insert (before the main script tag)
@@ -289,9 +285,8 @@ sessionStorage.setItem('leanchat.token', '{test_token}');
                             shutil.copy2(temp_index, original_index)
                             
                             print(f"\nAuto-login configured!", flush=True)
-                            print(f"  Username: {test_username}", flush=True)
+                            print(f"  E-Mail:   {test_email}", flush=True)
                             print(f"  Password: {test_password}", flush=True)
-                            print(f"  Token:    {test_token[:20]}...", flush=True)
                             print(f"\nOpen http://{args.host}:{args.port}/ to start using LeanChat (you'll be auto-logged in)", flush=True)
                             
                             # Store info for cleanup

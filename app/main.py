@@ -6,6 +6,7 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
+from .auth import init_auth
 from .config import AppConfig, bootstrap_env, load_config
 from .db.database import Database
 from .routers import auth, chat, sessions, settings
@@ -24,7 +25,8 @@ def create_app(
     cfg.save()
     app = FastAPI(title="LeanChat")
     app.state.config = cfg
-    app.state.db = Database(cfg.data_dir, cfg.secret, cfg.registry_path, cfg.users_dir)
+    app.state.db = Database(cfg.data_dir, cfg.secret, cfg.users_dir)
+    init_auth(app, cfg)
     app.include_router(auth.router)
     app.include_router(sessions.router)
     app.include_router(settings.router)

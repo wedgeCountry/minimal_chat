@@ -1,5 +1,4 @@
 export const state = {
-  token: sessionStorage.getItem("leanchat.token") || null,
   username: null,
   sessions: [],
   activeId: sessionStorage.getItem("leanchat.active") || null,

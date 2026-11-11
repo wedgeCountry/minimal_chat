@@ -10,14 +10,13 @@ Born as a minimalist alternative to OpenWebUI: only the features you actually ne
 app/                  FastAPI backend (uvicorn)
   main.py             App-Factory, Router, StaticFiles
   config.py           Konfiguration (Env: LEANCHAT_DATA_DIR, LEANCHAT_SECRET, LEANCHAT_API_KEY, LEANCHAT_LLM_BASE)
-  security.py         Passwort-Hashing (PBKDF2) + signierte Tokens (HMAC)
+  auth.py             user_registry-Integration: Registry-DB, mount_auth (/auth-Seiten), Session-Cookies
   models.py           Pydantic-Schemas
-  deps.py             FastAPI-Dependencies (Auth)
+  deps.py             FastAPI-Dependencies (Auth via signiertem Session-Cookie)
   db/
     schema.sql        SQL-Schema der pro-User-DB (eigene Datei, inkl. user_settings)
-    user_registry.sql SQL-Schema der User Registry (eigene Datei)
     crypto.py         Fernet-Ver-/Entschluesselung
-    database.py       Einziger Zugriff auf alle SQLite-Datenbanken
+    database.py       Einziger Zugriff auf die lokalen SQLite-Datenbanken
   routers/            auth.py, sessions.py, settings.py, chat.py (SSE-Proxy)
   services/chat.py    SSE-Streaming-Passthrough zum LLM-Endpunkt
 static/               Frontend (statisch, ohne Build-Schritt)
@@ -38,13 +37,13 @@ tests/
 ## Data storage
 
 - Pro User genau eine **verschluesselte SQLite-Datei** (`data/users/<uid>.db.enc`, Fernet) mit Sessions, Messages und der Tabelle **`user_settings`** (serverseitige Einstellungen).
-- Der Verschluesselungsschluessel wird **einmalig clientseitig** (WebCrypto, 32 Bytes) bei der Registrierung erzeugt und mitgeschickt.
-- Die **User-Credentials** liegen in einer eigenen Datenbank, der **User Registry** (`data/user_registry.db.enc`, mit Server-Secret verschluesselt) – das Login-System ist dadurch spaeter austauschbar.
-- Die SQL-Schemas liegen in eigenen Dateien: [`app/db/schema.sql`](app/db/schema.sql) (pro User) und [`app/db/user_registry.sql`](app/db/user_registry.sql) (Registry); der gesamte DB-Zugriff in [`app/db/database.py`](app/db/database.py).
+- Der Verschluesselungsschluessel der per-user DB wird von der **User Registry** erzeugt und nach Passwort-Pruefung freigegeben.
+- **Login/Registrierung** laufen ueber die Bibliothek [`user_registry`](docs/user_registry_implementation_guidelines.md) (vendored Wheel in `vendors/`, Argon2id-Passwort-Hashing, Passwort-Policy, AGB-Akzeptanz): Credentials liegen in der eigenen Registry-DB (`data/user_registry.db`), Sessions sind itsdangerous-signierte `auth_session`-Cookies, und unter `/auth` stehen professionelle Seiten (Login, Registrieren, Passwort aendern/loeschen, AGB, Impressum). Die Zuordnung zu den lokalen App-Daten erfolgt credential-frei per E-Mail ueber die Tabelle in `data/users.db`.
+- Das SQL-Schema der pro-User-DB liegt in [`app/db/schema.sql`](app/db/schema.sql); der gesamte DB-Zugriff in [`app/db/database.py`](app/db/database.py).
 
 ## Features
 
-- **Auth** – Registrieren/Anmelden (Token), Logout; Daten sind pro User getrennt
+- **Auth** – Registrieren/Anmelden per user_registry (signiertes Session-Cookie), Logout; Daten sind pro User getrennt
 - **Sessions** – Side-Panel mit chronologisch sortierten Tiles; anlegen, inline umbenennen, löschen
 - **Streaming** – SSE vom OpenAI-kompatiblen Endpunkt wird ueber das FastAPI-Backend (`POST /api/chat`) live durchgereicht
 - **Cancel** – laufende Generierung per X abbrechen, Teilausgabe bleibt erhalten
@@ -60,7 +59,8 @@ Beim ersten Programmstart wird automatisch eine **`.env`** aus der gecheckten **
 ## Getting started
 
 ```bash
-pip install -e ".[dev]"   # fastapi, uvicorn, httpx, cryptography, pytest, playwright
+pip install -e ".[dev]"   # fastapi, uvicorn, httpx, cryptography, pytest, playwright, argon2-cffi, itsdangerous
+pip install ./vendors/user_registry-0.1.0-py3-none-any.whl   # Login/Registrierung (user_registry)
 python -m app              # startet uvicorn (Host/Port aus der .env), .env wird falls noetig erzeugt
 # oder: uvicorn app.main:app --host 127.0.0.1 --port 8000
 ```

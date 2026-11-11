@@ -1,15 +1,8 @@
 import { state } from "./state.js";
 
-export function setToken(token) {
-  state.token = token;
-  if (token) sessionStorage.setItem("leanchat.token", token);
-  else sessionStorage.removeItem("leanchat.token");
-}
-
 async function request(path, { method = "GET", body, raw = false, signal } = {}) {
   const headers = {};
   if (body !== undefined) headers["Content-Type"] = "application/json";
-  if (state.token) headers["Authorization"] = "Bearer " + state.token;
   const res = await fetch("/api" + path, {
     method,
     headers,
@@ -17,13 +10,17 @@ async function request(path, { method = "GET", body, raw = false, signal } = {})
     signal,
   });
   if (res.status === 401) {
-    setToken(null);
     document.dispatchEvent(new CustomEvent("leanchat:unauthorized"));
     throw new Error("Nicht authentifiziert");
   }
   if (!res.ok) {
     const text = await res.text().catch(() => "");
-    throw new Error(text || res.statusText);
+    let msg = text || res.statusText;
+    try {
+      const data = JSON.parse(text);
+      if (data && data.detail) msg = data.detail;
+    } catch {}
+    throw new Error(msg);
   }
   if (res.status === 204) return null;
   return raw ? res : res.json();

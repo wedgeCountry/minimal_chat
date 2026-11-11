@@ -1,4 +1,4 @@
-import { api, setToken } from "./api.js";
+import { api } from "./api.js";
 import { state, activeSession } from "./state.js";
 import { $, } from "./util.js";
 import { initAuth, showAuth } from "./auth.js";
@@ -35,15 +35,11 @@ function renderAll() {
 
 async function bootstrap() {
   initSettings();
-  if (!state.token) {
-    if (window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches)
-      document.documentElement.classList.add("dark");
-    showAuth();
-    return;
-  }
+  if (window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches)
+    document.documentElement.classList.add("dark");
   try {
     const me = await api.get("/auth/me");
-    state.username = me.username;
+    state.username = me.email;
   } catch {
     showAuth();
     return;
@@ -74,7 +70,6 @@ function initEvents() {
   $("logoutBtn").onclick = async () => {
     $("burgerMenu").classList.remove("open");
     await api.post("/auth/logout", {}).catch(() => {});
-    setToken(null);
     state.sessions = [];
     state.activeId = null;
     sessionStorage.removeItem("leanchat.active");

@@ -33,17 +33,20 @@ def test_sessions_require_auth(client):
     assert client.post("/api/sessions", json={}).status_code == 401
 
 
-def test_sessions_are_isolated_per_user(client, auth_headers):
-    from app.db import crypto
+def test_sessions_are_isolated_per_user(client, auth_headers, app):
+    from fastapi.testclient import TestClient
+
+    from tests.conftest import TEST_PASSWORD
 
     s = _create_session(client, auth_headers, "Nur Alice")
-    other = client.post(
+    other_client = TestClient(app)
+    res = other_client.post(
         "/api/auth/register",
-        json={"username": "bob", "password": "geheim123", "key": crypto.new_key()},
+        json={"email": "bob@example.com", "password": TEST_PASSWORD},
     )
-    other_h = {"Authorization": "Bearer " + other.json()["token"]}
-    assert client.get("/api/sessions", headers=other_h).json() == []
-    assert client.get(f"/api/sessions/{s['id']}", headers=other_h).status_code == 404
+    assert res.status_code == 201
+    assert other_client.get("/api/sessions").json() == []
+    assert other_client.get(f"/api/sessions/{s['id']}").status_code == 404
 
 
 def test_add_message_auto_renames_session(client, auth_headers):
