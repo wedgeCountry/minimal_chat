@@ -4,6 +4,7 @@ import { $ } from "./util.js";
 import { applyTheme } from "./theme.js";
 
 const CHECK_IDS = {
+  bubbles_deletable: "setDeletableAll",
   bubbles_user_checkable: "setCheckable",
   bubbles_user_deletable: "setDeletable",
   show_system_prompt: "setShowSystem",

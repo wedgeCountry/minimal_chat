@@ -1,8 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { isBubbleVisible, isUserBubbleCheckable, isUserBubbleDeletable } from "../../static/js/visibility.js";
+import { isBubbleDeletable, isBubbleVisible, isUserBubbleCheckable, isUserBubbleDeletable } from "../../static/js/visibility.js";
 
 const allOn = {
+  bubbles_deletable: true,
   bubbles_user_checkable: true,
   bubbles_user_deletable: true,
   show_system_prompt: true,
@@ -38,4 +39,10 @@ test("User-Bubble Checkable/Deletable Schalter", () => {
   assert.equal(isUserBubbleCheckable({ ...allOn, bubbles_user_checkable: false }), false);
   assert.ok(isUserBubbleDeletable(allOn));
   assert.equal(isUserBubbleDeletable({ ...allOn, bubbles_user_deletable: false }), false);
+});
+
+test("bubbles_deletable=false sperrt den Loeschen-Button fuer alle Bubbles", () => {
+  assert.ok(isBubbleDeletable(allOn));
+  assert.equal(isBubbleDeletable({ ...allOn, bubbles_deletable: false }), false);
+  assert.equal(isBubbleDeletable({}), true);
 });

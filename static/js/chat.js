@@ -2,13 +2,11 @@ import { api, streamChat } from "./api.js";
 import { activeSession, state } from "./state.js";
 import { $, esc } from "./util.js";
 import { ICONS } from "./icons.js";
-import { bubbleEl } from "./bubbles.js";
+import { bubbleEl, setBubbleMode, setBubbleText } from "./bubbles.js";
 import { buildChatPayload } from "./payload.js";
 import { parseSSE } from "./sse.js";
 import { loadSessions, newSession, changed } from "./sessions.js";
 import { isBubbleVisible } from "./visibility.js";
-
-const bodyOf = (el) => el.querySelector(".bubbleBody");
 
 export function setStreamingUI(on) {
   state.streaming = on;
@@ -111,15 +109,15 @@ export async function send() {
         if (!hasThink) {
           hasThink = true;
           thinkEl = bubbleEl(thinkMsg, handlers);
-          thinkEl.classList.remove("collapsed");
+          setBubbleMode(thinkEl, "full");
           chat.appendChild(thinkEl);
         }
         thinkMsg.text += reasoning;
-        bodyOf(thinkEl).textContent = thinkMsg.text;
+        setBubbleText(thinkEl, thinkMsg.text);
       }
       if (delta.content) {
         aiMsg.text += delta.content;
-        bodyOf(aiEl).textContent = aiMsg.text;
+        setBubbleText(aiEl, aiMsg.text);
       }
       if (delta.tool_calls && state.settings.show_tool_output !== false) {
         for (const tc of delta.tool_calls) {

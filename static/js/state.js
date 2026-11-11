@@ -7,6 +7,7 @@ export const state = {
     base: "",
     model: "",
     theme: "light",
+    bubbles_deletable: true,
     bubbles_user_checkable: true,
     bubbles_user_deletable: true,
     show_system_prompt: true,

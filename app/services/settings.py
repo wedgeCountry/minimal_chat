@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 BOOL_SETTINGS: dict[str, bool] = {
+    "bubbles_deletable": True,
     "bubbles_user_checkable": True,
     "bubbles_user_deletable": True,
     "show_system_prompt": True,

@@ -1,8 +1,8 @@
 /* ------------------------------------------------------------------
    Bubble-Styling-System: Auspraegung wird komplett ueber CSS-Variablen
    gesteuert - pro Rolle (user/assistant/system/reasoning/toolcall) und
-   pro Zustand (collapsed = eingeklappt, expanded = ausgeklappt,
-   compact = komprimiert, selected/deselected = (ab-)gewaehlt).
+   pro Zustand (collapsed = 1 Zeile, normal = max. 10 Zeilen,
+   full = ungekuerzt, compact = komprimiert, selected/deselected = (ab-)gewaehlt).
    ------------------------------------------------------------------ */
 
 #chat{flex:1;overflow-y:auto;padding:18px 14px;display:flex;flex-direction:column;gap:12px;background:var(--chat-bg)}
@@ -69,13 +69,12 @@
   font-size:12.5px;
 }
 
-/* Zustaende */
-.bubble.collapsed{ /* eingeklappt */
+/* Zustaende der dreistufigen Ansicht (Rest jeweils hinter [...]) */
+.bubble.collapsed{ /* 1 Zeile */
   --bubble-min-height:0;
   --bubble-padding:6px 12px;
 }
-.bubble.collapsed .bubbleBody{display:none}
-.bubble.expanded{ /* ausgeklappt (explizit) */
+.bubble.normal,.bubble.full{ /* max. 10 Zeilen bzw. ungekuerzt */
   --bubble-min-height:56px;
 }
 .bubble.compact{ /* komprimiert */
@@ -108,6 +107,7 @@
 .chev{padding:2px}
 .chev svg{width:12px;height:12px}
 .bubble.collapsed .chev svg{transform:rotate(-90deg)}
+.bubble.full .chev svg{transform:rotate(180deg)}
 .ttsBtn.on{color:var(--accent)}
 .bubble.user .ttsBtn.on{color:#fff}
 .copyBtn.ok svg{stroke:var(--accent)}

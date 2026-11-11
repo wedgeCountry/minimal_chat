@@ -6,6 +6,10 @@ export function isBubbleVisible(m, s) {
   return true;
 }
 
+export function isBubbleDeletable(s) {
+  return s.bubbles_deletable !== false;
+}
+
 export function isUserBubbleCheckable(s) {
   return s.bubbles_user_checkable !== false;
 }
