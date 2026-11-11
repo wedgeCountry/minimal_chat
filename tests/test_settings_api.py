@@ -6,7 +6,10 @@ RealAsyncClient = httpx.AsyncClient
 
 DEFAULTS = {
     "base": "http://llm.test/v1",
+    "host": "llm.test",
+    "port": "",
     "model": "gpt-4o-mini",
+    "system_prompt": "",
     "theme": "light",
     "bubbles_deletable": True,
     "bubbles_checkable": True,
@@ -14,6 +17,8 @@ DEFAULTS = {
     "show_system_prompt": True,
     "show_tool_output": True,
     "show_reasoning": True,
+    "show_file_button": False,
+    "show_image_button": False,
 }
 
 
@@ -82,6 +87,39 @@ def test_legacy_user_setting_keys_still_apply(client, auth_headers, app):
     assert got["bubbles_deletable"] is False
 
 
+def test_host_port_compute_base_url(client, auth_headers):
+    res = client.put(
+        "/api/settings",
+        json={"host": "192.168.1.10", "port": "8000"},
+        headers=auth_headers,
+    )
+    assert res.status_code == 200
+    body = res.json()
+    assert body["base"] == "http://192.168.1.10:8000/v1"
+    assert body["host"] == "192.168.1.10"
+    assert body["port"] == "8000"
+    got = client.get("/api/settings", headers=auth_headers).json()
+    assert got["base"] == "http://192.168.1.10:8000/v1"
+
+
+def test_host_without_port_and_legacy_base_fallback(client, auth_headers):
+    res = client.put("/api/settings", json={"host": "llm.local"}, headers=auth_headers)
+    assert res.json()["base"] == "http://llm.local/v1"
+    # host leeren -> wieder gespeicherte base / Default
+    client.put("/api/settings", json={"host": "", "base": "http://legacy.test/v1"}, headers=auth_headers)
+    got = client.get("/api/settings", headers=auth_headers).json()
+    assert got["base"] == "http://legacy.test/v1"
+
+
+def test_system_prompt_roundtrip_and_clear(client, auth_headers):
+    res = client.put("/api/settings", json={"system_prompt": "Sei freundlich."}, headers=auth_headers)
+    assert res.json()["system_prompt"] == "Sei freundlich."
+    got = client.get("/api/settings", headers=auth_headers).json()
+    assert got["system_prompt"] == "Sei freundlich."
+    client.put("/api/settings", json={"system_prompt": ""}, headers=auth_headers)
+    assert client.get("/api/settings", headers=auth_headers).json()["system_prompt"] == ""
+
+
 def test_settings_require_auth(client):
     assert client.get("/api/settings").status_code == 401
     assert client.put("/api/settings", json={}).status_code == 401
@@ -148,4 +186,13 @@ def test_connection_test_http_error_is_red(client, auth_headers, monkeypatch):
 
     _mock_llm_models(monkeypatch, handler)
     res = client.post("/api/settings/test", json={}, headers=auth_headers)
-    assert res.json() == {"ok": False, "detail": "HTTP 401"}
+    assert res.json() == {"ok": False, "detail": "http://llm.test/v1/models -> HTTP 401"}
+
+
+def test_settings_out_uses_env_default_host_port(client, auth_headers, app):
+    app.state.config.default_llm_host = "10.9.8.7"
+    app.state.config.default_llm_port = "9999"
+    got = client.get("/api/settings", headers=auth_headers).json()
+    assert got["host"] == "10.9.8.7"
+    assert got["port"] == "9999"
+    assert got["base"] == "http://10.9.8.7:9999/v1"

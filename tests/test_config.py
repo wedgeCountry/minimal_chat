@@ -13,7 +13,8 @@ def _make_config(tmp_path) -> AppConfig:
         secret="cfg-secret",
         registry_path=data / "user_registry.db",
         users_dir=data / "users",
-        default_llm_base="http://llm.test/v1",
+        default_llm_host="llm.test",
+        default_llm_port="",
         default_api_key="cfg-key",
         port=9001,
     )
@@ -102,3 +103,31 @@ def test_load_config_defaults_derive_db_paths_from_data_dir(tmp_path, monkeypatc
     config = load_config()
     assert config.registry_path == config.data_dir / "user_registry.db"
     assert config.users_dir == config.data_dir / "users"
+
+
+def test_load_config_reads_app_name_from_env(tmp_path, monkeypatch):
+    from app.config import load_config
+
+    monkeypatch.setenv("LEANCHAT_APP_NAME", "MeinChat")
+    cfg = load_config(data_dir=tmp_path / "data", secret="s")
+    assert cfg.app_name == "MeinChat"
+    assert cfg.to_dict()["app_name"] == "MeinChat"
+
+
+def test_app_config_default_app_name(tmp_path):
+    from app.config import AppConfig
+
+    cfg = AppConfig(data_dir=tmp_path, secret="s", registry_path=tmp_path / "r.db", users_dir=tmp_path / "u")
+    assert cfg.app_name == "LeanChat"
+
+
+def test_load_config_reads_llm_host_port_from_env(tmp_path, monkeypatch):
+    from app.config import load_config
+
+    monkeypatch.setenv("LEANCHAT_LLM_HOST", "llm.example.com")
+    monkeypatch.setenv("LEANCHAT_LLM_PORT", "8443")
+    cfg = load_config(data_dir=tmp_path / "data", secret="s")
+    assert cfg.default_llm_host == "llm.example.com"
+    assert cfg.default_llm_port == "8443"
+    assert cfg.to_dict()["default_llm_host"] == "llm.example.com"
+    assert cfg.to_dict()["default_llm_port"] == "8443"

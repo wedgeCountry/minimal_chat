@@ -88,7 +88,7 @@ function renderBubbleBody(b) {
   if (body) body.textContent = clampText(b._fullText ?? body.textContent, b.dataset.mode || "normal");
 }
 
-export function bubbleEl(m, handlers = {}) {
+export function bubbleEl(m, handlers = {}, opts = {}) {
   const b = document.createElement("div");
   const uid = m.id != null ? `msg-${m.id}` : `tmp-${++tmpBubbleSeq}`;
   b.dataset.testid = `bubble-${uid}`;
@@ -105,6 +105,7 @@ export function bubbleEl(m, handlers = {}) {
   const showChk = m.type === "message" && isBubbleCheckable(state.settings);
   const showDel = isBubbleDeletable(state.settings);
   const showTts = isBubbleSpeaker(state.settings);
+  const showResend = m.role === "user" && m.type === "message" && opts.showResend === true;
   const attach = (m.attachments || [])
     .map((a) => `<div class="attachChip" data-testid="bubble-attachment">${ICONS.attach}<span data-testid="bubble-attachment-name">${esc(a.name)}</span></div>`)
     .join("");
@@ -114,6 +115,7 @@ export function bubbleEl(m, handlers = {}) {
       <span class="role" data-testid="bubble-role">${esc(label)}</span>
       <span class="grow"></span>
       ${showChk ? `<input type="checkbox" class="chk" data-testid="bubble-context-chk" ${m.inContext !== false ? "checked" : ""} title="Im Kontext senden" />` : ""}
+      ${showResend ? `<button class="iconBtn resendBtn" data-testid="bubble-resend-btn" title="Erneut senden">${ICONS.refresh}</button>` : ""}
       ${showTts ? `<button class="iconBtn ttsBtn" data-testid="bubble-tts-btn" title="Vorlesen">${ICONS.tts}</button>` : ""}
       <button class="iconBtn copyBtn" data-testid="bubble-copy-btn" title="Kopieren">${ICONS.copy}</button>
       <button class="iconBtn chev" data-testid="bubble-toggle-btn" title="${bubbleModeTitle(mode)}">${ICONS.chev}</button>
@@ -149,6 +151,8 @@ export function bubbleEl(m, handlers = {}) {
     };
   const delBtn = b.querySelector(".delBtn");
   if (delBtn) delBtn.onclick = () => handlers.onDelete?.(m);
+  const resendBtn = b.querySelector(".resendBtn");
+  if (resendBtn) resendBtn.onclick = () => handlers.onResend?.(m);
   _applySavedWidth(b, m);
   _makeResizable(b, m);
   const tts = b.querySelector(".ttsBtn");

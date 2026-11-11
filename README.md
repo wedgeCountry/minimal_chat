@@ -9,7 +9,7 @@ Born as a minimalist alternative to OpenWebUI: only the features you actually ne
 ```
 app/                  FastAPI backend (uvicorn)
   main.py             App-Factory, Router, StaticFiles
-  config.py           Konfiguration (Env: LEANCHAT_DATA_DIR, LEANCHAT_SECRET, LEANCHAT_API_KEY, LEANCHAT_LLM_BASE)
+  config.py           Konfiguration (Env: LEANCHAT_DATA_DIR, LEANCHAT_SECRET, LEANCHAT_API_KEY, LEANCHAT_LLM_HOST, LEANCHAT_LLM_PORT)
   auth.py             user_registry-Integration: Registry-DB, mount_auth (/auth-Seiten), Session-Cookies
   models.py           Pydantic-Schemas
   deps.py             FastAPI-Dependencies (Auth via signiertem Session-Cookie)
@@ -54,7 +54,7 @@ tests/
 
 ## Configuration (.env)
 
-Beim ersten Programmstart wird automatisch eine **`.env`** aus der gecheckten **`.env.example`** erzeugt (die `.env` selbst ist gitignored). Dort liegen alle globalen Variablen: Data-Root (`LEANCHAT_DATA_DIR`), Datenbankpfade (`LEANCHAT_REGISTRY_PATH`, `LEANCHAT_USERS_DIR`), Server-Secret (`LEANCHAT_SECRET`), LLM-Endpunkt (`LEANCHAT_LLM_BASE`, `LEANCHAT_MODEL`, `LEANCHAT_API_KEY`) sowie Host/Port (`LEANCHAT_HOST`, `LEANCHAT_PORT`). Echte Systemumgebungsvariablen haben Vorrang vor der `.env`.
+Beim ersten Programmstart wird automatisch eine **`.env`** aus der gecheckten **`.env.example`** erzeugt (die `.env` selbst ist gitignored). Dort liegen alle globalen Variablen: Data-Root (`LEANCHAT_DATA_DIR`), Datenbankpfade (`LEANCHAT_REGISTRY_PATH`, `LEANCHAT_USERS_DIR`), Server-Secret (`LEANCHAT_SECRET`), LLM-Endpunkt (`LEANCHAT_LLM_HOST`, `LEANCHAT_LLM_PORT`, `LEANCHAT_MODEL`, `LEANCHAT_API_KEY`) sowie Host/Port (`LEANCHAT_HOST`, `LEANCHAT_PORT`). Echte Systemumgebungsvariablen haben Vorrang vor der `.env`.
 
 ## Getting started
 

@@ -5,7 +5,7 @@
    full = ungekuerzt, compact = komprimiert, selected/deselected = (ab-)gewaehlt).
    ------------------------------------------------------------------ */
 
-#chat{flex:1;overflow-y:auto;padding:18px 14px;display:flex;flex-direction:column;gap:12px;background:var(--chat-bg)}
+#chat{flex:1;min-width:0;overflow-y:auto;padding:18px 14px;display:flex;flex-direction:column;gap:12px;background:var(--chat-bg)}
 
 .bubble{
   /* neutrale Defaults (Rolle: assistant) */
@@ -98,7 +98,9 @@
 }
 
 /* Kopfzeile + Body */
-.bubbleHead{display:flex;align-items:center;gap:6px;margin-bottom:4px;font-size:var(--bubble-head-size);opacity:.75}
+.bubbleHead{display:flex;align-items:center;gap:10px;margin-bottom:4px;font-size:var(--bubble-head-size);opacity:.75}
+.bubble .iconBtn{padding:4px}
+.bubble .iconBtn svg{width:14px;height:14px}
 .bubble.user .bubbleHead{opacity:.85}
 .bubbleHead .role{font-weight:600;text-transform:uppercase;letter-spacing:.4px}
 .bubbleHead .grow{flex:1}

@@ -19,7 +19,7 @@ function sideHidden() {
   try {
     return localStorage.getItem(SIDE_HIDDEN_KEY) === "1";
   } catch {
-    return false;
+    return true;
   }
 }
 
@@ -52,10 +52,16 @@ async function refreshChat() {
   renderChat(currentMessages);
 }
 
+function applyComposerButtons() {
+  $("attachBtn").style.display = state.settings.show_file_button === false ? "none" : "";
+  $("camBtn").style.display = state.settings.show_image_button === false ? "none" : "";
+}
+
 function renderAll() {
   renderSessions();
   renderHeader();
   refreshChat();
+  applyComposerButtons();
 }
 
 async function bootstrap() {
@@ -91,6 +97,13 @@ async function bootstrap() {
     return;
   }
   await loadSettings();
+  try {
+    const meta = await api.get("/meta");
+    if (meta?.app_name) {
+      state.appName = meta.app_name;
+      document.title = meta.app_name;
+    }
+  } catch {}
   await loadSessions();
   $("side").classList.toggle("hidden", sideHidden());
   renderAll();
@@ -108,7 +121,11 @@ function initEvents() {
   });
   $("settingsBtn").onclick = () => {
     $("burgerMenu").classList.remove("open");
-    openSettings();
+    openSettings("general");
+  };
+  $("llmSettingsBtn").onclick = () => {
+    $("burgerMenu").classList.remove("open");
+    openSettings("llm");
   };
   $("compactBtn").onclick = () => {
     $("burgerMenu").classList.remove("open");
@@ -142,7 +159,7 @@ function initEvents() {
     goToLogin();
   };
   $("abortBtnSide").onclick = abortStream;
-  $("sendBtn").onclick = send;
+  $("sendBtn").onclick = () => send();
   $("attachBtn").onclick = () => $("fileInput").click();
   $("camBtn").onclick = () => $("camInput").click();
   $("fileInput").onchange = (e) => {
@@ -156,18 +173,25 @@ function initEvents() {
 
   const input = $("input");
   const mobile = isMobileInput();
-  const hint = $("composer-hint");
-  if (mobile && hint) hint.textContent = "Enter = neue Zeile · Senden über den Senden-Button";
   input.addEventListener("keydown", (e) => {
     if (e.key === "Enter" && !e.shiftKey && !mobile) {
       e.preventDefault();
       send();
     }
   });
+  const updateInputOverflow = () => {
+    input.style.overflowY = input.scrollHeight > input.clientHeight + 1 ? "auto" : "hidden";
+  };
   input.addEventListener("input", () => {
     input.style.height = "auto";
     input.style.height = Math.min(input.scrollHeight, 180) + "px";
+    updateInputOverflow();
   });
+  updateInputOverflow();
+  if (mobile) {
+    $("composerWrap").addEventListener("pointerdown", () => $("side").classList.add("hidden"));
+    $("chat").addEventListener("pointerdown", () => $("side").classList.add("hidden"));
+  }
 
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SR) {

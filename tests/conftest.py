@@ -21,7 +21,8 @@ def config(tmp_path):
         secret="test-secret",
         registry_path=data / "user_registry.db",
         users_dir=data / "users",
-        default_llm_base="http://llm.test/v1",
+        default_llm_host="llm.test",
+        default_llm_port="",
         default_api_key="test-api-key",
     )
 

@@ -221,3 +221,54 @@ def test_chat_server_reachable_but_completions_fail(client, auth_headers, monkey
     assert b"HTTP 500" in res.content
     assert b"LLM-Server nicht erreichbar" not in res.content
     assert b"[DONE]" in res.content
+
+
+def test_chat_prepends_system_prompt_from_settings(client, auth_headers, monkeypatch):
+    seen = _mock_llm(monkeypatch)
+    client.put("/api/settings", json={"system_prompt": "Sei freundlich."}, headers=auth_headers)
+    res = client.post(
+        "/api/chat",
+        json={"model": "m", "messages": [{"role": "user", "content": "Hi"}]},
+        headers=auth_headers,
+    )
+    assert res.status_code == 200
+    msgs = seen["body"]["messages"]
+    assert msgs[0] == {"role": "system", "content": "Sei freundlich."}
+    assert msgs[1] == {"role": "user", "content": "Hi"}
+
+
+def test_chat_system_prompt_filtered_when_disabled(client, auth_headers, monkeypatch):
+    seen = _mock_llm(monkeypatch)
+    client.put("/api/settings", json={"system_prompt": "Sei freundlich.", "show_system_prompt": False}, headers=auth_headers)
+    client.post(
+        "/api/chat",
+        json={"model": "m", "messages": [{"role": "user", "content": "Hi"}]},
+        headers=auth_headers,
+    )
+    assert seen["body"]["messages"] == [{"role": "user", "content": "Hi"}]
+
+
+def test_chat_uses_host_port_computed_base_url(client, auth_headers, monkeypatch):
+    """Regression: host/port settings must drive the chat URL (single source of truth)."""
+    seen = _mock_llm(monkeypatch)
+    client.put("/api/settings", json={"host": "192.168.1.10", "port": "8000"}, headers=auth_headers)
+    res = client.post(
+        "/api/chat",
+        json={"model": "m", "messages": [{"role": "user", "content": "Hi"}]},
+        headers=auth_headers,
+    )
+    assert res.status_code == 200
+    assert seen["url"] == "http://192.168.1.10:8000/v1/chat/completions"
+
+
+def test_chat_uses_env_default_llm_host_port(client, auth_headers, monkeypatch, app):
+    """Server-Default host/port (LEANCHAT_LLM_HOST/PORT) drives the chat URL."""
+    seen = _mock_llm(monkeypatch)
+    app.state.config.default_llm_host = "10.9.8.7"
+    app.state.config.default_llm_port = "9999"
+    client.post(
+        "/api/chat",
+        json={"model": "m", "messages": [{"role": "user", "content": "Hi"}]},
+        headers=auth_headers,
+    )
+    assert seen["url"] == "http://10.9.8.7:9999/v1/chat/completions"

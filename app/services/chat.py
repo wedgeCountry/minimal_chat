@@ -71,10 +71,10 @@ async def check_llm_connection(base_url: str, api_key: str) -> tuple[bool, str]:
         async with httpx.AsyncClient(timeout=5.0) as client:
             res = await client.get(url, headers=headers)
     except (httpx.ConnectError, httpx.TimeoutException, httpx.NetworkError):
-        return False, "LLM-Server nicht erreichbar"
+        return False, f"LLM-Server nicht erreichbar ({url})"
     if res.status_code >= 400:
-        return False, f"HTTP {res.status_code}"
-    return True, f"HTTP {res.status_code}"
+        return False, f"{url} -> HTTP {res.status_code}"
+    return True, f"{url} -> HTTP {res.status_code}"
 
 
 async def stream_completion(
@@ -108,7 +108,7 @@ async def stream_completion(
         try:
             await client.head(base_url.rstrip("/"), timeout=5.0)
         except (httpx.ConnectError, httpx.TimeoutException, httpx.NetworkError):
-            error = json.dumps({"error": "LLM-Server nicht erreichbar. Bitte überprüfe die Server-URL und die Verbindung."})
+            error = json.dumps({"error": f"LLM-Server nicht erreichbar ({base_url.rstrip('/')}). Bitte überprüfe die Server-URL und die Verbindung."})
             yield f"data: {error}\n\n"
             yield "data: [DONE]\n\n"
             return
