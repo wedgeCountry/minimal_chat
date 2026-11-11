@@ -2,6 +2,10 @@
   <div class="modal" data-testid="settings-modal">
     <h2 data-testid="settings-title">Einstellungen</h2>
     <div class="field" data-testid="field-base"><label data-testid="label-base">Base-URL</label><input id="setBase" data-testid="set-base" placeholder="https://api.openai.com/v1" /></div>
+    <div class="row connRow" data-testid="conn-test-row">
+      <button class="btn" id="setTestConn" data-testid="set-test-conn" type="button">Verbindung testen</button>
+      <span id="connStatus" class="connStatus" data-testid="conn-status"></span>
+    </div>
     <div class="field" data-testid="field-key"><label data-testid="label-key">API-Schlüssel (serverseitig gespeichert)</label><input id="setKey" data-testid="set-key" type="password" placeholder="sk-… (optional, überschreibt Server-Key)" /></div>
     <div class="field" data-testid="field-model"><label data-testid="label-model">Modell</label><input id="setModel" data-testid="set-model" placeholder="gpt-4o-mini" /></div>
     <div class="field" data-testid="field-theme"><label data-testid="label-theme">Theme</label><select id="setTheme" data-testid="set-theme"><option value="light">Hell</option><option value="dark">Dunkel</option></select></div>

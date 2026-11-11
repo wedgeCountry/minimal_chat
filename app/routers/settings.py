@@ -6,7 +6,8 @@ from ..config import AppConfig
 from ..db import database as dbq
 from ..db.database import Database
 from ..deps import get_config, get_current_user, get_db
-from ..models import SettingsIn, SettingsOut
+from ..models import SettingsIn, SettingsOut, SettingsTestIn
+from ..services.chat import check_llm_connection
 from ..services.settings import BOOL_SETTINGS, stored_bool, to_db
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
@@ -30,6 +31,21 @@ def get_settings(
     with db.user_db(user) as con:
         stored = dbq.q_get_user_settings(con)
     return _settings_out(stored, config)
+
+
+@router.post("/test")
+async def test_connection(
+    body: SettingsTestIn,
+    user: dict = Depends(get_current_user),
+    db: Database = Depends(get_db),
+    config: AppConfig = Depends(get_config),
+) -> dict:
+    with db.user_db(user) as con:
+        stored = dbq.q_get_user_settings(con)
+    base = body.base or stored.get("base") or config.default_llm_base
+    api_key = body.api_key or stored.get("api_key") or config.default_api_key
+    ok, detail = await check_llm_connection(base, api_key)
+    return {"ok": ok, "detail": detail}
 
 
 @router.put("", response_model=SettingsOut)

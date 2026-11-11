@@ -9,8 +9,33 @@ import { initSettings, loadSettings, openSettings } from "./settings.js";
 import { initConfirm } from "./confirm.js";
 import { applyTheme } from "./theme.js";
 import { initPartials } from "./html.js";
+import { initGlobalErrorHandling } from "./errors.js";
 
 let currentMessages = [];
+
+const SIDE_HIDDEN_KEY = "leanchat.sideHidden";
+
+function sideHidden() {
+  try {
+    return localStorage.getItem(SIDE_HIDDEN_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function setSideHidden(hidden) {
+  $("side").classList.toggle("hidden", hidden);
+  try {
+    localStorage.setItem(SIDE_HIDDEN_KEY, hidden ? "1" : "0");
+  } catch {}
+}
+
+export function isMobileInput() {
+  return (
+    (window.matchMedia && window.matchMedia("(hover: none) and (pointer: coarse)").matches) ||
+    "ontouchstart" in window
+  );
+}
 
 async function refreshChat() {
   const s = activeSession();
@@ -67,12 +92,13 @@ async function bootstrap() {
   }
   await loadSettings();
   await loadSessions();
+  $("side").classList.toggle("hidden", sideHidden());
   renderAll();
 }
 
 function initEvents() {
   initConfirm();
-  $("panelBtn").onclick = () => $("side").classList.toggle("hidden");
+  $("panelBtn").onclick = () => setSideHidden(!$("side").classList.contains("hidden"));
   $("burgerBtn").onclick = (e) => {
     e.stopPropagation();
     $("burgerMenu").classList.toggle("open");
@@ -129,8 +155,11 @@ function initEvents() {
   };
 
   const input = $("input");
+  const mobile = isMobileInput();
+  const hint = $("composer-hint");
+  if (mobile && hint) hint.textContent = "Enter = neue Zeile · Senden über den Senden-Button";
   input.addEventListener("keydown", (e) => {
-    if (e.key === "Enter" && !e.shiftKey) {
+    if (e.key === "Enter" && !e.shiftKey && !mobile) {
       e.preventDefault();
       send();
     }
@@ -183,6 +212,7 @@ function initEvents() {
   document.addEventListener("leanchat:unauthorized", () => goToLogin());
 }
 
+initGlobalErrorHandling();
 await initPartials();
 initEvents();
 bootstrap();

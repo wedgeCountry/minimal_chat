@@ -19,6 +19,31 @@ export async function loadSettings() {
 
 export function initSettings() {
   $("setCancel").onclick = () => $("overlay").classList.remove("open");
+  $("setTestConn").onclick = async () => {
+    const btn = $("setTestConn");
+    const status = $("connStatus");
+    btn.disabled = true;
+    status.textContent = "Teste Verbindung…";
+    status.className = "connStatus";
+    try {
+      const res = await api.post("/settings/test", {
+        base: $("setBase").value.trim(),
+        api_key: $("setKey").value.trim() || undefined,
+      });
+      if (res.ok) {
+        status.textContent = "Erreichbar ✓ " + (res.detail || "");
+        status.classList.add("ok");
+      } else {
+        status.textContent = "Nicht erreichbar: " + (res.detail || "unbekannter Fehler");
+        status.classList.add("err");
+      }
+    } catch (err) {
+      status.textContent = "Nicht erreichbar: " + err.message;
+      status.classList.add("err");
+    } finally {
+      btn.disabled = false;
+    }
+  };
   $("overlay").addEventListener("click", (e) => {
     if (e.target === $("overlay")) $("overlay").classList.remove("open");
   });

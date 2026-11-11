@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import httpx
+
+RealAsyncClient = httpx.AsyncClient
 
 DEFAULTS = {
     "base": "http://llm.test/v1",
@@ -82,3 +85,67 @@ def test_legacy_user_setting_keys_still_apply(client, auth_headers, app):
 def test_settings_require_auth(client):
     assert client.get("/api/settings").status_code == 401
     assert client.put("/api/settings", json={}).status_code == 401
+    assert client.post("/api/settings/test", json={}).status_code == 401
+
+
+def _mock_llm_models(monkeypatch, handler):
+    def factory(**kwargs):
+        kwargs.pop("timeout", None)
+        return RealAsyncClient(transport=httpx.MockTransport(handler))
+
+    monkeypatch.setattr("app.services.chat.httpx.AsyncClient", factory)
+
+
+def test_connection_test_ok(client, auth_headers, monkeypatch):
+    seen = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["url"] = str(request.url)
+        seen["auth"] = request.headers.get("authorization")
+        return httpx.Response(200, json={"data": []})
+
+    _mock_llm_models(monkeypatch, handler)
+    res = client.post("/api/settings/test", json={}, headers=auth_headers)
+    assert res.status_code == 200
+    body = res.json()
+    assert body["ok"] is True
+    assert seen["url"] == "http://llm.test/v1/models"
+    assert seen["auth"] == "Bearer test-api-key"
+
+
+def test_connection_test_uses_body_overrides(client, auth_headers, monkeypatch):
+    seen = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["url"] = str(request.url)
+        seen["auth"] = request.headers.get("authorization")
+        return httpx.Response(200, json={"data": []})
+
+    _mock_llm_models(monkeypatch, handler)
+    res = client.post(
+        "/api/settings/test",
+        json={"base": "http://other.test/v1", "api_key": "sk-other"},
+        headers=auth_headers,
+    )
+    assert res.json()["ok"] is True
+    assert seen["url"] == "http://other.test/v1/models"
+    assert seen["auth"] == "Bearer sk-other"
+
+
+def test_connection_test_unreachable(client, auth_headers, monkeypatch):
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("no route")
+
+    _mock_llm_models(monkeypatch, handler)
+    res = client.post("/api/settings/test", json={}, headers=auth_headers)
+    assert res.status_code == 200
+    assert res.json()["ok"] is False
+
+
+def test_connection_test_http_error_is_red(client, auth_headers, monkeypatch):
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(401, json={"error": "bad key"})
+
+    _mock_llm_models(monkeypatch, handler)
+    res = client.post("/api/settings/test", json={}, headers=auth_headers)
+    assert res.json() == {"ok": False, "detail": "HTTP 401"}
