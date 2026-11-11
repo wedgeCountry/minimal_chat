@@ -41,7 +41,7 @@ async function bootstrap() {
   // Check if auto-login is enabled
   let autoLoginEnabled = false;
   try {
-    const config = await api.get("/api/auth/config");
+    const config = await api.get("/auth/config");
     autoLoginEnabled = config.auto_login || false;
     if (autoLoginEnabled) {
       document.documentElement.classList.add("auto-login");
@@ -91,7 +91,7 @@ function initEvents() {
   // Check if auto-login is enabled to hide logout button
   let autoLoginEnabled = false;
   try {
-    api.get("/api/auth/config").then(config => {
+    api.get("/auth/config").then(config => {
       autoLoginEnabled = config.auto_login || false;
       if (autoLoginEnabled) {
         $("logoutBtn").style.display = "none";
