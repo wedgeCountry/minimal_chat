@@ -1,0 +1,13 @@
+{
+  "name": "leanchat-frontend",
+  "private": true,
+  "version": "0.2.0",
+  "type": "module",
+  "description": "LeanChat Frontend - statische ES-Module ohne Build-Schritt",
+  "scripts": {
+    "start": "uvicorn app.main:app --host 127.0.0.1 --port 8000",
+    "test": "node --test tests/js/*.test.js",
+    "test:python": "pytest",
+    "test:e2e": "pytest -m e2e tests/e2e"
+  }
+}

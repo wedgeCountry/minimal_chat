@@ -1,0 +1,116 @@
+/* ------------------------------------------------------------------
+   Bubble-Styling-System: Auspraegung wird komplett ueber CSS-Variablen
+   gesteuert - pro Rolle (user/assistant/system/reasoning/toolcall) und
+   pro Zustand (collapsed = eingeklappt, expanded = ausgeklappt,
+   compact = komprimiert, selected/deselected = (ab-)gewaehlt).
+   ------------------------------------------------------------------ */
+
+#chat{flex:1;overflow-y:auto;padding:18px 14px;display:flex;flex-direction:column;gap:12px;background:var(--chat-bg)}
+
+.bubble{
+  /* neutrale Defaults (Rolle: assistant) */
+  --bubble-bg:var(--bubble-ai);
+  --bubble-color:var(--text);
+  --bubble-border:1px solid var(--border);
+  --bubble-radius:12px;
+  --bubble-corner:4px;
+  --bubble-padding:10px 12px;
+  --bubble-min-height:56px;
+  --bubble-opacity:1;
+  --bubble-body-size:14px;
+  --bubble-head-size:11px;
+  --bubble-align:flex-start;
+  --bubble-max-width:78%;
+  --bubble-outline:none;
+
+  max-width:var(--bubble-max-width);
+  min-height:var(--bubble-min-height);
+  border-radius:var(--bubble-radius);
+  padding:var(--bubble-padding);
+  align-self:var(--bubble-align);
+  background:var(--bubble-bg);
+  color:var(--bubble-color);
+  border:var(--bubble-border);
+  box-shadow:var(--shadow);
+  outline:var(--bubble-outline);
+  opacity:var(--bubble-opacity);
+  position:relative;
+  display:flex;
+  flex-direction:column;
+  transition:opacity .15s, padding .15s, min-height .15s;
+}
+
+/* Rollen */
+.bubble.user{
+  --bubble-bg:var(--bubble-user);
+  --bubble-color:var(--bubble-user-text);
+  --bubble-border:none;
+  --bubble-align:flex-end;
+  border-bottom-right-radius:var(--bubble-corner);
+}
+.bubble.assistant,.bubble.toolcall{
+  border-bottom-left-radius:var(--bubble-corner);
+}
+.bubble.system{
+  --bubble-bg:var(--system);
+  --bubble-color:var(--muted);
+  --bubble-align:center;
+  --bubble-max-width:88%;
+  --bubble-body-size:13px;
+}
+.bubble.reasoning{
+  --bubble-bg:transparent;
+  --bubble-color:var(--muted);
+  --bubble-border:1px dashed var(--border);
+  --bubble-body-size:13px;
+}
+.bubble.toolcall .bubbleBody,.bubble.reasoning .bubbleBody{
+  font-family:ui-monospace,Menlo,Consolas,monospace;
+  font-size:12.5px;
+}
+
+/* Zustaende */
+.bubble.collapsed{ /* eingeklappt */
+  --bubble-min-height:0;
+  --bubble-padding:6px 12px;
+}
+.bubble.collapsed .bubbleBody{display:none}
+.bubble.expanded{ /* ausgeklappt (explizit) */
+  --bubble-min-height:56px;
+}
+.bubble.compact{ /* komprimiert */
+  --bubble-padding:4px 10px;
+  --bubble-min-height:0;
+  --bubble-body-size:12px;
+  --bubble-head-size:10px;
+}
+#chat.compact .bubble{ /* Kompaktansicht fuer alle Bubbles */
+  --bubble-padding:4px 10px;
+  --bubble-min-height:0;
+  --bubble-body-size:12px;
+}
+.bubble.selected{ /* ausgewaehlt (z. B. im Kontext) */
+  --bubble-outline:2px solid var(--accent);
+}
+.bubble.deselected{ /* abgewaehlt */
+  --bubble-opacity:.55;
+}
+
+/* Kopfzeile + Body */
+.bubbleHead{display:flex;align-items:center;gap:6px;margin-bottom:4px;font-size:var(--bubble-head-size);opacity:.75}
+.bubble.user .bubbleHead{opacity:.85}
+.bubbleHead .role{font-weight:600;text-transform:uppercase;letter-spacing:.4px}
+.bubbleHead .grow{flex:1}
+.bubble.user .bubbleHead button svg{stroke:#fff}
+.bubble.user .chk{accent-color:#fff}
+.chk{accent-color:var(--accent);width:14px;height:14px;cursor:pointer}
+.bubbleBody{font-size:var(--bubble-body-size);line-height:1.5;white-space:pre-wrap;word-break:break-word;min-height:21px}
+.chev{padding:2px}
+.chev svg{width:12px;height:12px}
+.bubble.collapsed .chev svg{transform:rotate(-90deg)}
+.ttsBtn.on{color:var(--accent)}
+.bubble.user .ttsBtn.on{color:#fff}
+.copyBtn.ok svg{stroke:var(--accent)}
+.bubble.user .copyBtn.ok svg{stroke:#fff}
+.attachChip{font-size:12px;opacity:.9;display:flex;gap:6px;align-items:center;margin-bottom:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.attachChip svg{width:13px;height:13px}
