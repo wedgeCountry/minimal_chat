@@ -23,6 +23,22 @@ export function abortStream() {
   state.abortCtrl?.abort();
 }
 
+export function sortMessagesForRender(messages) {
+  const getPriority = (m) => {
+    if (m.role === "system") return 0;
+    if (m.type === "reasoning") return 1;
+    if (m.type === "message") return 2;
+    return 3;
+  };
+
+  return [...messages].sort((a, b) => {
+    if (a.ts === b.ts) {
+      return getPriority(a) - getPriority(b);
+    }
+    return a.ts - b.ts;
+  });
+}
+
 export function renderChat(messages) {
   const chat = $("chat");
   chat.innerHTML = "";
@@ -35,7 +51,8 @@ export function renderChat(messages) {
     chat.appendChild(empty);
     return;
   }
-  messages.filter((m) => isBubbleVisible(m, state.settings)).forEach((m) => chat.appendChild(bubbleEl(m, handlers)));
+  const sortedMessages = sortMessagesForRender(messages);
+  sortedMessages.filter((m) => isBubbleVisible(m, state.settings)).forEach((m) => chat.appendChild(bubbleEl(m, handlers)));
   chat.scrollTop = chat.scrollHeight;
 }
 

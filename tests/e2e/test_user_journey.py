@@ -47,6 +47,10 @@ def _bubble(role, type_="message"):
     return f'[data-testid="chat"] .bubble[data-role="{role}"][data-type="{type_}"]'
 
 
+def _reasoning_bubble():
+    return _bubble("assistant", "reasoning")
+
+
 def _register_client(base_url, email, password):
     """Registriert einen User direkt per API; der Client haelt danach den Session-Cookie."""
     client = httpx.Client(base_url=base_url, timeout=10)
@@ -200,6 +204,143 @@ def test_full_user_journey(page, base_url, tmp_path, llm_expect):
     page.click(T["burger_btn"])
     page.click(T["logout_btn"])
     page.wait_for_selector(f'{T["auth_overlay"]}.open')
+
+
+
+def test_reasoning_bubbles_appear_before_response_and_are_collapsed(page, base_url, llm_expect):
+    """Testet, dass Reasoning-Bubbles vor den Antwort-Bubbles erscheinen und standardmäßig eingeklappt sind."""
+    # Setup: User per API anlegen
+    api_client = _register_client(base_url, "reasoning-user@example.com", "Geheim-123")
+
+    # 1. Anmelden
+    _login(page, base_url, "reasoning-user@example.com", "Geheim-123")
+
+    # 2. Neue Session eroeffnen
+    page.click(T["new_session"])
+    page.wait_for_selector(f'{T["session_tile"]}.active')
+
+    # 3. Eine Nachricht senden - das Mock-LLM sendet reasoning_content und content
+    page.fill(T["chat_input"], "Test Nachricht")
+    page.click(T["send_btn"])
+    
+    # Warten auf User-Bubble
+    page.wait_for_function(
+        "() => document.querySelectorAll('[data-testid=\"chat\"] .bubble[data-role=\"user\"]').length === 1",
+        timeout=llm_expect["timeout_ms"]
+    )
+    
+    # Warten auf Reasoning-Bubble und Message-Bubble vom Assistant
+    page.wait_for_function(
+        "() => document.querySelectorAll('[data-testid=\"chat\"] .bubble[data-role=\"assistant\"][data-type=\"reasoning\"]').length === 1",
+        timeout=llm_expect["timeout_ms"]
+    )
+    
+    page.wait_for_function(
+        "() => document.querySelectorAll('[data-testid=\"chat\"] .bubble[data-role=\"assistant\"][data-type=\"message\"]').length === 1"
+        " && !document.querySelector('[data-testid=\"send-btn\"]').classList.contains('abort')",
+        timeout=llm_expect["timeout_ms"]
+    )
+
+    # 4. Prüfen, dass genau ein Reasoning-Bubble und ein Message-Bubble vom Assistant existieren
+    reasoning_bubbles = page.locator(_reasoning_bubble())
+    assistant_message_bubbles = page.locator(_bubble("assistant", "message"))
+    
+    assert reasoning_bubbles.count() == 1, "Es sollte genau ein Reasoning-Bubble existieren"
+    assert assistant_message_bubbles.count() == 1, "Es sollte genau ein Message-Bubble vom Assistant existieren"
+
+    # 5. Prüfen, dass der Reasoning-Bubble vor dem Message-Bubble erscheint
+    all_bubbles = page.locator(f'{T["chat"]} > .bubble')
+    bubble_elements = all_bubbles.element_handles()
+    
+    # Finde die Positionen der Bubbles
+    reasoning_index = -1
+    message_index = -1
+    
+    for i, bubble in enumerate(bubble_elements):
+        role = bubble.get_attribute("data-role")
+        type_ = bubble.get_attribute("data-type")
+        if role == "assistant" and type_ == "reasoning":
+            reasoning_index = i
+        elif role == "assistant" and type_ == "message":
+            message_index = i
+    
+    assert reasoning_index != -1, "Reasoning-Bubble nicht gefunden"
+    assert message_index != -1, "Message-Bubble nicht gefunden"
+    assert reasoning_index < message_index, "Reasoning-Bubble sollte vor dem Message-Bubble erscheinen"
+
+    # 6. Prüfen, dass der Reasoning-Bubble standardmäßig eingeklappt ist
+    reasoning_bubble = reasoning_bubbles.first
+    assert "collapsed" in reasoning_bubble.get_attribute("class"), "Reasoning-Bubble sollte standardmäßig eingeklappt sein"
+    assert reasoning_bubble.get_attribute("data-mode") == "collapsed", "Reasoning-Bubble data-mode sollte 'collapsed' sein"
+
+
+def test_reasoning_bubbles_can_be_expanded(page, base_url, llm_expect):
+    """Testet, dass eingeklappte Reasoning-Bubbles ausgeklappt werden können."""
+    # Setup: User per API anlegen
+    api_client = _register_client(base_url, "expand-user@example.com", "Geheim-123")
+
+    # 1. Anmelden
+    _login(page, base_url, "expand-user@example.com", "Geheim-123")
+
+    # 2. Neue Session eroeffnen
+    page.click(T["new_session"])
+    page.wait_for_selector(f'{T["session_tile"]}.active')
+
+    # 3. Eine Nachricht senden
+    page.fill(T["chat_input"], "Test zum Ausklappen")
+    page.click(T["send_btn"])
+    
+    # Warten auf User-Bubble
+    page.wait_for_function(
+        "() => document.querySelectorAll('[data-testid=\"chat\"] .bubble[data-role=\"user\"]').length === 1",
+        timeout=llm_expect["timeout_ms"]
+    )
+    
+    # Warten auf Reasoning-Bubble
+    page.wait_for_function(
+        "() => document.querySelectorAll('[data-testid=\"chat\"] .bubble[data-role=\"assistant\"][data-type=\"reasoning\"]').length === 1",
+        timeout=llm_expect["timeout_ms"]
+    )
+    
+    # Warten auf Message-Bubble und Streamende
+    page.wait_for_function(
+        "() => document.querySelectorAll('[data-testid=\"chat\"] .bubble[data-role=\"assistant\"][data-type=\"message\"]').length === 1"
+        " && !document.querySelector('[data-testid=\"send-btn\"]').classList.contains('abort')",
+        timeout=llm_expect["timeout_ms"]
+    )
+
+    # 4. Reasoning-Bubble finden und prüfen, dass er eingeklappt ist
+    reasoning_bubble = page.locator(_reasoning_bubble()).first
+    assert "collapsed" in reasoning_bubble.get_attribute("class")
+
+    # 5. Auf den Toggle-Button klicken, um den Reasoning-Bubble auszuklappen
+    toggle_btn = reasoning_bubble.locator('[data-testid="bubble-toggle-btn"]')
+    toggle_btn.click()
+
+    # 6. Prüfen, dass der Reasoning-Bubble jetzt nicht mehr eingeklappt ist
+    page.wait_for_function(
+        f"() => !document.querySelector('{_reasoning_bubble()}').classList.contains('collapsed')",
+        timeout=llm_expect["timeout_ms"]
+    )
+    
+    # 7. Prüfen, dass der Mode jetzt "normal" ist
+    assert reasoning_bubble.get_attribute("data-mode") == "normal", "Nach dem ersten Klick sollte der Mode 'normal' sein"
+
+    # 8. Nochmal klicken, um auf "full" zu kommen
+    toggle_btn.click()
+    page.wait_for_function(
+        f"() => document.querySelector('{_reasoning_bubble()}').classList.contains('full')",
+        timeout=llm_expect["timeout_ms"]
+    )
+    assert reasoning_bubble.get_attribute("data-mode") == "full", "Nach dem zweiten Klick sollte der Mode 'full' sein"
+
+    # 9. Nochmal klicken, um zurück zu "collapsed" zu kommen
+    toggle_btn.click()
+    page.wait_for_function(
+        f"() => document.querySelector('{_reasoning_bubble()}').classList.contains('collapsed')",
+        timeout=llm_expect["timeout_ms"]
+    )
+    assert reasoning_bubble.get_attribute("data-mode") == "collapsed", "Nach dem dritten Klick sollte der Mode wieder 'collapsed' sein"
 
 
 def test_login_rejects_wrong_password(page, base_url):
