@@ -37,6 +37,7 @@
   position:relative;
   display:flex;
   flex-direction:column;
+  flex:none; /* im Spalten-Flex #chat nicht schrumpfen (sonst kollabiert die Hoehe bei overflow:hidden) */
   overflow:hidden; /* Text darf nicht unten aus der Bubble laufen */
   transition:opacity .15s, padding .15s, min-height .15s;
 }
