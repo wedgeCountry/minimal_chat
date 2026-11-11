@@ -10,7 +10,16 @@ const CHECK_IDS = {
   show_system_prompt: "setShowSystem",
   show_tool_output: "setShowTool",
   show_reasoning: "setShowReasoning",
+  show_file_button: "setShowFile",
+  show_image_button: "setShowImage",
 };
+
+export function buildBaseUrl(host, port) {
+  const h = (host || "").trim();
+  if (!h) return "";
+  const p = (port || "").trim();
+  return `http://${h}${p ? ":" + p : ""}/v1`;
+}
 
 export async function loadSettings() {
   state.settings = { ...state.settings, ...(await api.get("/settings")) };
@@ -47,9 +56,16 @@ export function initSettings() {
   $("overlay").addEventListener("click", (e) => {
     if (e.target === $("overlay")) $("overlay").classList.remove("open");
   });
+  const updateBasePreview = () => {
+    $("setBase").value = buildBaseUrl($("setHost").value, $("setPort").value);
+  };
+  $("setHost").addEventListener("input", updateBasePreview);
+  $("setPort").addEventListener("input", updateBasePreview);
   $("setSave").onclick = async () => {
     const body = {
       base: $("setBase").value.trim(),
+      host: $("setHost").value.trim(),
+      port: $("setPort").value.trim(),
       model: $("setModel").value.trim(),
       theme: $("setTheme").value,
     };
@@ -64,7 +80,11 @@ export function initSettings() {
 }
 
 export function openSettings() {
-  $("setBase").value = state.settings.base;
+  $("setHost").value = state.settings.host || "";
+  $("setPort").value = state.settings.port || "";
+  $("setBase").value = state.settings.host
+    ? buildBaseUrl(state.settings.host, state.settings.port)
+    : state.settings.base;
   $("setKey").value = "";
   $("setModel").value = state.settings.model;
   $("setTheme").value = state.settings.theme;

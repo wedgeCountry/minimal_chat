@@ -9,6 +9,8 @@ BOOL_SETTINGS: dict[str, bool] = {
     "show_system_prompt": True,
     "show_tool_output": True,
     "show_reasoning": True,
+    "show_file_button": False,
+    "show_image_button": False,
 }
 
 # Fruehere Schluessel (vor dem Umbenennen ohne User-Bezug)

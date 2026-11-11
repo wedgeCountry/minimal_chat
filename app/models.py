@@ -41,6 +41,8 @@ class SessionDetail(SessionOut):
 
 class SettingsIn(BaseModel):
     base: str | None = None
+    host: str | None = None
+    port: str | None = None
     model: str | None = None
     theme: Literal["light", "dark"] | None = None
     api_key: str | None = None
@@ -50,10 +52,14 @@ class SettingsIn(BaseModel):
     show_system_prompt: bool | None = None
     show_tool_output: bool | None = None
     show_reasoning: bool | None = None
+    show_file_button: bool | None = None
+    show_image_button: bool | None = None
 
 
 class SettingsOut(BaseModel):
     base: str
+    host: str = ""
+    port: str = ""
     model: str
     theme: str
     bubbles_deletable: bool = False
@@ -62,6 +68,8 @@ class SettingsOut(BaseModel):
     show_system_prompt: bool = True
     show_tool_output: bool = True
     show_reasoning: bool = True
+    show_file_button: bool = False
+    show_image_button: bool = False
 
 
 class ChatMessage(BaseModel):

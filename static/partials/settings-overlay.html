@@ -1,7 +1,9 @@
 <div id="overlay" data-testid="settings-overlay">
   <div class="modal" data-testid="settings-modal">
     <h2 data-testid="settings-title">Einstellungen</h2>
-    <div class="field" data-testid="field-base"><label data-testid="label-base">Base-URL</label><input id="setBase" data-testid="set-base" placeholder="https://api.openai.com/v1" /></div>
+    <div class="field" data-testid="field-host"><label data-testid="label-host">LLM IP/Host</label><input id="setHost" data-testid="set-host" placeholder="192.168.1.10" /></div>
+    <div class="field" data-testid="field-port"><label data-testid="label-port">Port</label><input id="setPort" data-testid="set-port" type="number" min="1" max="65535" placeholder="8000" /></div>
+    <div class="field" data-testid="field-base"><label data-testid="label-base">Base-URL (berechnet)</label><input id="setBase" data-testid="set-base" readonly /></div>
     <div class="row connRow" data-testid="conn-test-row">
       <button class="btn" id="setTestConn" data-testid="set-test-conn" type="button">Verbindung testen</button>
       <span id="connStatus" class="connStatus" data-testid="conn-status"></span>
@@ -16,6 +18,8 @@
       <label class="checkRow" data-testid="checkrow-show-system"><input type="checkbox" id="setShowSystem" data-testid="set-show-system" /> System-Prompt anzeigen</label>
       <label class="checkRow" data-testid="checkrow-show-tool"><input type="checkbox" id="setShowTool" data-testid="set-show-tool" /> Tool-Ausgabe anzeigen</label>
       <label class="checkRow" data-testid="checkrow-show-reasoning"><input type="checkbox" id="setShowReasoning" data-testid="set-show-reasoning" /> Reasoning anzeigen</label>
+      <label class="checkRow" data-testid="checkrow-show-file"><input type="checkbox" id="setShowFile" data-testid="set-show-file" /> Datei-Button anzeigen</label>
+      <label class="checkRow" data-testid="checkrow-show-image"><input type="checkbox" id="setShowImage" data-testid="set-show-image" /> Bild-Button anzeigen</label>
     </div>
     <div class="row" data-testid="settings-actions">
       <button class="btn" id="setCancel" data-testid="set-cancel">Abbrechen</button>

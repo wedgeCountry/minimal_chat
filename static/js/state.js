@@ -6,6 +6,8 @@ export const state = {
   activeId: _ss?.getItem("leanchat.active") || null,
   settings: {
     base: "",
+    host: "",
+    port: "",
     model: "",
     theme: "light",
     bubbles_deletable: true,
@@ -14,6 +16,8 @@ export const state = {
     show_system_prompt: true,
     show_tool_output: true,
     show_reasoning: true,
+    show_file_button: false,
+    show_image_button: false,
   },
   streaming: false,
   abortCtrl: null,

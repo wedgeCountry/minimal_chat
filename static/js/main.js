@@ -52,10 +52,16 @@ async function refreshChat() {
   renderChat(currentMessages);
 }
 
+function applyComposerButtons() {
+  $("attachBtn").style.display = state.settings.show_file_button === false ? "none" : "";
+  $("camBtn").style.display = state.settings.show_image_button === false ? "none" : "";
+}
+
 function renderAll() {
   renderSessions();
   renderHeader();
   refreshChat();
+  applyComposerButtons();
 }
 
 async function bootstrap() {

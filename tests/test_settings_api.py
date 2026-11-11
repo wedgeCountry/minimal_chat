@@ -6,6 +6,8 @@ RealAsyncClient = httpx.AsyncClient
 
 DEFAULTS = {
     "base": "http://llm.test/v1",
+    "host": "",
+    "port": "",
     "model": "gpt-4o-mini",
     "theme": "light",
     "bubbles_deletable": True,
@@ -14,6 +16,8 @@ DEFAULTS = {
     "show_system_prompt": True,
     "show_tool_output": True,
     "show_reasoning": True,
+    "show_file_button": False,
+    "show_image_button": False,
 }
 
 
@@ -80,6 +84,30 @@ def test_legacy_user_setting_keys_still_apply(client, auth_headers, app):
     got = client.get("/api/settings", headers=auth_headers).json()
     assert got["bubbles_checkable"] is False
     assert got["bubbles_deletable"] is False
+
+
+def test_host_port_compute_base_url(client, auth_headers):
+    res = client.put(
+        "/api/settings",
+        json={"host": "192.168.1.10", "port": "8000"},
+        headers=auth_headers,
+    )
+    assert res.status_code == 200
+    body = res.json()
+    assert body["base"] == "http://192.168.1.10:8000/v1"
+    assert body["host"] == "192.168.1.10"
+    assert body["port"] == "8000"
+    got = client.get("/api/settings", headers=auth_headers).json()
+    assert got["base"] == "http://192.168.1.10:8000/v1"
+
+
+def test_host_without_port_and_legacy_base_fallback(client, auth_headers):
+    res = client.put("/api/settings", json={"host": "llm.local"}, headers=auth_headers)
+    assert res.json()["base"] == "http://llm.local/v1"
+    # host leeren -> wieder gespeicherte base / Default
+    client.put("/api/settings", json={"host": "", "base": "http://legacy.test/v1"}, headers=auth_headers)
+    got = client.get("/api/settings", headers=auth_headers).json()
+    assert got["base"] == "http://legacy.test/v1"
 
 
 def test_settings_require_auth(client):

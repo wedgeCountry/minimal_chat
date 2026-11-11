@@ -13,9 +13,22 @@ from ..services.settings import BOOL_SETTINGS, stored_bool, to_db
 router = APIRouter(prefix="/api/settings", tags=["settings"])
 
 
+def _base_from_host_port(host: str, port: str) -> str | None:
+    host = host.strip()
+    if not host:
+        return None
+    port = port.strip()
+    return f"http://{host}{':' + port if port else ''}/v1"
+
+
 def _settings_out(stored: dict[str, str], config: AppConfig) -> SettingsOut:
+    host = stored.get("host") or ""
+    port = stored.get("port") or ""
+    base = _base_from_host_port(host, port) or stored.get("base") or config.default_llm_base
     return SettingsOut(
-        base=stored.get("base") or config.default_llm_base,
+        base=base,
+        host=host,
+        port=port,
         model=stored.get("model") or config.default_model,
         theme=stored.get("theme") or "light",
         **{key: stored_bool(stored, key) for key in BOOL_SETTINGS},
@@ -56,9 +69,11 @@ def put_settings(
     config: AppConfig = Depends(get_config),
 ) -> SettingsOut:
     with db.user_db(user) as con:
-        for key in ("base", "model", "theme", "api_key"):
+        for key in ("base", "host", "port", "model", "theme", "api_key"):
             value = getattr(body, key)
-            if value is not None and value != "":
+            # host/port duerfen per leerem String geloescht werden (Base-URL faellt
+            # dann wieder auf gespeicherte base / Default zurueck)
+            if value is not None and (value != "" or key in ("host", "port")):
                 dbq.q_set_user_setting(con, key, value)
         for key in BOOL_SETTINGS:
             value = getattr(body, key)
