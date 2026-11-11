@@ -1,6 +1,6 @@
 import { api } from "./api.js";
 import { activeSession, setActiveId, state } from "./state.js";
-import { $, esc } from "./util.js";
+import { $, esc, isMobileInput } from "./util.js";
 import { ICONS } from "./icons.js";
 import { confirmModal } from "./confirm.js";
 
@@ -46,15 +46,23 @@ export function renderSessions() {
   }
 }
 
+export function hideSidePanelOnMobile() {
+  if (isMobileInput()) $("side").classList.add("hidden");
+}
+
 export async function newSession(open = true) {
   const s = await api.post("/sessions", { name: "Neue Session" });
   state.sessions.unshift(s);
-  if (open) setActiveId(s.id);
+  if (open) {
+    setActiveId(s.id);
+    hideSidePanelOnMobile();
+  }
   changed();
 }
 
 export function openSession(id) {
   setActiveId(id);
+  hideSidePanelOnMobile();
   changed();
 }
 
