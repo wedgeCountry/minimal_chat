@@ -121,7 +121,11 @@ function initEvents() {
   });
   $("settingsBtn").onclick = () => {
     $("burgerMenu").classList.remove("open");
-    openSettings();
+    openSettings("general");
+  };
+  $("llmSettingsBtn").onclick = () => {
+    $("burgerMenu").classList.remove("open");
+    openSettings("llm");
   };
   $("compactBtn").onclick = () => {
     $("burgerMenu").classList.remove("open");
