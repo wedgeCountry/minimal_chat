@@ -75,6 +75,21 @@ npm test                          # JS-Unit-Tests (node:test)
 python -m pytest -m e2e tests/e2e # GUI-Tests mit Playwright (braucht `playwright install chromium`)
 ```
 
+### User-Journey-GUI-Test manuell gegen ein echtes LLM
+
+Der e2e-Test laeuft standardmaessig gegen den lokalen Mock-LLM. Der gleiche Test
+laesst sich manuell eins zu eins gegen ein echtes OpenAI-kompatibles LLM
+ausfuehren (Opt-in, nie automatisch):
+
+```bash
+export LEANCHAT_E2E_REAL_LLM=1
+export LEANCHAT_E2E_LLM_BASE="https://api.openai.com/v1"
+export LEANCHAT_E2E_API_KEY="sk-..."
+python -m pytest -m e2e tests/e2e
+```
+
+Details siehe [docs/e2e_real_llm.md](docs/e2e_real_llm.md).
+
 ## Specification
 
 See [SPEC.md](SPEC.md) for the original design specification (German).
