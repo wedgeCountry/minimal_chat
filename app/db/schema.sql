@@ -20,6 +20,21 @@ CREATE TABLE IF NOT EXISTS messages (
 
 CREATE INDEX IF NOT EXISTS idx_messages_session ON messages (session_id, id);
 
+-- Datei-Anhaenge: der Client laedt die Rohdatei hoch, der Server liest/dekodiert sie
+-- (kind: text/image/binary) und haelt das Ergebnis fuer den LLM-Request bereit.
+CREATE TABLE IF NOT EXISTS attachments (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id TEXT NOT NULL REFERENCES sessions (id) ON DELETE CASCADE,
+    name       TEXT NOT NULL,
+    mime       TEXT NOT NULL DEFAULT 'application/octet-stream',
+    kind       TEXT NOT NULL DEFAULT 'binary' CHECK (kind IN ('text', 'image', 'binary')),
+    size       INTEGER NOT NULL DEFAULT 0,
+    content    TEXT NOT NULL DEFAULT '',
+    created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_attachments_session ON attachments (session_id, id);
+
 CREATE TABLE IF NOT EXISTS user_settings (
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL

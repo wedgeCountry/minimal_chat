@@ -5,6 +5,7 @@ import { ICONS } from "./icons.js";
 import { bubbleEl } from "./bubbles.js";
 import { buildChatPayload } from "./payload.js";
 import { loadSessions, newSession, changed } from "./sessions.js";
+import { uploadPendingAttachments } from "./attachments.js";
 import { confirmModal } from "./confirm.js";
 import { isBubbleVisible } from "./visibility.js";
 
@@ -142,13 +143,14 @@ export async function send(textOverride, attachmentsOverride) {
   }
   const input = $("input");
   const text = (typeof textOverride === "string" ? textOverride : input.value).trim();
-  const attachments = Array.isArray(attachmentsOverride) ? attachmentsOverride : state.pendingAttachments.splice(0);
-  if (!text && !attachments.length) return;
+  const pending = Array.isArray(attachmentsOverride) ? attachmentsOverride : state.pendingAttachments;
+  if (!text && !pending.length) return;
   let s = activeSession();
   if (!s) {
     await newSession(true);
     s = activeSession();
   }
+  const attachments = Array.isArray(attachmentsOverride) ? attachmentsOverride : await uploadPendingAttachments(s.id);
   await api.post(`/sessions/${s.id}/messages`, {
     role: "user",
     type: "message",

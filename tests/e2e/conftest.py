@@ -69,9 +69,10 @@ def llm_expect(mock_llm_port):
         return {
             "default": None,  # echtes LLM: beliebige nicht-leere Antwort
             "file": "Krokodil-Ledertasche",  # Dateiinhalt muss in der Antwort stehen
+            "lorem": None,  # Lorem-ipsum-Datei: beliebige nicht-leere Antwort
             "timeout_ms": 120000,
         }
-    return {"default": "Hallo Welt", "file": "Krokodil-Ledertasche", "timeout_ms": 30000}
+    return {"default": "Hallo Welt", "file": "Krokodil-Ledertasche", "lorem": "Lorem ipsum", "timeout_ms": 30000}
 
 
 @pytest.fixture(scope="session")

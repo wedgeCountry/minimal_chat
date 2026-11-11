@@ -18,6 +18,30 @@ test("filtert deaktivierte und leere Assistant-Nachrichten", () => {
   assert.deepEqual(payload.messages, [{ role: "user", content: "Hallo" }]);
 });
 
+test("baut Anhang-Referenz-Part mit attachment_id (serverseitige Aufbereitung)", () => {
+  const payload = buildChatPayload({
+    model: "m",
+    messages: [
+      {
+        role: "user",
+        type: "message",
+        text: "schau",
+        inContext: true,
+        attachments: [{ id: 7, name: "notiz.txt", type: "text/plain" }],
+      },
+    ],
+  });
+  assert.deepEqual(payload.messages, [
+    {
+      role: "user",
+      content: [
+        { type: "text", text: "[Datei: notiz.txt]", attachment_id: 7 },
+        { type: "text", text: "schau" },
+      ],
+    },
+  ]);
+});
+
 test("baut Mehrfach-Content mit Anhaengen", () => {
   const payload = buildChatPayload({
     model: "m",

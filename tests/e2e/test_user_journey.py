@@ -5,14 +5,16 @@ Alle Selektoren laufen ueber die ``data-testid``-Attribute der UI-Elemente.
 
 from __future__ import annotations
 
+import json
 import re
+from pathlib import Path
 
 import httpx
 import pytest
 
 from app.auth import user_identity
 from app.db import crypto
-from tests.e2e.conftest import E2E_SECRET
+from tests.e2e.conftest import E2E_SECRET, REPO_ROOT
 
 pytestmark = pytest.mark.e2e
 
@@ -532,3 +534,61 @@ def test_error_popup_when_llm_unreachable(page, base_url, llm_expect, server_dat
     # 1. Create a fixture that starts a mock server that fails HEAD requests
     # 2. Or use monkeypatch to modify the httpx.AsyncClient behavior in the backend
     # This is left as a manual test for now
+
+
+LOREM_FIXTURE = REPO_ROOT / "tests" / "fixtures" / "lorem_ipsum.txt"
+
+
+def test_file_upload_user_journey(page, base_url, llm_expect, server_data_dir):
+    """User Journey Datei senden: Datei anhaengen/entfernen, Frage mit Anhang senden,
+    serverseitig verarbeiteter Inhalt landet vollstaendig im LLM-Request und in der DB."""
+    email = "file-user@example.com"
+    api_client = _register_client(base_url, email, "Geheim-123")
+
+    # 1. Anmelden und neue Session
+    _login(page, base_url, email, "Geheim-123")
+    page.click(T["new_session"])
+    page.wait_for_selector(f'{T["session_tile"]}.active')
+    sid = api_client.get("/api/sessions").json()[0]["id"]
+
+    # 2. Datei anhaengen -> Chip mit Dateiname erscheint
+    page.set_input_files('[data-testid="file-input"]', str(LOREM_FIXTURE))
+    page.wait_for_selector('[data-testid="attachment-chip-0"]')
+    assert page.locator('[data-testid="attachment-name-0"]').inner_text() == "lorem_ipsum.txt"
+
+    # 3. Anhang wieder entfernen -> Chip verschwindet; danach erneut anhaengen
+    page.click('[data-testid="attachment-remove-btn-0"]')
+    page.wait_for_selector('[data-testid^="attachment-chip-"]', state="detached")
+    page.set_input_files('[data-testid="file-input"]', str(LOREM_FIXTURE))
+    page.wait_for_selector('[data-testid="attachment-chip-0"]')
+
+    # 4. Frage zusammen mit der Datei senden; Mock-LLM antwortet auf den Dateiinhalt
+    _chat_once(page, "Was steht in der Datei?", 1, llm_expect["lorem"], llm_expect["timeout_ms"])
+
+    # 4b. Nach dem Senden ist die Anhang-Liste ueber dem Eingabefeld geleert
+    page.wait_for_selector('[data-testid^="attachment-chip-"]', state="detached", timeout=llm_expect["timeout_ms"])
+
+    # 5. User-Bubble enthaelt sowohl die Frage als auch den Anhang (Input geht nicht verloren)
+    user_bubble = page.locator(_bubble("user")).first
+    assert "Was steht in der Datei?" in user_bubble.locator('[data-testid="bubble-body"]').inner_text()
+    assert user_bubble.locator('[data-testid="bubble-attachment-name"]').inner_text() == "lorem_ipsum.txt"
+
+    # 6. Serverseitige Verarbeitung in der per-user DB: Anhang vollstaendig als Text
+    #    gespeichert, Nachricht traegt die Anhang-Referenz
+    con = _open_user_db(server_data_dir, email)
+    try:
+        row = con.execute(
+            "SELECT name, mime, kind, content FROM attachments WHERE session_id = ?", (sid,)
+        ).fetchone()
+        msg_att = con.execute(
+            "SELECT attachments FROM messages WHERE session_id = ? AND role = 'user'", (sid,)
+        ).fetchone()
+    finally:
+        con.close()
+    assert row is not None, "Attachment muss in der per-user DB liegen"
+    name, mime, kind, att_content = row
+    assert (name, mime, kind) == ("lorem_ipsum.txt", "text/plain", "text")
+    assert att_content == LOREM_FIXTURE.read_text(encoding="utf-8")
+    assert len(att_content.splitlines()) == 20
+    refs = json.loads(msg_att[0])
+    assert refs and refs[0]["name"] == "lorem_ipsum.txt" and "id" in refs[0]

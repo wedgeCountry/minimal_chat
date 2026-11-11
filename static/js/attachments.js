@@ -1,3 +1,4 @@
+import { api } from "./api.js";
 import { state } from "./state.js";
 import { $, esc } from "./util.js";
 import { ICONS } from "./icons.js";
@@ -5,29 +6,38 @@ import { ICONS } from "./icons.js";
 export function addAttachments(files) {
   for (const f of files) {
     if (!f) continue;
-    if (f.type.startsWith("image/")) {
-      const rd = new FileReader();
-      rd.onload = () => {
-        state.pendingAttachments.push({ name: f.name, type: f.type, data: rd.result });
-        renderAttachments();
-      };
-      rd.readAsDataURL(f);
-    } else if (f.size < 200000) {
-      const rd = new FileReader();
-      rd.onload = () => {
-        state.pendingAttachments.push({ name: f.name, type: f.type, text: String(rd.result) });
-        renderAttachments();
-      };
-      rd.readAsText(f);
-    } else {
-      state.pendingAttachments.push({
-        name: f.name,
-        type: f.type || "application/octet-stream",
-        text: "(Datei zu groß für Inline-Übertragung)",
+    state.pendingAttachments.push({ name: f.name, type: f.type || "application/octet-stream", file: f });
+  }
+  renderAttachments();
+}
+
+async function fileToBase64(file) {
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  let bin = "";
+  for (let i = 0; i < bytes.length; i += 0x8000) {
+    bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  }
+  return btoa(bin);
+}
+
+// Laedt die angehaengten Rohdateien zur Session hoch; das Lesen/Dekodieren
+// passiert serverseitig (POST /api/sessions/{sid}/attachments). Liefert References.
+export async function uploadPendingAttachments(sid) {
+  const refs = [];
+  for (const a of state.pendingAttachments.splice(0)) {
+    if (a.file) {
+      const res = await api.post(`/sessions/${sid}/attachments`, {
+        name: a.name,
+        type: a.type,
+        data: await fileToBase64(a.file),
       });
-      renderAttachments();
+      refs.push({ id: res.id, name: res.name, type: res.mime });
+    } else {
+      refs.push(a);
     }
   }
+  renderAttachments();
+  return refs;
 }
 
 export function renderAttachments() {
