@@ -63,12 +63,22 @@ class SettingsIn(BaseModel):
     model: str | None = None
     theme: Literal["light", "dark"] | None = None
     api_key: str | None = None
+    bubbles_user_checkable: bool | None = None
+    bubbles_user_deletable: bool | None = None
+    show_system_prompt: bool | None = None
+    show_tool_output: bool | None = None
+    show_reasoning: bool | None = None
 
 
 class SettingsOut(BaseModel):
     base: str
     model: str
     theme: str
+    bubbles_user_checkable: bool = True
+    bubbles_user_deletable: bool = True
+    show_system_prompt: bool = True
+    show_tool_output: bool = True
+    show_reasoning: bool = True
 
 
 class ChatMessage(BaseModel):

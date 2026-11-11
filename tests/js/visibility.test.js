@@ -1,0 +1,41 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { isBubbleVisible, isUserBubbleCheckable, isUserBubbleDeletable } from "../../static/js/visibility.js";
+
+const allOn = {
+  bubbles_user_checkable: true,
+  bubbles_user_deletable: true,
+  show_system_prompt: true,
+  show_tool_output: true,
+  show_reasoning: true,
+};
+
+test("alle Bubbles sichtbar bei Defaults", () => {
+  assert.ok(isBubbleVisible({ role: "user", type: "message" }, allOn));
+  assert.ok(isBubbleVisible({ role: "assistant", type: "reasoning" }, allOn));
+  assert.ok(isBubbleVisible({ role: "assistant", type: "toolcall" }, allOn));
+  assert.ok(isBubbleVisible({ role: "system", type: "message" }, allOn));
+});
+
+test("show_reasoning=false blendet Reasoning-Bubbles aus", () => {
+  const s = { ...allOn, show_reasoning: false };
+  assert.equal(isBubbleVisible({ role: "assistant", type: "reasoning" }, s), false);
+  assert.ok(isBubbleVisible({ role: "assistant", type: "message" }, s));
+});
+
+test("show_tool_output=false blendet Tool-Calls aus", () => {
+  const s = { ...allOn, show_tool_output: false };
+  assert.equal(isBubbleVisible({ role: "assistant", type: "toolcall" }, s), false);
+});
+
+test("show_system_prompt=false blendet System-Bubbles aus", () => {
+  const s = { ...allOn, show_system_prompt: false };
+  assert.equal(isBubbleVisible({ role: "system", type: "message" }, s), false);
+});
+
+test("User-Bubble Checkable/Deletable Schalter", () => {
+  assert.ok(isUserBubbleCheckable(allOn));
+  assert.equal(isUserBubbleCheckable({ ...allOn, bubbles_user_checkable: false }), false);
+  assert.ok(isUserBubbleDeletable(allOn));
+  assert.equal(isUserBubbleDeletable({ ...allOn, bubbles_user_deletable: false }), false);
+});

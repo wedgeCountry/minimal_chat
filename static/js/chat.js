@@ -6,6 +6,7 @@ import { bubbleEl } from "./bubbles.js";
 import { buildChatPayload } from "./payload.js";
 import { parseSSE } from "./sse.js";
 import { loadSessions, newSession, changed } from "./sessions.js";
+import { isBubbleVisible } from "./visibility.js";
 
 const bodyOf = (el) => el.querySelector(".bubbleBody");
 
@@ -34,7 +35,7 @@ export function renderChat(messages) {
     chat.appendChild(empty);
     return;
   }
-  messages.forEach((m) => chat.appendChild(bubbleEl(m, handlers)));
+  messages.filter((m) => isBubbleVisible(m, state.settings)).forEach((m) => chat.appendChild(bubbleEl(m, handlers)));
   chat.scrollTop = chat.scrollHeight;
 }
 
@@ -105,7 +106,7 @@ export async function send() {
       if (j.error) throw new Error(j.error);
       const delta = j.choices?.[0]?.delta || {};
       const reasoning = delta.reasoning_content ?? delta.reasoning;
-      if (reasoning) {
+      if (reasoning && state.settings.show_reasoning !== false) {
         if (!hasThink) {
           hasThink = true;
           thinkEl = bubbleEl(thinkMsg, handlers);
@@ -119,7 +120,7 @@ export async function send() {
         aiMsg.text += delta.content;
         bodyOf(aiEl).textContent = aiMsg.text;
       }
-      if (delta.tool_calls) {
+      if (delta.tool_calls && state.settings.show_tool_output !== false) {
         for (const tc of delta.tool_calls) {
           const fn = tc.function?.name || "tool";
           const args = tc.function?.arguments || "";
@@ -133,7 +134,7 @@ export async function send() {
   } catch (err) {
     if (err.name !== "AbortError") {
       const em = { role: "system", type: "message", text: "Fehler: " + err.message, in_context: false };
-      chat.appendChild(bubbleEl(em, handlers));
+      if (isBubbleVisible(em, state.settings)) chat.appendChild(bubbleEl(em, handlers));
       await persist(em);
     }
   } finally {

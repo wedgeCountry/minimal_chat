@@ -9,6 +9,7 @@ from ..db.database import Database
 from ..deps import get_config, get_current_user, get_db
 from ..models import ChatRequest
 from ..services.chat import stream_completion
+from ..services.settings import BOOL_SETTINGS, stored_bool
 
 router = APIRouter(prefix="/api/chat", tags=["chat"])
 
@@ -24,13 +25,14 @@ async def chat(
         stored = dbq.q_get_user_settings(con)
     base_url = stored.get("base") or config.default_llm_base
     api_key = stored.get("api_key") or config.default_api_key
+    flags = {key: stored_bool(stored, key) for key in BOOL_SETTINGS}
     payload = {
         "model": req.model,
         "stream": True,
         "messages": [m.model_dump() for m in req.messages],
     }
     return StreamingResponse(
-        stream_completion(base_url, api_key, payload),
+        stream_completion(base_url, api_key, payload, settings=flags),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )

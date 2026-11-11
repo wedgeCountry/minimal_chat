@@ -5,6 +5,13 @@
     <div class="field"><label>API-Schlüssel (serverseitig gespeichert)</label><input id="setKey" type="password" placeholder="sk-… (optional, überschreibt Server-Key)" /></div>
     <div class="field"><label>Modell</label><input id="setModel" placeholder="gpt-4o-mini" /></div>
     <div class="field"><label>Theme</label><select id="setTheme"><option value="light">Hell</option><option value="dark">Dunkel</option></select></div>
+    <div class="field"><label>Darstellung</label>
+      <label class="checkRow"><input type="checkbox" id="setCheckable" /> User-Bubbles: Kontext-Checkbox anzeigen</label>
+      <label class="checkRow"><input type="checkbox" id="setDeletable" /> User-Bubbles: Löschen erlauben</label>
+      <label class="checkRow"><input type="checkbox" id="setShowSystem" /> System-Prompt anzeigen</label>
+      <label class="checkRow"><input type="checkbox" id="setShowTool" /> Tool-Ausgabe anzeigen</label>
+      <label class="checkRow"><input type="checkbox" id="setShowReasoning" /> Reasoning (Thinking) anzeigen</label>
+    </div>
     <div class="row">
       <button class="btn" id="setCancel">Abbrechen</button>
       <button class="btn primary" id="setSave">Speichern</button>

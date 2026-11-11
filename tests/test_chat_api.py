@@ -7,8 +7,10 @@ import httpx
 RealAsyncClient = httpx.AsyncClient
 
 SSE_BODY = (
+    b'data: {"choices":[{"delta":{"reasoning_content":"denke"}}]}\n\n'
     b'data: {"choices":[{"delta":{"content":"Hallo"}}]}\n\n'
     b'data: {"choices":[{"delta":{"content":" Welt"}}]}\n\n'
+    b'data: {"choices":[{"delta":{"tool_calls":[{"function":{"name":"f","arguments":"{}"}}]}}]}\n\n'
     b"data: [DONE]\n\n"
 )
 
@@ -44,9 +46,47 @@ def test_chat_streams_sse(client, auth_headers, monkeypatch):
     assert res.status_code == 200
     assert res.headers["content-type"].startswith("text/event-stream")
     assert b"Hallo" in res.content and b"[DONE]" in res.content
+    assert b"reasoning_content" in res.content and b"tool_calls" in res.content
     assert seen["url"] == "http://llm.test/v1/chat/completions"
     assert seen["auth"] == "Bearer test-api-key"
     assert seen["body"]["stream"] is True
+    assert seen["body"]["messages"] == [{"role": "user", "content": "Hi"}]
+
+
+def test_chat_filters_reasoning_and_tool_output_server_side(client, auth_headers, monkeypatch):
+    _mock_llm(monkeypatch)
+    client.put(
+        "/api/settings",
+        json={"show_reasoning": False, "show_tool_output": False},
+        headers=auth_headers,
+    )
+    res = client.post(
+        "/api/chat",
+        json={"model": "m", "messages": [{"role": "user", "content": "Hi"}]},
+        headers=auth_headers,
+    )
+    assert res.status_code == 200
+    assert b"Hallo" in res.content
+    assert b"reasoning_content" not in res.content
+    assert b"tool_calls" not in res.content
+    assert b"[DONE]" in res.content
+
+
+def test_chat_filters_system_prompt_from_request_server_side(client, auth_headers, monkeypatch):
+    seen = _mock_llm(monkeypatch)
+    client.put("/api/settings", json={"show_system_prompt": False}, headers=auth_headers)
+    res = client.post(
+        "/api/chat",
+        json={
+            "model": "m",
+            "messages": [
+                {"role": "system", "content": "Du bist ein Assistent."},
+                {"role": "user", "content": "Hi"},
+            ],
+        },
+        headers=auth_headers,
+    )
+    assert res.status_code == 200
     assert seen["body"]["messages"] == [{"role": "user", "content": "Hi"}]
 
 

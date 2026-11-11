@@ -53,6 +53,8 @@
 .field label{display:block;font-size:12px;color:var(--muted);margin-bottom:5px}
 .field input,.field select{width:100%;padding:9px 10px;border:1px solid var(--border);border-radius:9px;background:var(--bg);outline:none;font-size:14px}
 .field input:focus,.field select:focus{border-color:var(--accent)}
+.checkRow{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--text);padding:3px 0;cursor:pointer}
+.checkRow input{accent-color:var(--accent);width:14px;height:14px}
 .row{display:flex;gap:8px;justify-content:flex-end;margin-top:18px}
 .btn{padding:8px 16px;border-radius:9px;font-size:14px;border:1px solid var(--border)}
 .btn.primary{background:var(--accent);color:#fff;border-color:var(--accent)}

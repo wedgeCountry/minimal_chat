@@ -1,5 +1,7 @@
 import { esc } from "./util.js";
 import { ICONS } from "./icons.js";
+import { state } from "./state.js";
+import { isUserBubbleCheckable, isUserBubbleDeletable } from "./visibility.js";
 
 const typeLabels = { message: "", toolcall: "Tool-Call", reasoning: "Thinking", system: "System" };
 
@@ -11,6 +13,9 @@ export function bubbleEl(m, handlers = {}) {
   else b.classList.add("expanded");
   if (m.type === "message") b.classList.add(m.inContext !== false ? "selected" : "deselected");
   const label = m.type === "message" ? m.role : typeLabels[m.type] || m.role;
+  const isUser = m.role === "user";
+  const showChk = m.type === "message" && isUser && isUserBubbleCheckable(state.settings);
+  const showDel = !isUser || isUserBubbleDeletable(state.settings);
   const attach = (m.attachments || [])
     .map((a) => `<div class="attachChip">${ICONS.attach}${esc(a.name)}</div>`)
     .join("");
@@ -19,10 +24,10 @@ export function bubbleEl(m, handlers = {}) {
       ${collapsible ? `<button class="iconBtn chev" title="Ein-/Ausklappen">${ICONS.chev}</button>` : ""}
       <span class="role">${esc(label)}</span>
       <span class="grow"></span>
-      ${m.type === "message" ? `<input type="checkbox" class="chk" ${m.inContext !== false ? "checked" : ""} title="Im Kontext senden" />` : ""}
+      ${showChk ? `<input type="checkbox" class="chk" ${m.inContext !== false ? "checked" : ""} title="Im Kontext senden" />` : ""}
       <button class="iconBtn ttsBtn" title="Vorlesen">${ICONS.tts}</button>
       <button class="iconBtn copyBtn" title="Kopieren">${ICONS.copy}</button>
-      <button class="iconBtn delBtn" title="Löschen">${ICONS.x}</button>
+      ${showDel ? `<button class="iconBtn delBtn" title="Löschen">${ICONS.x}</button>` : ""}
     </div>
     ${attach}
     <div class="bubbleBody">${esc(m.text || "")}</div>`;
@@ -55,7 +60,8 @@ export function bubbleEl(m, handlers = {}) {
       b.classList.toggle("deselected", !chk.checked);
       handlers.onToggleContext?.(m);
     };
-  b.querySelector(".delBtn").onclick = () => handlers.onDelete?.(m);
+  const delBtn = b.querySelector(".delBtn");
+  if (delBtn) delBtn.onclick = () => handlers.onDelete?.(m);
   const tts = b.querySelector(".ttsBtn");
   tts.onclick = () => {
     if (!("speechSynthesis" in window)) return;
