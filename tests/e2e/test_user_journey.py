@@ -387,22 +387,22 @@ def test_reasoning_bubbles_can_be_expanded(page, base_url, llm_expect):
     toggle_btn = reasoning_bubble.locator('[data-testid="bubble-toggle-btn"]')
     toggle_btn.click()
 
-    # 6. Erster Klick: collapsed -> full (neue Reihenfolge normal -> collapsed -> full -> normal)
-    page.wait_for_function(
-        f"() => document.querySelector('{_reasoning_bubble()}').classList.contains('full')",
-        timeout=llm_expect["timeout_ms"]
-    )
-    assert reasoning_bubble.get_attribute("data-mode") == "full", "Nach dem ersten Klick sollte der Mode 'full' sein"
-
-    # 7. Zweiter Klick: full -> normal
-    toggle_btn.click()
+    # 6. Erster Klick: collapsed -> normal (Reihenfolge normal -> full -> collapsed -> normal)
     page.wait_for_function(
         f"() => document.querySelector('{_reasoning_bubble()}').classList.contains('normal')",
         timeout=llm_expect["timeout_ms"]
     )
-    assert reasoning_bubble.get_attribute("data-mode") == "normal", "Nach dem zweiten Klick sollte der Mode 'normal' sein"
+    assert reasoning_bubble.get_attribute("data-mode") == "normal", "Nach dem ersten Klick sollte der Mode 'normal' sein"
 
-    # 8. Dritter Klick: normal -> collapsed
+    # 7. Zweiter Klick: normal -> full
+    toggle_btn.click()
+    page.wait_for_function(
+        f"() => document.querySelector('{_reasoning_bubble()}').classList.contains('full')",
+        timeout=llm_expect["timeout_ms"]
+    )
+    assert reasoning_bubble.get_attribute("data-mode") == "full", "Nach dem zweiten Klick sollte der Mode 'full' sein"
+
+    # 8. Dritter Klick: full -> collapsed
     toggle_btn.click()
     page.wait_for_function(
         f"() => document.querySelector('{_reasoning_bubble()}').classList.contains('collapsed')",

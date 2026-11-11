@@ -2,7 +2,7 @@ import { esc } from "./util.js";
 import { ICONS } from "./icons.js";
 import { state } from "./state.js";
 import { isBubbleDeletable, isBubbleCheckable, isBubbleSpeaker } from "./visibility.js";
-import { BUBBLE_MODES, clampText, nextBubbleMode, bubbleModeTitle } from "./bubbleMode.js";
+import { BUBBLE_MODES, clampText, isClamped, nextBubbleMode, bubbleModeTitle } from "./bubbleMode.js";
 
 const typeLabels = { message: "", toolcall: "Tool-Call", reasoning: "Thinking", system: "System" };
 
@@ -85,7 +85,11 @@ export function setBubbleText(b, text) {
 
 function renderBubbleBody(b) {
   const body = b.querySelector(".bubbleBody");
-  if (body) body.textContent = clampText(b._fullText ?? body.textContent, b.dataset.mode || "normal");
+  if (!body) return;
+  const mode = b.dataset.mode || "normal";
+  const full = b._fullText ?? body.textContent;
+  body.textContent = clampText(full, mode);
+  body.classList.toggle("clamped", isClamped(full, mode));
 }
 
 export function bubbleEl(m, handlers = {}, opts = {}) {
@@ -126,6 +130,12 @@ export function bubbleEl(m, handlers = {}, opts = {}) {
   const chev = b.querySelector(".chev");
   if (chev)
     chev.onclick = () => setBubbleMode(b, nextBubbleMode(b.dataset.mode || "normal"));
+  const body = b.querySelector(".bubbleBody");
+  if (body)
+    body.addEventListener("click", () => {
+      // Klick auf gekuerzten Text ([...]) schaltet wie der Chevron weiter
+      if (body.classList.contains("clamped")) setBubbleMode(b, nextBubbleMode(b.dataset.mode || "normal"));
+    });
   b.querySelector(".copyBtn").onclick = async (e) => {
     const btn = e.currentTarget;
     try {
