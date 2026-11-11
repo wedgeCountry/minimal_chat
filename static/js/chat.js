@@ -112,8 +112,8 @@ export async function send(textOverride, attachmentsOverride) {
     return;
   }
   const input = $("input");
-  const text = (textOverride ?? input.value).trim();
-  const attachments = attachmentsOverride ?? state.pendingAttachments.splice(0);
+  const text = (typeof textOverride === "string" ? textOverride : input.value).trim();
+  const attachments = Array.isArray(attachmentsOverride) ? attachmentsOverride : state.pendingAttachments.splice(0);
   if (!text && !attachments.length) return;
   let s = activeSession();
   if (!s) {
@@ -128,7 +128,7 @@ export async function send(textOverride, attachmentsOverride) {
     attachments,
   });
   await loadSessions();
-  if (textOverride === undefined) {
+  if (typeof textOverride !== "string") {
     input.value = "";
     input.style.height = "auto";
   }

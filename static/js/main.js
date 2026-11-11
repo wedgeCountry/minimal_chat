@@ -142,7 +142,7 @@ function initEvents() {
     goToLogin();
   };
   $("abortBtnSide").onclick = abortStream;
-  $("sendBtn").onclick = send;
+  $("sendBtn").onclick = () => send();
   $("attachBtn").onclick = () => $("fileInput").click();
   $("camBtn").onclick = () => $("camInput").click();
   $("fileInput").onchange = (e) => {
@@ -168,6 +168,7 @@ function initEvents() {
     input.style.height = "auto";
     input.style.height = Math.min(input.scrollHeight, 180) + "px";
   });
+  $("composerWrap").addEventListener("pointerdown", () => $("side").classList.add("hidden"));
 
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SR) {
