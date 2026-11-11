@@ -31,6 +31,7 @@ T = {
     "send_btn": '[data-testid="send-btn"]',
     "burger_btn": '[data-testid="burger-btn"]',
     "settings_btn": '[data-testid="settings-btn"]',
+    "change_password_btn": '[data-testid="change-password-btn"]',
     "logout_btn": '[data-testid="logout-btn"]',
     "settings_overlay": '[data-testid="settings-overlay"]',
     "set_show_system": '[data-testid="set-show-system"]',
@@ -258,6 +259,13 @@ def test_full_user_journey(page, base_url, tmp_path, llm_expect, server_data_dir
     first_bubble = page.locator(f'{T["chat"]} > .bubble').first
     assert first_bubble.get_attribute("data-role") == "system"
     assert SYSTEM_PROMPT in system_bubble.locator('[data-testid="bubble-body"]').inner_text()
+
+    # 7b. Passwort aendern oeffnet die user_registry-Seite /auth/change-password
+    page.click(T["burger_btn"])
+    page.click(T["change_password_btn"])
+    page.wait_for_url("**/auth/change-password")
+    page.goto(base_url)
+    page.wait_for_selector(T["new_session"])
 
     # 8. Logout leitet auf die Login-Seite um
     page.click(T["burger_btn"])

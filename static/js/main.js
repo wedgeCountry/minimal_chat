@@ -95,12 +95,17 @@ function initEvents() {
       autoLoginEnabled = config.auto_login || false;
       if (autoLoginEnabled) {
         $("logoutBtn").style.display = "none";
+        $("changePwBtn").style.display = "none";
       }
     });
   } catch {
     // If config endpoint fails, keep logout button visible
   }
   
+  $("changePwBtn").onclick = () => {
+    $("burgerMenu").classList.remove("open");
+    window.location.href = "/auth/change-password";
+  };
   $("logoutBtn").onclick = async () => {
     $("burgerMenu").classList.remove("open");
     await api.post("/auth/logout", {}).catch(() => {});
