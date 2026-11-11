@@ -6,6 +6,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+from urllib.parse import urlparse
 
 import pytest
 
@@ -44,7 +45,7 @@ def real_llm_requested() -> bool:
 @pytest.fixture(scope="session")
 def mock_llm_port():
     if real_llm_requested():
-        yield None  # kein Mock: LEANCHAT_LLM_BASE kommt aus der Umgebung
+        yield None  # kein Mock: LEANCHAT_E2E_LLM_BASE kommt aus der Umgebung
         return
     port = _free_port()
     proc = subprocess.Popen(
@@ -93,12 +94,14 @@ def server_port(server_data_dir, mock_llm_port):
         api_key = os.environ.get("LEANCHAT_E2E_API_KEY", "")
         if not llm_base:
             pytest.skip("LEANCHAT_E2E_REAL_LLM=1 gesetzt, aber LEANCHAT_E2E_LLM_BASE fehlt in der Umgebung")
+    parsed = urlparse(llm_base if "://" in llm_base else "http://" + llm_base)
     env = dict(
         os.environ,
         LEANCHAT_DATA_DIR=str(data_dir),
         LEANCHAT_SECRET=E2E_SECRET,
         LEANCHAT_API_KEY=api_key,
-        LEANCHAT_LLM_BASE=llm_base,
+        LEANCHAT_LLM_HOST=parsed.hostname or "127.0.0.1",
+        LEANCHAT_LLM_PORT=str(parsed.port or ""),
     )
     proc = subprocess.Popen(
         [sys.executable, "-m", "uvicorn", "app.main:app", "--host", "127.0.0.1", "--port", str(port)],

@@ -69,7 +69,7 @@ Added missing `__init__.py` files to ensure proper module imports:
 1. **Start mock LLM server**: The script finds a free port and starts the mock LLM server using uvicorn
 2. **Wait for readiness**: The script waits until the mock LLM server is responding to HTTP requests
 3. **Start LeanChat**: The main app is started with environment variables configured to:
-   - Use the mock LLM endpoint (`LEANCHAT_LLM_BASE`)
+   - Use the mock LLM endpoint (`LEANCHAT_LLM_HOST`/`LEANCHAT_LLM_PORT`)
    - Enable auto-login (`LEANCHAT_AUTO_LOGIN=1`)
    - Use a temporary data directory
 4. **Auto-login**: When a user visits the app:
@@ -83,7 +83,8 @@ Added missing `__init__.py` files to ensure proper module imports:
 | Variable | Description | Default | Required |
 |----------|-------------|---------|----------|
 | `LEANCHAT_AUTO_LOGIN` | Enable auto-login mode (no login required) | `""` (disabled) | No |
-| `LEANCHAT_LLM_BASE` | Base URL for LLM API | `https://api.openai.com/v1` | No |
+| `LEANCHAT_LLM_HOST` | LLM API host (Base-URL wird als `http://<host>:<port>/v1` berechnet) | `127.0.0.1` | No |
+| `LEANCHAT_LLM_PORT` | LLM API port | `1234` | No |
 | `LEANCHAT_DATA_DIR` | Data directory | `data` | No |
 | `LEANCHAT_SECRET` | Secret for session cookies | Auto-generated | No |
 

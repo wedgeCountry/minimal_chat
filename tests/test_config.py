@@ -13,7 +13,8 @@ def _make_config(tmp_path) -> AppConfig:
         secret="cfg-secret",
         registry_path=data / "user_registry.db",
         users_dir=data / "users",
-        default_llm_base="http://llm.test/v1",
+        default_llm_host="llm.test",
+        default_llm_port="",
         default_api_key="cfg-key",
         port=9001,
     )

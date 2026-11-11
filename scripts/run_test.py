@@ -18,6 +18,7 @@ import argparse
 import os
 import subprocess
 import sys
+from urllib.parse import urlparse
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -131,7 +132,10 @@ def main() -> None:
     # Use the specified real LLM endpoint
     llm_base = args.llm_base
     llm_model = args.llm_model
-    print(f"Using real LLM endpoint: {llm_base}", flush=True)
+    parsed = urlparse(llm_base if "://" in llm_base else "http://" + llm_base)
+    llm_host = parsed.hostname or "127.0.0.1"
+    llm_port = str(parsed.port or "")
+    print(f"Using real LLM endpoint: {llm_base} ({llm_host}:{llm_port})", flush=True)
     print(f"Using model: {llm_model}", flush=True)
 
     # Configure environment for LeanChat
@@ -142,7 +146,8 @@ def main() -> None:
         "LEANCHAT_USERS_DIR": str(data_dir / "users"),
         "LEANCHAT_SECRET": "test-secret",
         "LEANCHAT_API_KEY": "test-api-key",
-        "LEANCHAT_LLM_BASE": llm_base,
+        "LEANCHAT_LLM_HOST": llm_host,
+        "LEANCHAT_LLM_PORT": llm_port,
         "LEANCHAT_MODEL": llm_model,
         "LEANCHAT_HOST": args.host,
         "LEANCHAT_PORT": str(args.port),
