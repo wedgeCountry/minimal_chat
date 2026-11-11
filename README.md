@@ -50,18 +50,22 @@ tests/
 - **Cancel** – laufende Generierung per X abbrechen, Teilausgabe bleibt erhalten
 - **Message bubbles** – Rolle/Typ (message, tool-call, reasoning), kollabierbar, kopieren, vorlesen, Kontext-Checkbox, löschen
 - **Attachments** – Dateien, Kamera (mobil), Spracheingabe (Web Speech API)
-- **Settings** – Base-URL, Modell, Theme; API-Schlüssel serverseitig (write-only, Env-Fallback)
+- **Settings** – Base-URL, Modell, Theme; API-Schlüssel serverseitig (write-only, Env-Fallback) sowie fünf Darstellungsschalter im Settings-Overlay: *User Bubbles Checkable*, *User Bubbles Deletable*, *Show System Prompt*, *Show Tool Output*, *Show Reasoning*. Diese steuern clientseitig das Bubble-Rendering und werden serverseitig als Filter auf Request (System-Prompt) und LLM-SSE-Response (Reasoning, Tool-Calls) angewendet
 - **Theme** – hell/dunkel via CSS Custom Properties
+
+## Configuration (.env)
+
+Beim ersten Programmstart wird automatisch eine **`.env`** aus der gecheckten **`.env.example`** erzeugt (die `.env` selbst ist gitignored). Dort liegen alle globalen Variablen: Data-Root (`LEANCHAT_DATA_DIR`), Datenbankpfade (`LEANCHAT_REGISTRY_PATH`, `LEANCHAT_USERS_DIR`), Server-Secret (`LEANCHAT_SECRET`), LLM-Endpunkt (`LEANCHAT_LLM_BASE`, `LEANCHAT_MODEL`, `LEANCHAT_API_KEY`) sowie Host/Port (`LEANCHAT_HOST`, `LEANCHAT_PORT`). Echte Systemumgebungsvariablen haben Vorrang vor der `.env`.
 
 ## Getting started
 
 ```bash
-pip install -e ".[dev]"          # fastapi, uvicorn, httpx, cryptography, pytest, playwright
-export LEANCHAT_API_KEY="sk-..." # optional; auch pro User in den Einstellungen
-uvicorn app.main:app --host 127.0.0.1 --port 8000
+pip install -e ".[dev]"   # fastapi, uvicorn, httpx, cryptography, pytest, playwright
+python -m app              # startet uvicorn (Host/Port aus der .env), .env wird falls noetig erzeugt
+# oder: uvicorn app.main:app --host 127.0.0.1 --port 8000
 ```
 
-Dann `http://127.0.0.1:8000` im Browser öffnen, registrieren und chatten.
+Dann `http://127.0.0.1:8000` im Browser öffnen, `.env` anpassen (z. B. `LEANCHAT_API_KEY`), registrieren und chatten.
 
 ## Tests
 

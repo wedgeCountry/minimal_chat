@@ -72,8 +72,9 @@ def _row_to_user(row: sqlite3.Row) -> dict:
 class UserRegistry:
     """Login-Credentials in eigener, server-seitig verschluesselter Datenbank."""
 
-    def __init__(self, data_dir: Path, secret: str):
-        self.path = Path(data_dir) / "user_registry.db.enc"
+    def __init__(self, path: Path, secret: str):
+        self.path = Path(path)
+        self.path.parent.mkdir(parents=True, exist_ok=True)
         digest = hashlib.sha256(secret.encode("utf-8")).digest()
         self._key = base64.urlsafe_b64encode(digest)
 
@@ -134,12 +135,19 @@ class UserRegistry:
 class Database:
     """Verwaltet die User Registry und die verschluesselten per-user Datenbanken."""
 
-    def __init__(self, data_dir: Path, secret: str):
+    def __init__(
+        self,
+        data_dir: Path,
+        secret: str,
+        registry_path: Path | None = None,
+        users_dir: Path | None = None,
+    ):
         self.data_dir = Path(data_dir)
         self.secret = secret
-        self.users_dir = self.data_dir / "users"
+        self.users_dir = Path(users_dir) if users_dir else self.data_dir / "users"
         self.users_dir.mkdir(parents=True, exist_ok=True)
-        self.registry = UserRegistry(self.data_dir, secret)
+        registry_path = Path(registry_path) if registry_path else self.data_dir / "user_registry.db.enc"
+        self.registry = UserRegistry(registry_path, secret)
 
     def create_user(self, username: str, password: str, key_b64: str | None = None) -> dict:
         user = self.registry.create(username, password, key_b64 or crypto.new_key())
