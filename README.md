@@ -75,6 +75,7 @@ npm test                          # JS-Unit-Tests (node:test)
 python -m pytest -m e2e tests/e2e # GUI-Tests mit Playwright (braucht `playwright install chromium`)
 ```
 
+
 ### User-Journey-GUI-Test manuell gegen ein echtes LLM
 
 Der e2e-Test laeuft standardmaessig gegen den lokalen Mock-LLM. Der gleiche Test
@@ -104,3 +105,4 @@ See [SPEC.md](SPEC.md) for the original design specification (German).
 ## License
 
 MIT
+

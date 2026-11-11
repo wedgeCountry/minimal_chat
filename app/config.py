@@ -32,6 +32,8 @@ class AppConfig:
     default_model: str = "gpt-4o-mini"
     host: str = "127.0.0.1"
     port: int = 8000
+    ssl_certfile: Path | None = None
+    ssl_keyfile: Path | None = None
     app_config_path: Path | None = None
 
     def to_dict(self) -> dict:
@@ -45,6 +47,8 @@ class AppConfig:
             "default_model": self.default_model,
             "host": self.host,
             "port": self.port,
+            "ssl_certfile": str(self.ssl_certfile) if self.ssl_certfile else None,
+            "ssl_keyfile": str(self.ssl_keyfile) if self.ssl_keyfile else None,
             "app_config_path": str(self.app_config_path) if self.app_config_path else None,
         }
 
@@ -132,6 +136,8 @@ def load_config(
         default_model=os.environ.get("LEANCHAT_MODEL", "gpt-4o-mini"),
         host=os.environ.get("LEANCHAT_HOST", "127.0.0.1"),
         port=int(os.environ.get("LEANCHAT_PORT", "8000")),
+        ssl_certfile=Path(os.environ["LEANCHAT_SSL_CERTFILE"]) if os.environ.get("LEANCHAT_SSL_CERTFILE") else None,
+        ssl_keyfile=Path(os.environ["LEANCHAT_SSL_KEYFILE"]) if os.environ.get("LEANCHAT_SSL_KEYFILE") else None,
         app_config_path=Path(os.environ["LEANCHAT_CONFIG_PATH"]) if os.environ.get("LEANCHAT_CONFIG_PATH") else None,
     )
 
