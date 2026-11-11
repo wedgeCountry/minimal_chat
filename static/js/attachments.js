@@ -36,7 +36,8 @@ export function renderAttachments() {
   state.pendingAttachments.forEach((a, i) => {
     const el = document.createElement("div");
     el.className = "att";
-    el.innerHTML = `${a.data ? `<img src="${a.data}" alt="">` : ""}<span>${esc(a.name)}</span><button title="Entfernen">${ICONS.x}</button>`;
+    el.dataset.testid = `attachment-chip-${i}`;
+    el.innerHTML = `${a.data ? `<img src="${a.data}" alt="" data-testid="attachment-image-${i}">` : ""}<span data-testid="attachment-name-${i}">${esc(a.name)}</span><button data-testid="attachment-remove-btn-${i}" title="Entfernen">${ICONS.x}</button>`;
     el.querySelector("button").onclick = () => {
       state.pendingAttachments.splice(i, 1);
       renderAttachments();

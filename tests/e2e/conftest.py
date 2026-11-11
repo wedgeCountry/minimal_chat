@@ -20,6 +20,7 @@ def _free_port() -> int:
 
 
 def _wait_for_port(port: int, timeout: float = 15.0) -> None:
+    import urllib.error
     import urllib.request
 
     deadline = time.time() + timeout
@@ -27,6 +28,8 @@ def _wait_for_port(port: int, timeout: float = 15.0) -> None:
         try:
             urllib.request.urlopen(f"http://127.0.0.1:{port}/", timeout=1)
             return
+        except urllib.error.HTTPError:
+            return  # Server antwortet (z. B. 404 beim Mock-LLM) -> erreichbar
         except Exception:
             time.sleep(0.2)
     raise RuntimeError(f"Server auf Port {port} nicht erreichbar")

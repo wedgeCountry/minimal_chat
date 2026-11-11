@@ -1,20 +1,20 @@
-<div id="overlay">
-  <div class="modal">
-    <h2>Einstellungen</h2>
-    <div class="field"><label>Base-URL</label><input id="setBase" placeholder="https://api.openai.com/v1" /></div>
-    <div class="field"><label>API-Schlüssel (serverseitig gespeichert)</label><input id="setKey" type="password" placeholder="sk-… (optional, überschreibt Server-Key)" /></div>
-    <div class="field"><label>Modell</label><input id="setModel" placeholder="gpt-4o-mini" /></div>
-    <div class="field"><label>Theme</label><select id="setTheme"><option value="light">Hell</option><option value="dark">Dunkel</option></select></div>
-    <div class="field"><label>Darstellung</label>
-      <label class="checkRow"><input type="checkbox" id="setCheckable" /> User-Bubbles: Kontext-Checkbox anzeigen</label>
-      <label class="checkRow"><input type="checkbox" id="setDeletable" /> User-Bubbles: Löschen erlauben</label>
-      <label class="checkRow"><input type="checkbox" id="setShowSystem" /> System-Prompt anzeigen</label>
-      <label class="checkRow"><input type="checkbox" id="setShowTool" /> Tool-Ausgabe anzeigen</label>
-      <label class="checkRow"><input type="checkbox" id="setShowReasoning" /> Reasoning (Thinking) anzeigen</label>
+<div id="overlay" data-testid="settings-overlay">
+  <div class="modal" data-testid="settings-modal">
+    <h2 data-testid="settings-title">Einstellungen</h2>
+    <div class="field" data-testid="field-base"><label data-testid="label-base">Base-URL</label><input id="setBase" data-testid="set-base" placeholder="https://api.openai.com/v1" /></div>
+    <div class="field" data-testid="field-key"><label data-testid="label-key">API-Schlüssel (serverseitig gespeichert)</label><input id="setKey" data-testid="set-key" type="password" placeholder="sk-… (optional, überschreibt Server-Key)" /></div>
+    <div class="field" data-testid="field-model"><label data-testid="label-model">Modell</label><input id="setModel" data-testid="set-model" placeholder="gpt-4o-mini" /></div>
+    <div class="field" data-testid="field-theme"><label data-testid="label-theme">Theme</label><select id="setTheme" data-testid="set-theme"><option value="light">Hell</option><option value="dark">Dunkel</option></select></div>
+    <div class="field" data-testid="field-display"><label data-testid="label-display">Darstellung</label>
+      <label class="checkRow" data-testid="checkrow-checkable"><input type="checkbox" id="setCheckable" data-testid="set-checkable" /> User-Bubbles: Kontext-Checkbox anzeigen</label>
+      <label class="checkRow" data-testid="checkrow-deletable"><input type="checkbox" id="setDeletable" data-testid="set-deletable" /> User-Bubbles: Löschen erlauben</label>
+      <label class="checkRow" data-testid="checkrow-show-system"><input type="checkbox" id="setShowSystem" data-testid="set-show-system" /> System-Prompt anzeigen</label>
+      <label class="checkRow" data-testid="checkrow-show-tool"><input type="checkbox" id="setShowTool" data-testid="set-show-tool" /> Tool-Ausgabe anzeigen</label>
+      <label class="checkRow" data-testid="checkrow-show-reasoning"><input type="checkbox" id="setShowReasoning" data-testid="set-show-reasoning" /> Reasoning (Thinking) anzeigen</label>
     </div>
-    <div class="row">
-      <button class="btn" id="setCancel">Abbrechen</button>
-      <button class="btn primary" id="setSave">Speichern</button>
+    <div class="row" data-testid="settings-actions">
+      <button class="btn" id="setCancel" data-testid="set-cancel">Abbrechen</button>
+      <button class="btn primary" id="setSave" data-testid="set-save">Speichern</button>
     </div>
   </div>
 </div>
