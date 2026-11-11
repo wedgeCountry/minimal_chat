@@ -18,10 +18,11 @@ function _widthKey(id) {
 function _widthCap(b) {
   // nie breiter als die CSS-Maximalbreite der Rolle (z. B. system 88%)
   // und nie breiter als das Chat-Fenster
-  const chatW = b.parentElement.getBoundingClientRect().width;
+  const chat = document.getElementById("chat");
+  const chatW = chat ? chat.getBoundingClientRect().width : 0;
   const cssMax = getComputedStyle(b).maxWidth;
-  let cap = chatW * 0.95;
-  if (cssMax.endsWith("%")) cap = Math.min(cap, (parseFloat(cssMax) / 100) * chatW);
+  let cap = chatW > 0 ? chatW * 0.95 : Infinity;
+  if (cssMax.endsWith("%")) cap = Math.min(cap, chatW > 0 ? (parseFloat(cssMax) / 100) * chatW : Infinity);
   else if (cssMax && cssMax !== "none") cap = Math.min(cap, parseFloat(cssMax));
   return cap;
 }
@@ -29,7 +30,12 @@ function _widthCap(b) {
 function _applySavedWidth(b, m) {
   if (m.id == null || !_ss) return;
   const w = parseInt(_ss.getItem(_widthKey(m.id)), 10);
-  if (w > 0) b.style.maxWidth = `${Math.min(w, _widthCap(b))}px`;
+  if (w <= 0) return;
+  b.style.maxWidth = `${w}px`;
+  // im naechsten Frame (Element attached) gegen Rollen-CSS-Maxbreite clampen
+  requestAnimationFrame(() => {
+    if (b.isConnected) b.style.maxWidth = `${Math.min(w, _widthCap(b))}px`;
+  });
 }
 
 function _makeResizable(b, m) {
