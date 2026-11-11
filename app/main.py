@@ -25,7 +25,7 @@ def create_app(
     cfg.save()
     app = FastAPI(title="LeanChat")
     app.state.config = cfg
-    app.state.db = Database(cfg.data_dir, cfg.secret, cfg.users_dir)
+    app.state.db = Database(cfg.data_dir, cfg.users_dir)
     init_auth(app, cfg)
     app.include_router(auth.router)
     app.include_router(sessions.router)

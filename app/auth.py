@@ -5,19 +5,21 @@ eigene Registry-DB (plain SQLite, von der Bibliothek verwaltet), signierte
 Session-Cookies (``auth_session``) ueber ``mount_auth`` sowie die
 professionellen Auth-Seiten unter ``/auth`` (Login, Registrieren,
 Passwort aendern/loeschen, AGB, Impressum). Die lokalen User-Daten
-(verschluesselte per-user DBs) werden ueber eine credential-freie lokale
-``users``-Tabelle per E-Mail zugeordnet (siehe db/database.py).
+(verschluesselte per-user DBs) werden pro E-Mail ueber ``user_identity``
+zugeordnet - es gibt keine lokale User-Tabelle (siehe db/database.py).
 """
 
 from __future__ import annotations
 
+import base64
+import hashlib
 from pathlib import Path
 
 from fastapi import FastAPI, Response
 
 from user_registry import UserRegistry
 from user_registry.web import AuthConfig, mount_auth
-from user_registry.web.security import make_serializer, sign_session
+from user_registry.web.security import make_serializer
 
 from .config import REPO_ROOT, AppConfig
 
@@ -43,18 +45,6 @@ def init_auth(app: FastAPI, cfg: AppConfig) -> AuthConfig:
     return config
 
 
-def set_auth_cookie(response: Response, app: FastAPI, email: str) -> None:
-    config: AuthConfig = app.state.auth_config
-    response.set_cookie(
-        config.session_cookie,
-        sign_session(config, app.state.auth_serializer, email),
-        max_age=config.session_max_age,
-        httponly=True,
-        samesite="lax",
-        secure=config.cookie_secure,
-    )
-
-
 def clear_auth_cookie(response: Response, app: FastAPI) -> None:
     config: AuthConfig = app.state.auth_config
     response.delete_cookie(config.session_cookie)
@@ -63,3 +53,15 @@ def clear_auth_cookie(response: Response, app: FastAPI) -> None:
 def display_name_from_email(email: str) -> str:
     local = email.split("@", 1)[0].strip()
     return local or email
+
+
+def user_identity(secret: str, email: str) -> dict:
+    """Leitet die lokale User-Identitaet (uid + Schluessel der per-user DB)
+    aus dem Server-Secret und der E-Mail ab. Deterministisch und stateless:
+    gleiche E-Mail + gleiches Secret => gleiche per-user DB, ohne dass eine
+    lokale User-Tabelle gefuehrt werden muss."""
+    email = email.strip().lower()
+    uid = hashlib.sha256(email.encode("utf-8")).hexdigest()[:16]
+    digest = hashlib.sha256(f"{secret}:{email}".encode("utf-8")).digest()
+    key = base64.urlsafe_b64encode(digest).decode("ascii")
+    return {"uid": uid, "email": email, "username": display_name_from_email(email), "key": key}

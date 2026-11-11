@@ -20,15 +20,15 @@ from app.db.database import (
 
 @pytest.fixture()
 def db(tmp_path):
-    return Database(tmp_path / "data", secret="unit-secret")
+    return Database(tmp_path / "data")
 
 
-def _make_user(db, email="alice@example.com", key=None, uid="uid-alice"):
-    return db.create_local_user(uid, email, key or crypto.new_key())
+def _make_user(email="alice@example.com", key=None, uid="uid-alice"):
+    return {"uid": uid, "email": email, "username": email, "key": key or crypto.new_key()}
 
 
 def test_user_db_file_is_encrypted(db):
-    user = _make_user(db)
+    user = _make_user()
     with db.user_db(user) as con:
         s = q_create_session(con, "Geheime Session")
         q_add_message(con, s["id"], {"role": "user", "text": "streng geheim"})
@@ -38,7 +38,7 @@ def test_user_db_file_is_encrypted(db):
 
 
 def test_user_db_persists_across_reopen(db):
-    user = _make_user(db)
+    user = _make_user()
     with db.user_db(user) as con:
         s = q_create_session(con, "Session A")
         q_add_message(con, s["id"], {"role": "user", "text": "Hallo"})
@@ -48,7 +48,7 @@ def test_user_db_persists_across_reopen(db):
 
 
 def test_messages_sorted_by_timestamp_with_system_first(db):
-    user = _make_user(db)
+    user = _make_user()
     with db.user_db(user) as con:
         s = q_create_session(con, "Sortierung")
         m1 = q_add_message(con, s["id"], {"role": "user", "text": "erste"})
@@ -64,7 +64,7 @@ def test_messages_sorted_by_timestamp_with_system_first(db):
 
 
 def test_wrong_key_cannot_decrypt(db):
-    user = _make_user(db)
+    user = _make_user()
     with db.user_db(user) as con:
         q_create_session(con, "x")
     wrong = {**user, "key": crypto.new_key()}
@@ -73,27 +73,21 @@ def test_wrong_key_cannot_decrypt(db):
             pass
 
 
-def test_local_users_table_stores_no_credentials(db):
-    user = _make_user(db)
-    db.create_local_user("uid-bob", "bob@example.com", crypto.new_key())
-    raw = db.users_db_path.read_bytes()
-    assert b"alice@example.com" in raw  # Zuordnung E-Mail -> uid liegt lokal
-    assert b"geheim" not in raw  # keine Passwoerter lokal
-    import sqlite3
+def test_user_identity_is_derived_from_secret_and_email():
+    from app.auth import user_identity
 
-    con = sqlite3.connect(db.users_db_path)
-    rows = con.execute("SELECT uid, email, key FROM users ORDER BY uid").fetchall()
-    con.close()
-    assert [r[0] for r in rows] == ["uid-alice", "uid-bob"]
-    # Schluessel at rest verschluesselt abgelegt (nicht als base64-Klartext)
-    assert rows[0][2] != user["key"]
-    assert db.get_user_by_email("ALICE@example.com")["uid"] == user["uid"]
-    assert db.get_user_by_id("uid-bob")["email"] == "bob@example.com"
-    assert db.get_user_by_email("niemand@example.com") is None
+    a = user_identity("secret-1", "Alice@Example.com")
+    b = user_identity("secret-1", "alice@example.com")
+    c = user_identity("secret-2", "alice@example.com")
+    assert a == b  # E-Mail case-insensitive
+    assert a["uid"] == c["uid"] and a["key"] != c["key"]  # uid aus E-Mail, Schluessel aus Secret + E-Mail
+    assert a["email"] == "alice@example.com"
+    assert a["username"] == "alice"
+    assert len(__import__("base64").urlsafe_b64decode(a["key"])) == 32
 
 
 def test_user_settings_table_roundtrip(db):
-    user = _make_user(db)
+    user = _make_user()
     with db.user_db(user) as con:
         q_set_user_setting(con, "theme", "dark")
         q_set_user_setting(con, "api_key", "sk-xyz")

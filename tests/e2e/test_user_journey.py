@@ -5,8 +5,14 @@ Alle Selektoren laufen ueber die ``data-testid``-Attribute der UI-Elemente.
 
 from __future__ import annotations
 
+import re
+
 import httpx
 import pytest
+
+from app.auth import user_identity
+from app.db import crypto
+from tests.e2e.conftest import E2E_SECRET
 
 pytestmark = pytest.mark.e2e
 
@@ -14,12 +20,10 @@ USER = {"email": "journey-user@example.com", "password": "Geheim-123"}
 SYSTEM_PROMPT = "Du bist ein hilfsbereiter Assistent (Journey-System-Prompt)."
 
 T = {
-    "auth_overlay": '[data-testid="auth-overlay"]',
-    "auth_username": '[data-testid="auth-username"]',
-    "auth_password": '[data-testid="auth-password"]',
-    "auth_submit": '[data-testid="auth-submit"]',
-    "auth_switch": '[data-testid="auth-switch"]',
-    "auth_error": '[data-testid="auth-error"]',
+    "login_email": '[data-testid="login-email"]',
+    "login_password": '[data-testid="login-password"]',
+    "login_submit": '[data-testid="login-submit"]',
+    "login_error": '[data-testid="login-error"]',
     "new_session": '[data-testid="new-session-tile"]',
     "session_tile": '[data-testid^="session-tile-"]',
     "chat": '[data-testid="chat"]',
@@ -27,6 +31,7 @@ T = {
     "send_btn": '[data-testid="send-btn"]',
     "burger_btn": '[data-testid="burger-btn"]',
     "settings_btn": '[data-testid="settings-btn"]',
+    "change_password_btn": '[data-testid="change-password-btn"]',
     "logout_btn": '[data-testid="logout-btn"]',
     "settings_overlay": '[data-testid="settings-overlay"]',
     "set_show_system": '[data-testid="set-show-system"]',
@@ -55,18 +60,14 @@ def _reasoning_bubble():
 
 def _open_user_db(data_dir, email):
     """Entschluesselt die per-user DB aus dem Server-Datenverzeichnis (read-only via :memory:)."""
-    import base64
     import sqlite3
 
     from cryptography.fernet import Fernet
 
-    reg = sqlite3.connect(str(data_dir / "user_registry.db"))
-    uid, key_hex = reg.execute("SELECT id, encryption_key FROM users WHERE email = ?", (email,)).fetchone()
-    reg.close()
-    fernet_key = base64.urlsafe_b64encode(bytes.fromhex(key_hex))
-    token = (data_dir / "users" / f"{uid}.db.enc").read_bytes()
+    user = user_identity(E2E_SECRET, email)
+    token = (data_dir / "users" / f"{user['uid']}.db.enc").read_bytes()
     con = sqlite3.connect(":memory:")
-    con.deserialize(Fernet(fernet_key).decrypt(token))
+    con.deserialize(Fernet(crypto.normalize_key(user["key"])).decrypt(token))
     return con
 
 
@@ -83,20 +84,36 @@ def _db_session_state(data_dir, email, sid):
 
 
 def _register_client(base_url, email, password):
-    """Registriert einen User direkt per API; der Client haelt danach den Session-Cookie."""
+    """Registriert einen User ueber die user_registry-API; der Client haelt danach den Session-Cookie."""
     client = httpx.Client(base_url=base_url, timeout=10)
-    res = client.post("/api/auth/register", json={"email": email, "password": password})
-    assert res.status_code == 201, res.text
+    res = client.get("/auth/register")
+    token = re.search(r'window\.CSRF_TOKEN = "([^"]+)"', res.text).group(1)
+    res = client.post(
+        "/auth/api/register",
+        json={
+            "email": email,
+            "password": password,
+            "confirm_password": password,
+            "display_name": email.split("@", 1)[0],
+            "accepted_terms": True,
+        },
+        headers={"X-CSRF-Token": token},
+    )
+    assert res.status_code == 200, res.text
     return client
 
 
 def _login(page, base_url, email, password):
+    # Unauthentifizierte Besucher werden auf die user_registry-Login-Seite umgeleitet
     page.goto(base_url)
-    page.wait_for_selector(f'{T["auth_overlay"]}.open')
-    page.fill(T["auth_username"], email)
-    page.fill(T["auth_password"], password)
-    page.click(T["auth_submit"])
-    page.wait_for_selector(f'{T["auth_overlay"]}:not(.open)', state="attached")
+    page.wait_for_url("**/auth/login")
+    page.wait_for_selector(T["login_email"])
+    page.fill(T["login_email"], email)
+    page.fill(T["login_password"], password)
+    page.click(T["login_submit"])
+    # Nach erfolgreichem Login leitet die Auth-Seite zurueck auf "/"
+    page.wait_for_url(base_url + "/")
+    page.wait_for_selector(T["new_session"])
 
 
 def _chat_once(page, text, n, expect, timeout_ms, attach=None):
@@ -243,10 +260,18 @@ def test_full_user_journey(page, base_url, tmp_path, llm_expect, server_data_dir
     assert first_bubble.get_attribute("data-role") == "system"
     assert SYSTEM_PROMPT in system_bubble.locator('[data-testid="bubble-body"]').inner_text()
 
-    # 8. Logout
+    # 7b. Passwort aendern oeffnet die user_registry-Seite /auth/change-password
+    page.click(T["burger_btn"])
+    page.click(T["change_password_btn"])
+    page.wait_for_url("**/auth/change-password")
+    page.goto(base_url)
+    page.wait_for_selector(T["new_session"])
+
+    # 8. Logout leitet auf die Login-Seite um
     page.click(T["burger_btn"])
     page.click(T["logout_btn"])
-    page.wait_for_selector(f'{T["auth_overlay"]}.open')
+    page.wait_for_url("**/auth/login")
+    page.wait_for_selector(T["login_submit"])
 
 
 
@@ -468,12 +493,13 @@ def test_bubble_width_resizable_and_persisted(page, base_url, llm_expect):
 def test_login_rejects_wrong_password(page, base_url):
     _register_client(base_url, "journey-user-2@example.com", "Geheim-123")
     page.goto(base_url)
-    page.wait_for_selector(f'{T["auth_overlay"]}.open')
-    page.fill(T["auth_username"], "journey-user-2@example.com")
-    page.fill(T["auth_password"], "Falsch-123")
-    page.click(T["auth_submit"])
-    page.wait_for_selector(f'{T["auth_error"]}:not(:empty)')
-    assert page.locator(f'{T["auth_overlay"]}.open').count() == 1
+    page.wait_for_url("**/auth/login")
+    page.wait_for_selector(T["login_email"])
+    page.fill(T["login_email"], "journey-user-2@example.com")
+    page.fill(T["login_password"], "Falsch-123")
+    page.click(T["login_submit"])
+    page.wait_for_selector(f'{T["login_error"]}:visible')
+    assert "auth/login" in page.url
 
 
 def test_error_popup_when_llm_unreachable(page, base_url, llm_expect, server_data_dir):

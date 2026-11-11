@@ -11,6 +11,7 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 E2E_DIR = Path(__file__).resolve().parent
+E2E_SECRET = "e2e-secret"
 
 
 def _free_port() -> int:
@@ -95,7 +96,7 @@ def server_port(server_data_dir, mock_llm_port):
     env = dict(
         os.environ,
         LEANCHAT_DATA_DIR=str(data_dir),
-        LEANCHAT_SECRET="e2e-secret",
+        LEANCHAT_SECRET=E2E_SECRET,
         LEANCHAT_API_KEY=api_key,
         LEANCHAT_LLM_BASE=llm_base,
     )

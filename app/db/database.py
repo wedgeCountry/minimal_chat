@@ -1,16 +1,14 @@
 """Einzige Stelle mit Zugriff auf die SQLite-Datenbanken.
 
-Drei Daten:
+Zwei Daten:
 
 - **User Registry** (``<data_dir>/user_registry.db``): Login-Credentials
   aller User; wird von der externen ``user_registry``-Bibliothek verwaltet
   (siehe app/auth.py) und liegt bewusst getrennt von den App-Daten.
-- **Lokale User-Tabelle** (``<data_dir>/users.db``): credential-freie
-  Zuordnung E-Mail -> lokaler User (uid + Verschluesselungsschluessel der
-  per-user DB, at rest mit dem Server-Secret verschluesselt).
 - **Pro-User-Datenbank** (``<data_dir>/users/<uid>.db.enc``): Sessions,
   Messages und ``user_settings`` (Schema: ``schema.sql``), verschluesselt
-  mit dem Schluessel aus der lokalen User-Tabelle.
+  mit einem Schluessel, der aus dem Server-Secret und der E-Mail abgeleitet
+  wird (``app/auth.py:user_identity``) - es gibt keine lokale User-Tabelle.
 
 Zum Zugriff auf eine per-user DB wird die jeweilige Datei entschluesselt,
 in eine In-Memory-Datenbank geladen und nach dem Schreiben wieder
@@ -19,8 +17,6 @@ verschluesselt persistiert.
 
 from __future__ import annotations
 
-import base64
-import hashlib
 import json
 import secrets
 import sqlite3
@@ -33,15 +29,6 @@ from typing import Iterator
 from . import crypto
 
 SCHEMA_PATH = Path(__file__).with_name("schema.sql")
-
-USERS_SCHEMA = """
-CREATE TABLE IF NOT EXISTS users (
-    uid        TEXT PRIMARY KEY,
-    email      TEXT NOT NULL UNIQUE,
-    key        TEXT NOT NULL,
-    created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
-);
-"""
 
 _lock = threading.RLock()
 
@@ -71,89 +58,26 @@ def _row_to_session(row: sqlite3.Row) -> dict:
     return {"id": row["id"], "name": row["name"], "ts": row["ts"]}
 
 
-def _row_to_local_user(row: sqlite3.Row) -> dict:
-    return {"uid": row["uid"], "username": row["email"], "email": row["email"]}
-
-
 class Database:
-    """Lokale User-Tabelle und die verschluesselten per-user Datenbanken.
+    """Die verschluesselten per-user Datenbanken.
 
     Die Login-Credentials liegen nicht hier, sondern in der externen User
-    Registry (app/auth.py); die lokale Tabelle speichert nur die Zuordnung
-    E-Mail -> uid und den (at rest mit dem Server-Secret verschluesselten)
-    Schluessel der per-user DB.
+    Registry (app/auth.py); die User-Identitaet (uid + Schluessel der
+    per-user DB) wird aus Server-Secret und E-Mail abgeleitet.
     """
 
     def __init__(
         self,
         data_dir: Path,
-        secret: str,
         users_dir: Path | None = None,
     ):
         self.data_dir = Path(data_dir)
         self.data_dir.mkdir(parents=True, exist_ok=True)
-        self.secret = secret
         self.users_dir = Path(users_dir) if users_dir else self.data_dir / "users"
         self.users_dir.mkdir(parents=True, exist_ok=True)
-        self.users_db_path = self.data_dir / "users.db"
-        digest = hashlib.sha256(secret.encode("utf-8")).digest()
-        self._store_key = base64.urlsafe_b64encode(digest)
-
-    @contextmanager
-    def _users_con(self) -> Iterator[sqlite3.Connection]:
-        with _lock:
-            con = sqlite3.connect(self.users_db_path)
-            con.row_factory = sqlite3.Row
-            try:
-                con.executescript(USERS_SCHEMA)
-                yield con
-                con.commit()
-            finally:
-                con.close()
-
-    def _encrypt_key(self, key_b64: str) -> str:
-        return base64.b64encode(crypto.encrypt(self._store_key, crypto.normalize_key(key_b64))).decode("ascii")
-
-    def _decrypt_key(self, token_b64: str) -> str:
-        return crypto.decrypt(self._store_key, base64.b64decode(token_b64)).decode("ascii")
-
-    def create_local_user(self, uid: str, email: str, key_b64: str) -> dict:
-        """Lokalen User anlegen (nach erfolgreicher Registrierung in der Registry)."""
-        user = {"uid": str(uid), "username": email, "email": email, "key": crypto.normalize_key(key_b64).decode("ascii")}
-        with self._users_con() as con:
-            con.execute(
-                "INSERT INTO users (uid, email, key) VALUES (?, ?, ?)",
-                (user["uid"], email.lower(), self._encrypt_key(user["key"])),
-            )
-        self._init_user_db(user)
-        return user
-
-    def get_user_by_email(self, email: str) -> dict | None:
-        with self._users_con() as con:
-            row = con.execute("SELECT * FROM users WHERE email = ?", (email.strip().lower(),)).fetchone()
-        return self._with_key(row) if row else None
-
-    def get_user_by_id(self, uid: str) -> dict | None:
-        with self._users_con() as con:
-            row = con.execute("SELECT * FROM users WHERE uid = ?", (str(uid),)).fetchone()
-        return self._with_key(row) if row else None
-
-    def _with_key(self, row: sqlite3.Row) -> dict:
-        user = _row_to_local_user(row)
-        user["key"] = self._decrypt_key(row["key"])
-        return user
 
     def _db_path(self, user: dict) -> Path:
         return self.users_dir / f"{user['uid']}.db.enc"
-
-    def _init_user_db(self, user: dict) -> None:
-        con = sqlite3.connect(":memory:")
-        try:
-            con.executescript(SCHEMA_PATH.read_text(encoding="utf-8"))
-            con.commit()
-            self._write_encrypted(user, con.serialize())
-        finally:
-            con.close()
 
     def _write_encrypted(self, user: dict, plain: bytes) -> None:
         key = crypto.normalize_key(user["key"])

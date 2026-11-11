@@ -34,17 +34,10 @@ def test_sessions_require_auth(client):
 
 
 def test_sessions_are_isolated_per_user(client, auth_headers, app):
-    from fastapi.testclient import TestClient
-
-    from tests.conftest import TEST_PASSWORD
+    from tests.conftest import login_client
 
     s = _create_session(client, auth_headers, "Nur Alice")
-    other_client = TestClient(app)
-    res = other_client.post(
-        "/api/auth/register",
-        json={"email": "bob@example.com", "password": TEST_PASSWORD},
-    )
-    assert res.status_code == 201
+    other_client = login_client(app, "bob@example.com")
     assert other_client.get("/api/sessions").json() == []
     assert other_client.get(f"/api/sessions/{s['id']}").status_code == 404
 

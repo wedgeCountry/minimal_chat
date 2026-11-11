@@ -66,10 +66,11 @@ def test_boolean_display_settings_roundtrip(client, auth_headers):
 
 def test_legacy_user_setting_keys_still_apply(client, auth_headers, app):
     """Umbenannte alte Schluessel (bubbles_user_*) werden als Fallback gelesen."""
+    from app.auth import user_identity
     from app.db import database as dbq
 
     db = app.state.db
-    user = db.get_user_by_email("alice@example.com")
+    user = user_identity(app.state.config.secret, "alice@example.com")
     with db.user_db(user) as con:
         dbq.q_set_user_setting(con, "bubbles_user_checkable", "0")
         dbq.q_set_user_setting(con, "bubbles_user_deletable", "0")
