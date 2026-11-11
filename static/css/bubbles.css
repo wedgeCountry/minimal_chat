@@ -104,8 +104,8 @@
 .bubble.user .bubbleHead{opacity:.85}
 .bubbleHead .role{font-weight:600;text-transform:uppercase;letter-spacing:.4px}
 .bubbleHead .grow{flex:1}
-.bubble.user .bubbleHead button svg{stroke:#fff}
-.bubble.user .chk{accent-color:#fff}
+.bubble.user .bubbleHead button svg{stroke:var(--bubble-user-text)}
+.bubble.user .chk{accent-color:var(--bubble-user-text)}
 .chk{accent-color:var(--accent);width:14px;height:14px;cursor:pointer;flex:none}
 .resizeHandle{position:absolute;right:0;bottom:0;width:16px;height:16px;cursor:nwse-resize;opacity:0;transition:opacity .15s;touch-action:none}
 .bubble:hover .resizeHandle,.resizeHandle.dragging{opacity:.55}
@@ -117,8 +117,8 @@
 .bubble.collapsed .chev svg{transform:rotate(-90deg)}
 .bubble.full .chev svg{transform:rotate(180deg)}
 .ttsBtn.on{color:var(--accent)}
-.bubble.user .ttsBtn.on{color:#fff}
+.bubble.user .ttsBtn.on{color:var(--bubble-user-text)}
 .copyBtn.ok svg{stroke:var(--accent)}
-.bubble.user .copyBtn.ok svg{stroke:#fff}
+.bubble.user .copyBtn.ok svg{stroke:var(--bubble-user-text)}
 .attachChip{font-size:12px;opacity:.9;display:flex;gap:6px;align-items:center;margin-bottom:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .attachChip svg{width:13px;height:13px}

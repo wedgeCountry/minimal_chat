@@ -1,20 +1,26 @@
 :root{
-  --accent:#4f6ef7; --bg:#f7f8fa; --panel:#ffffff; --chat-bg:#f2f3f6;
-  --text:#1b1d22; --muted:#7a7f8c; --border:#e3e5ea; --bubble-user:#4f6ef7;
+  --accent:#36454f; --accent-soft:rgba(54,69,79,.08); --on-accent:#fff;
+  --bg:#f7f8fa; --panel:#ffffff; --chat-bg:#f2f3f6;
+  --text:#1b1d22; --muted:#7a7f8c; --border:#e3e5ea; --bubble-user:#36454f;
   --bubble-user-text:#fff; --bubble-ai:#ffffff; --system:#eef0f4;
-  --danger:#e5484d; --ok:#2da44e; --shadow:0 1px 3px rgba(0,0,0,.07);
+  --danger:#e5484d; --on-danger:#fff; --ok:#2da44e;
+  --overlay-bg:rgba(0,0,0,.4); --hover-bg:rgba(128,128,128,.12); --scrollbar-thumb:rgba(128,128,128,.3);
+  --shadow:0 1px 3px rgba(0,0,0,.07); --side-shadow:0 0 30px rgba(0,0,0,.25);
 }
 html.dark{
-  --accent:#7c8cff; --bg:#15171c; --panel:#1c1f26; --chat-bg:#15171c;
-  --text:#e8eaf0; --muted:#8b90a0; --border:#2a2e38; --bubble-user:#5468e8;
+  --accent:#7c8a96; --accent-soft:rgba(124,138,150,.16); --on-accent:#fff;
+  --bg:#15171c; --panel:#1c1f26; --chat-bg:#15171c;
+  --text:#e8eaf0; --muted:#8b90a0; --border:#2a2e38; --bubble-user:#36454f;
   --bubble-user-text:#fff; --bubble-ai:#21242d; --system:#262a34;
-  --danger:#ff6b6f; --ok:#3fb950; --shadow:0 1px 3px rgba(0,0,0,.4);
+  --danger:#ff6b6f; --on-danger:#fff; --ok:#3fb950;
+  --overlay-bg:rgba(0,0,0,.4); --hover-bg:rgba(128,128,128,.12); --scrollbar-thumb:rgba(128,128,128,.3);
+  --shadow:0 1px 3px rgba(0,0,0,.4); --side-shadow:0 0 30px rgba(0,0,0,.25);
 }
 *{box-sizing:border-box;margin:0;padding:0}
 html,body{height:100%}
 body{font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--text);overflow:hidden}
 button{background:none;border:none;cursor:pointer;color:inherit;display:inline-flex;align-items:center;justify-content:center;border-radius:8px;padding:6px}
-button:hover{background:rgba(128,128,128,.12)}
+button:hover{background:var(--hover-bg)}
 svg{width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;flex:none}
 input,textarea{font:inherit;color:inherit}
 
@@ -34,4 +40,4 @@ input,textarea{font:inherit;color:inherit}
 #side.hidden{margin-left:-230px}
 
 ::-webkit-scrollbar{width:8px}
-::-webkit-scrollbar-thumb{background:rgba(128,128,128,.3);border-radius:4px}
+::-webkit-scrollbar-thumb{background:var(--scrollbar-thumb);border-radius:4px}
