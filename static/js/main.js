@@ -169,8 +169,6 @@ function initEvents() {
 
   const input = $("input");
   const mobile = isMobileInput();
-  const hint = $("composer-hint");
-  if (mobile && hint) hint.textContent = "Enter = neue Zeile · Senden über den Senden-Button";
   input.addEventListener("keydown", (e) => {
     if (e.key === "Enter" && !e.shiftKey && !mobile) {
       e.preventDefault();
