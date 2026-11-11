@@ -15,10 +15,21 @@ function _widthKey(id) {
   return `leanchat.bubblew-${id}`;
 }
 
+function _widthCap(b) {
+  // nie breiter als die CSS-Maximalbreite der Rolle (z. B. system 88%)
+  // und nie breiter als das Chat-Fenster
+  const chatW = b.parentElement.getBoundingClientRect().width;
+  const cssMax = getComputedStyle(b).maxWidth;
+  let cap = chatW * 0.95;
+  if (cssMax.endsWith("%")) cap = Math.min(cap, (parseFloat(cssMax) / 100) * chatW);
+  else if (cssMax && cssMax !== "none") cap = Math.min(cap, parseFloat(cssMax));
+  return cap;
+}
+
 function _applySavedWidth(b, m) {
   if (m.id == null || !_ss) return;
-  const w = _ss.getItem(_widthKey(m.id));
-  if (w) b.style.maxWidth = w;
+  const w = parseInt(_ss.getItem(_widthKey(m.id)), 10);
+  if (w > 0) b.style.maxWidth = `${Math.min(w, _widthCap(b))}px`;
 }
 
 function _makeResizable(b, m) {
@@ -35,7 +46,7 @@ function _makeResizable(b, m) {
     const startX = e.clientX;
     const startW = b.getBoundingClientRect().width;
     // Griff sitzt unten rechts: Drag nach rechts = breiter, nach links = schmaler
-    const maxW = b.parentElement.getBoundingClientRect().width * 0.95;
+    const maxW = _widthCap(b);
     const onMove = (ev) => {
       const w = Math.min(Math.max(startW + (ev.clientX - startX), MIN_BUBBLE_WIDTH), maxW);
       b.style.maxWidth = `${Math.round(w)}px`;
