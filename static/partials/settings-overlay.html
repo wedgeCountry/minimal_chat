@@ -1,26 +1,30 @@
 <div id="overlay" data-testid="settings-overlay">
   <div class="modal" data-testid="settings-modal">
     <h2 data-testid="settings-title">Einstellungen</h2>
-    <div class="field" data-testid="field-host"><label data-testid="label-host">LLM IP/Host</label><input id="setHost" data-testid="set-host" placeholder="192.168.1.10" /></div>
-    <div class="field" data-testid="field-port"><label data-testid="label-port">Port</label><input id="setPort" data-testid="set-port" type="number" min="1" max="65535" placeholder="8000" /></div>
-    <div class="field" data-testid="field-base"><label data-testid="label-base">Base-URL (berechnet)</label><input id="setBase" data-testid="set-base" readonly /></div>
-    <div class="row connRow" data-testid="conn-test-row">
-      <button class="btn" id="setTestConn" data-testid="set-test-conn" type="button">Verbindung testen</button>
-      <span id="connStatus" class="connStatus" data-testid="conn-status"></span>
+    <div id="settingsGeneral" data-testid="settings-general">
+      <div class="field" data-testid="field-theme"><label data-testid="label-theme">Theme</label><select id="setTheme" data-testid="set-theme"><option value="light">Hell</option><option value="dark">Dunkel</option></select></div>
+      <div class="field" data-testid="field-display"><label data-testid="label-display">Darstellung</label>
+        <label class="checkRow" data-testid="checkrow-deletable-all"><input type="checkbox" id="setDeletableAll" data-testid="set-deletable-all" /> Nachrichten löschen erlauben</label>
+        <label class="checkRow" data-testid="checkrow-checkable"><input type="checkbox" id="setCheckable" data-testid="set-checkable" /> Kontext-Checkbox anzeigen</label>
+        <label class="checkRow" data-testid="checkrow-speaker"><input type="checkbox" id="setSpeaker" data-testid="set-speaker" /> Speaker-Button anzeigen</label>
+        <label class="checkRow" data-testid="checkrow-show-system"><input type="checkbox" id="setShowSystem" data-testid="set-show-system" /> System-Prompt anzeigen</label>
+        <label class="checkRow" data-testid="checkrow-show-tool"><input type="checkbox" id="setShowTool" data-testid="set-show-tool" /> Tool-Ausgabe anzeigen</label>
+        <label class="checkRow" data-testid="checkrow-show-reasoning"><input type="checkbox" id="setShowReasoning" data-testid="set-show-reasoning" /> Reasoning anzeigen</label>
+        <label class="checkRow" data-testid="checkrow-show-file"><input type="checkbox" id="setShowFile" data-testid="set-show-file" /> Datei-Button anzeigen</label>
+        <label class="checkRow" data-testid="checkrow-show-image"><input type="checkbox" id="setShowImage" data-testid="set-show-image" /> Bild-Button anzeigen</label>
+      </div>
     </div>
-    <div class="field" data-testid="field-key"><label data-testid="label-key">API-Schlüssel (serverseitig gespeichert)</label><input id="setKey" data-testid="set-key" type="password" placeholder="sk-… (optional, überschreibt Server-Key)" /></div>
-    <div class="field" data-testid="field-model"><label data-testid="label-model">Modell</label><input id="setModel" data-testid="set-model" placeholder="gpt-4o-mini" /></div>
-    <div class="field" data-testid="field-system-prompt"><label data-testid="label-system-prompt">System-Prompt (optional)</label><textarea id="setSystemPrompt" data-testid="set-system-prompt" rows="3" placeholder="Wird als System-Nachricht an den LLM-Server mitgesendet"></textarea></div>
-    <div class="field" data-testid="field-theme"><label data-testid="label-theme">Theme</label><select id="setTheme" data-testid="set-theme"><option value="light">Hell</option><option value="dark">Dunkel</option></select></div>
-    <div class="field" data-testid="field-display"><label data-testid="label-display">Darstellung</label>
-      <label class="checkRow" data-testid="checkrow-deletable-all"><input type="checkbox" id="setDeletableAll" data-testid="set-deletable-all" /> Nachrichten löschen erlauben</label>
-      <label class="checkRow" data-testid="checkrow-checkable"><input type="checkbox" id="setCheckable" data-testid="set-checkable" /> Kontext-Checkbox anzeigen</label>
-      <label class="checkRow" data-testid="checkrow-speaker"><input type="checkbox" id="setSpeaker" data-testid="set-speaker" /> Speaker-Button anzeigen</label>
-      <label class="checkRow" data-testid="checkrow-show-system"><input type="checkbox" id="setShowSystem" data-testid="set-show-system" /> System-Prompt anzeigen</label>
-      <label class="checkRow" data-testid="checkrow-show-tool"><input type="checkbox" id="setShowTool" data-testid="set-show-tool" /> Tool-Ausgabe anzeigen</label>
-      <label class="checkRow" data-testid="checkrow-show-reasoning"><input type="checkbox" id="setShowReasoning" data-testid="set-show-reasoning" /> Reasoning anzeigen</label>
-      <label class="checkRow" data-testid="checkrow-show-file"><input type="checkbox" id="setShowFile" data-testid="set-show-file" /> Datei-Button anzeigen</label>
-      <label class="checkRow" data-testid="checkrow-show-image"><input type="checkbox" id="setShowImage" data-testid="set-show-image" /> Bild-Button anzeigen</label>
+    <div id="settingsLlm" data-testid="settings-llm" hidden>
+      <div class="field" data-testid="field-host"><label data-testid="label-host">LLM IP/Host</label><input id="setHost" data-testid="set-host" placeholder="192.168.1.10" /></div>
+      <div class="field" data-testid="field-port"><label data-testid="label-port">Port</label><input id="setPort" data-testid="set-port" type="number" min="1" max="65535" placeholder="8000" /></div>
+      <div class="field" data-testid="field-base"><label data-testid="label-base">Base-URL (berechnet)</label><input id="setBase" data-testid="set-base" readonly /></div>
+      <div class="row connRow" data-testid="conn-test-row">
+        <button class="btn" id="setTestConn" data-testid="set-test-conn" type="button">Verbindung testen</button>
+        <span id="connStatus" class="connStatus" data-testid="conn-status"></span>
+      </div>
+      <div class="field" data-testid="field-key"><label data-testid="label-key">API-Schlüssel (serverseitig gespeichert)</label><input id="setKey" data-testid="set-key" type="password" placeholder="sk-… (optional, überschreibt Server-Key)" /></div>
+      <div class="field" data-testid="field-model"><label data-testid="label-model">Modell</label><input id="setModel" data-testid="set-model" placeholder="gpt-4o-mini" /></div>
+      <div class="field" data-testid="field-system-prompt"><label data-testid="label-system-prompt">System-Prompt (optional)</label><textarea id="setSystemPrompt" data-testid="set-system-prompt" rows="3" placeholder="Wird als System-Nachricht an den LLM-Server mitgesendet"></textarea></div>
     </div>
     <div class="row" data-testid="settings-actions">
       <button class="btn" id="setCancel" data-testid="set-cancel">Abbrechen</button>

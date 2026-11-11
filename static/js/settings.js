@@ -80,7 +80,10 @@ export function initSettings() {
   };
 }
 
-export function openSettings() {
+export function openSettings(tab = "general") {
+  $("settingsGeneral").hidden = tab !== "general";
+  $("settingsLlm").hidden = tab !== "llm";
+  $("settings-title").textContent = tab === "llm" ? "LLM-Einstellungen" : "Einstellungen";
   $("setHost").value = state.settings.host || "";
   $("setPort").value = state.settings.port || "";
   $("setBase").value = state.settings.host
