@@ -56,7 +56,7 @@ Eigenschaften je Bubble:
 | Text | Nachrichteninhalt, bei Markdown einfache Formatierung optional |
 | Rolle | `user`, `assistant`, `system` |
 | Typ | `message`, `toolcall`, `reasoning` (Thinking) |
-| Ein-/Ausklappbar | Kopfzeile bleibt sichtbar, Körper kollabierbar; Standard: `message`/`user`/`assistant` offen, `reasoning`/`toolcall` eingeklappt |
+| Dreistufig ausklappbar | Toggle in der Kopfzeile wechselt zyklisch: `normal` (max. 10 Zeilen, Rest hinter `[...]`), `full` (kompletter Text), `collapsed` (1 Zeile, Rest hinter `[...]`); Standard: `message`/`user`/`assistant` = normal, `reasoning`/`toolcall` = collapsed |
 | Mindestzeilenanzahl | Bubbles behalten eine Mindesthöhe, damit kurze Nachrichten das Layout nicht springen lassen |
 | Kopieren | Kopier-Symbol kopiert den Inhalt in die Zwischenablage (`navigator.clipboard`, Fallback `execCommand`) |
 | Vorlesen | Audio-Symbol: Vorlesen per `speechSynthesis`, erneuter Klick stoppt |

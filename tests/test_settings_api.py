@@ -5,6 +5,7 @@ DEFAULTS = {
     "base": "http://llm.test/v1",
     "model": "gpt-4o-mini",
     "theme": "light",
+    "bubbles_deletable": True,
     "bubbles_user_checkable": True,
     "bubbles_user_deletable": True,
     "show_system_prompt": True,
@@ -38,6 +39,7 @@ def test_boolean_display_settings_roundtrip(client, auth_headers):
     res = client.put(
         "/api/settings",
         json={
+            "bubbles_deletable": False,
             "bubbles_user_checkable": False,
             "bubbles_user_deletable": False,
             "show_system_prompt": False,
@@ -48,9 +50,11 @@ def test_boolean_display_settings_roundtrip(client, auth_headers):
     )
     assert res.status_code == 200
     body = res.json()
+    assert body["bubbles_deletable"] is False
     assert body["bubbles_user_checkable"] is False
     assert body["show_reasoning"] is False
     got = client.get("/api/settings", headers=auth_headers).json()
+    assert got["bubbles_deletable"] is False
     assert got["bubbles_user_checkable"] is False
     assert got["bubbles_user_deletable"] is False
     assert got["show_system_prompt"] is False

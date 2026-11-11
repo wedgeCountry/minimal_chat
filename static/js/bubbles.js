@@ -1,11 +1,31 @@
 import { esc } from "./util.js";
 import { ICONS } from "./icons.js";
 import { state } from "./state.js";
-import { isUserBubbleCheckable, isUserBubbleDeletable } from "./visibility.js";
+import { isBubbleDeletable, isUserBubbleCheckable, isUserBubbleDeletable } from "./visibility.js";
+import { BUBBLE_MODES, clampText, nextBubbleMode, bubbleModeTitle } from "./bubbleMode.js";
 
 const typeLabels = { message: "", toolcall: "Tool-Call", reasoning: "Thinking", system: "System" };
 
 let tmpBubbleSeq = 0;
+
+export function setBubbleMode(b, mode) {
+  for (const m of BUBBLE_MODES) b.classList.remove(m);
+  b.classList.add(mode);
+  b.dataset.mode = mode;
+  const chev = b.querySelector(".chev");
+  if (chev) chev.title = bubbleModeTitle(mode);
+  renderBubbleBody(b);
+}
+
+export function setBubbleText(b, text) {
+  b._fullText = text || "";
+  renderBubbleBody(b);
+}
+
+function renderBubbleBody(b) {
+  const body = b.querySelector(".bubbleBody");
+  if (body) body.textContent = clampText(b._fullText ?? body.textContent, b.dataset.mode || "normal");
+}
 
 export function bubbleEl(m, handlers = {}) {
   const b = document.createElement("div");
@@ -16,19 +36,20 @@ export function bubbleEl(m, handlers = {}) {
   if (m.id != null) b.dataset.msgId = String(m.id);
   b.className = `bubble ${m.role} ${m.type}`;
   const collapsible = m.type === "reasoning" || m.type === "toolcall";
-  if (collapsible) b.classList.add("collapsed");
-  else b.classList.add("expanded");
+  const mode = collapsible ? "collapsed" : "normal";
+  b.classList.add(mode);
+  b.dataset.mode = mode;
   if (m.type === "message") b.classList.add(m.inContext !== false ? "selected" : "deselected");
   const label = m.type === "message" ? m.role : typeLabels[m.type] || m.role;
   const isUser = m.role === "user";
   const showChk = m.type === "message" && isUser && isUserBubbleCheckable(state.settings);
-  const showDel = !isUser || isUserBubbleDeletable(state.settings);
+  const showDel = isBubbleDeletable(state.settings) && (!isUser || isUserBubbleDeletable(state.settings));
   const attach = (m.attachments || [])
     .map((a) => `<div class="attachChip" data-testid="bubble-attachment">${ICONS.attach}<span data-testid="bubble-attachment-name">${esc(a.name)}</span></div>`)
     .join("");
   b.innerHTML = `
     <div class="bubbleHead" data-testid="bubble-head">
-      ${collapsible ? `<button class="iconBtn chev" data-testid="bubble-toggle-btn" title="Ein-/Ausklappen">${ICONS.chev}</button>` : ""}
+      <button class="iconBtn chev" data-testid="bubble-toggle-btn" title="${bubbleModeTitle(mode)}">${ICONS.chev}</button>
       <span class="role" data-testid="bubble-role">${esc(label)}</span>
       <span class="grow"></span>
       ${showChk ? `<input type="checkbox" class="chk" data-testid="bubble-context-chk" ${m.inContext !== false ? "checked" : ""} title="Im Kontext senden" />` : ""}
@@ -38,12 +59,10 @@ export function bubbleEl(m, handlers = {}) {
     </div>
     ${attach}
     <div class="bubbleBody" data-testid="bubble-body">${esc(m.text || "")}</div>`;
+  setBubbleText(b, m.text || "");
   const chev = b.querySelector(".chev");
   if (chev)
-    chev.onclick = () => {
-      b.classList.toggle("collapsed");
-      b.classList.toggle("expanded");
-    };
+    chev.onclick = () => setBubbleMode(b, nextBubbleMode(b.dataset.mode || "normal"));
   b.querySelector(".copyBtn").onclick = async (e) => {
     const btn = e.currentTarget;
     try {
