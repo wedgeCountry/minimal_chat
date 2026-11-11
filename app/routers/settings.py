@@ -8,23 +8,15 @@ from ..db.database import Database
 from ..deps import get_config, get_current_user, get_db
 from ..models import SettingsIn, SettingsOut, SettingsTestIn
 from ..services.chat import check_llm_connection
-from ..services.settings import BOOL_SETTINGS, stored_bool, to_db
+from ..services.settings import BOOL_SETTINGS, resolve_base_url, stored_bool, to_db
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
-
-
-def _base_from_host_port(host: str, port: str) -> str | None:
-    host = host.strip()
-    if not host:
-        return None
-    port = port.strip()
-    return f"http://{host}{':' + port if port else ''}/v1"
 
 
 def _settings_out(stored: dict[str, str], config: AppConfig) -> SettingsOut:
     host = stored.get("host") or ""
     port = stored.get("port") or ""
-    base = _base_from_host_port(host, port) or stored.get("base") or config.default_llm_base
+    base = resolve_base_url(stored, config)
     return SettingsOut(
         base=base,
         host=host,
@@ -56,7 +48,7 @@ async def test_connection(
 ) -> dict:
     with db.user_db(user) as con:
         stored = dbq.q_get_user_settings(con)
-    base = body.base or stored.get("base") or config.default_llm_base
+    base = body.base or resolve_base_url(stored, config)
     api_key = body.api_key or stored.get("api_key") or config.default_api_key
     ok, detail = await check_llm_connection(base, api_key)
     return {"ok": ok, "detail": detail}

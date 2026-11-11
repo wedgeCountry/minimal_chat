@@ -246,3 +246,16 @@ def test_chat_system_prompt_filtered_when_disabled(client, auth_headers, monkeyp
         headers=auth_headers,
     )
     assert seen["body"]["messages"] == [{"role": "user", "content": "Hi"}]
+
+
+def test_chat_uses_host_port_computed_base_url(client, auth_headers, monkeypatch):
+    """Regression: host/port settings must drive the chat URL (single source of truth)."""
+    seen = _mock_llm(monkeypatch)
+    client.put("/api/settings", json={"host": "192.168.1.10", "port": "8000"}, headers=auth_headers)
+    res = client.post(
+        "/api/chat",
+        json={"model": "m", "messages": [{"role": "user", "content": "Hi"}]},
+        headers=auth_headers,
+    )
+    assert res.status_code == 200
+    assert seen["url"] == "http://192.168.1.10:8000/v1/chat/completions"

@@ -186,4 +186,4 @@ def test_connection_test_http_error_is_red(client, auth_headers, monkeypatch):
 
     _mock_llm_models(monkeypatch, handler)
     res = client.post("/api/settings/test", json={}, headers=auth_headers)
-    assert res.json() == {"ok": False, "detail": "HTTP 401"}
+    assert res.json() == {"ok": False, "detail": "http://llm.test/v1/models -> HTTP 401"}

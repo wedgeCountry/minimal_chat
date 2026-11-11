@@ -9,7 +9,7 @@ from ..db.database import Database
 from ..deps import get_config, get_current_user, get_db
 from ..models import ChatRequest
 from ..services.chat import stream_completion
-from ..services.settings import BOOL_SETTINGS, stored_bool
+from ..services.settings import BOOL_SETTINGS, resolve_base_url, stored_bool
 
 router = APIRouter(prefix="/api/chat", tags=["chat"])
 
@@ -23,7 +23,7 @@ async def chat(
 ) -> StreamingResponse:
     with db.user_db(user) as con:
         stored = dbq.q_get_user_settings(con)
-    base_url = stored.get("base") or config.default_llm_base
+    base_url = resolve_base_url(stored, config)
     api_key = stored.get("api_key") or config.default_api_key
     flags = {key: stored_bool(stored, key) for key in BOOL_SETTINGS}
     messages = [m.model_dump() for m in req.messages]
