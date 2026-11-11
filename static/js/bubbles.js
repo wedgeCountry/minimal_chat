@@ -8,6 +8,50 @@ const typeLabels = { message: "", toolcall: "Tool-Call", reasoning: "Thinking", 
 
 let tmpBubbleSeq = 0;
 
+const MIN_BUBBLE_WIDTH = 260;
+const _ss = typeof sessionStorage !== "undefined" ? sessionStorage : null;
+
+function _widthKey(id) {
+  return `leanchat.bubblew-${id}`;
+}
+
+function _applySavedWidth(b, m) {
+  if (m.id == null || !_ss) return;
+  const w = _ss.getItem(_widthKey(m.id));
+  if (w) b.style.maxWidth = w;
+}
+
+function _makeResizable(b, m) {
+  const handle = document.createElement("div");
+  handle.className = "resizeHandle";
+  handle.dataset.testid = "bubble-resize-handle";
+  handle.title = "Breite per Drag anpassen";
+  b.appendChild(handle);
+  handle.addEventListener("pointerdown", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    handle.setPointerCapture(e.pointerId);
+    handle.classList.add("dragging");
+    const startX = e.clientX;
+    const startW = b.getBoundingClientRect().width;
+    // Griff sitzt unten rechts: Drag nach rechts = breiter, nach links = schmaler
+    const maxW = b.parentElement.getBoundingClientRect().width * 0.95;
+    const onMove = (ev) => {
+      const w = Math.min(Math.max(startW + (ev.clientX - startX), MIN_BUBBLE_WIDTH), maxW);
+      b.style.maxWidth = `${Math.round(w)}px`;
+    };
+    const onUp = (ev) => {
+      handle.removeEventListener("pointermove", onMove);
+      handle.removeEventListener("pointerup", onUp);
+      handle.classList.remove("dragging");
+      onMove(ev);
+      if (m.id != null && _ss) _ss.setItem(_widthKey(m.id), b.style.maxWidth);
+    };
+    handle.addEventListener("pointermove", onMove);
+    handle.addEventListener("pointerup", onUp);
+  });
+}
+
 export function setBubbleMode(b, mode) {
   for (const m of BUBBLE_MODES) b.classList.remove(m);
   b.classList.add(mode);
@@ -42,7 +86,7 @@ export function bubbleEl(m, handlers = {}) {
   if (m.type === "message") b.classList.add(m.inContext !== false ? "selected" : "deselected");
   const label = m.type === "message" ? m.role : typeLabels[m.type] || m.role;
   const isUser = m.role === "user";
-  const showChk = m.type === "message" && isUser && isUserBubbleCheckable(state.settings);
+  const showChk = m.type === "message" && isUserBubbleCheckable(state.settings);
   const showDel = isBubbleDeletable(state.settings) && (!isUser || isUserBubbleDeletable(state.settings));
   const attach = (m.attachments || [])
     .map((a) => `<div class="attachChip" data-testid="bubble-attachment">${ICONS.attach}<span data-testid="bubble-attachment-name">${esc(a.name)}</span></div>`)
@@ -88,6 +132,8 @@ export function bubbleEl(m, handlers = {}) {
     };
   const delBtn = b.querySelector(".delBtn");
   if (delBtn) delBtn.onclick = () => handlers.onDelete?.(m);
+  _applySavedWidth(b, m);
+  _makeResizable(b, m);
   const tts = b.querySelector(".ttsBtn");
   tts.onclick = () => {
     if (!("speechSynthesis" in window)) return;
