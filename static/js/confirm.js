@@ -2,6 +2,21 @@ import { $ } from "./util.js";
 
 let resolver = null;
 let errorResolver = null;
+let errorTimer = null;
+
+function errorClose() {
+  const errorOverlay = $("errorOverlay");
+  if (!errorOverlay) return;
+  errorOverlay.classList.remove("open");
+  if (errorTimer) {
+    clearTimeout(errorTimer);
+    errorTimer = null;
+  }
+  if (errorResolver) {
+    errorResolver();
+    errorResolver = null;
+  }
+}
 
 export function initConfirm() {
   const overlay = $("confirmOverlay");
@@ -22,13 +37,6 @@ export function initConfirm() {
   });
   
   const errorOverlay = $("errorOverlay");
-  const errorClose = () => {
-    errorOverlay.classList.remove("open");
-    if (errorResolver) {
-      errorResolver();
-      errorResolver = null;
-    }
-  };
   $("errorOk").onclick = errorClose;
   errorOverlay.addEventListener("click", (e) => {
     if (e.target === errorOverlay) errorClose();
@@ -48,11 +56,15 @@ export function confirmModal({ title, text, okLabel = "Löschen" }) {
   });
 }
 
-export function showError(message) {
+export function showError(message, autoCloseMs = 0) {
   return new Promise((resolve) => {
     errorResolver = resolve;
     $("errorTitle").textContent = "Fehler";
     $("errorText").textContent = message;
     $("errorOverlay").classList.add("open");
+    if (autoCloseMs > 0) {
+      if (errorTimer) clearTimeout(errorTimer);
+      errorTimer = setTimeout(errorClose, autoCloseMs);
+    }
   });
 }
