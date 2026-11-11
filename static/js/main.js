@@ -6,6 +6,7 @@ import { loadSessions, renderSessions, changed } from "./sessions.js";
 import { abortStream, renderChat, renderHeader, send } from "./chat.js";
 import { addAttachments, renderAttachments } from "./attachments.js";
 import { initSettings, loadSettings, openSettings } from "./settings.js";
+import { initConfirm } from "./confirm.js";
 import { applyTheme } from "./theme.js";
 import { initPartials } from "./html.js";
 
@@ -53,6 +54,7 @@ async function bootstrap() {
 }
 
 function initEvents() {
+  initConfirm();
   $("panelBtn").onclick = () => $("side").classList.toggle("hidden");
   $("burgerBtn").onclick = (e) => {
     e.stopPropagation();

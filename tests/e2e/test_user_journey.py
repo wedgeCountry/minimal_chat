@@ -34,7 +34,16 @@ T = {
     "settings_overlay": '[data-testid="settings-overlay"]',
     "set_show_system": '[data-testid="set-show-system"]',
     "set_save": '[data-testid="set-save"]',
+    "confirm_overlay": '[data-testid="confirm-overlay"]',
+    "confirm_ok": '[data-testid="confirm-ok"]',
 }
+
+
+def _confirm_delete(page):
+    """Bestaetigt den Lösch-Overlay-Modal."""
+    page.wait_for_selector(f'{T["confirm_overlay"]}.open')
+    page.click(T["confirm_ok"])
+    page.wait_for_selector(f'{T["confirm_overlay"]}:not(.open)', state="attached")
 
 
 def _bubble(role, type_="message"):
@@ -117,9 +126,6 @@ def test_full_user_journey(page, base_url, tmp_path, llm_expect):
     )
     assert res.status_code == 200, res.text
 
-    # Alle confirm()-Dialoge (Session/Nachricht loeschen) automatisch bestaetigen.
-    page.on("dialog", lambda d: d.accept())
-
     # 1. Anmelden
     _login(page, base_url, USER["username"], USER["password"])
 
@@ -170,6 +176,7 @@ def test_full_user_journey(page, base_url, tmp_path, llm_expect):
 
     tile_second = page.locator(T["session_tile"], has_text="Zweite Nachricht")
     tile_second.locator('[data-testid^="session-delete-btn-"]').click()
+    _confirm_delete(page)
     page.wait_for_function(
         "() => document.querySelectorAll('[data-testid^=\"session-tile-\"]').length === 1"
     )
@@ -180,10 +187,12 @@ def test_full_user_journey(page, base_url, tmp_path, llm_expect):
     page.wait_for_selector(_bubble("user"))
     assert page.locator(_bubble("user")).count() == 3
     page.locator(_bubble("user")).last.locator('[data-testid="bubble-delete-btn"]').click()
+    _confirm_delete(page)
     page.wait_for_function(
         f"() => document.querySelectorAll('{T['chat']} .bubble[data-role=\"user\"]').length === 2"
     )
     page.locator(_bubble("assistant")).last.locator('[data-testid="bubble-delete-btn"]').click()
+    _confirm_delete(page)
     page.wait_for_function(
         f"() => document.querySelectorAll('{T['chat']} .bubble[data-role=\"assistant\"][data-type=\"message\"]').length === 2"
     )

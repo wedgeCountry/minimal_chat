@@ -47,6 +47,9 @@
 /* Modal */
 #overlay{position:fixed;inset:0;background:rgba(0,0,0,.4);display:none;align-items:center;justify-content:center;z-index:100}
 #overlay.open{display:flex}
+#confirmOverlay{position:fixed;inset:0;background:rgba(0,0,0,.4);display:none;align-items:center;justify-content:center;z-index:150}
+#confirmOverlay.open{display:flex}
+.confirmText{font-size:14px;margin-bottom:4px}
 .modal{background:var(--panel);border:1px solid var(--border);border-radius:14px;box-shadow:var(--shadow);width:min(420px,92vw);padding:22px}
 .modal h2{font-size:16px;margin-bottom:16px}
 .field{margin-bottom:14px}
@@ -58,3 +61,4 @@
 .row{display:flex;gap:8px;justify-content:flex-end;margin-top:18px}
 .btn{padding:8px 16px;border-radius:9px;font-size:14px;border:1px solid var(--border)}
 .btn.primary{background:var(--accent);color:#fff;border-color:var(--accent)}
+.btn.danger{background:var(--danger);border-color:var(--danger);color:#fff}

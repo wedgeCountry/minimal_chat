@@ -6,6 +6,7 @@ import { bubbleEl, setBubbleMode, setBubbleText } from "./bubbles.js";
 import { buildChatPayload } from "./payload.js";
 import { parseSSE } from "./sse.js";
 import { loadSessions, newSession, changed } from "./sessions.js";
+import { confirmModal } from "./confirm.js";
 import { isBubbleVisible } from "./visibility.js";
 
 export function setStreamingUI(on) {
@@ -45,7 +46,8 @@ const handlers = {
       api.patch(`/sessions/${s.id}/messages/${m.id}`, { in_context: m.inContext }).catch(() => {});
   },
   onDelete: async (m) => {
-    if (!confirm("Diese Nachricht löschen?")) return;
+    const ok = await confirmModal({ title: "Nachricht löschen", text: "Diese Nachricht löschen?" });
+    if (!ok) return;
     const s = activeSession();
     if (m.id != null && s) await api.del(`/sessions/${s.id}/messages/${m.id}`).catch(() => {});
     changed();
