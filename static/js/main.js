@@ -181,8 +181,10 @@ function initEvents() {
     input.style.height = "auto";
     input.style.height = Math.min(input.scrollHeight, 180) + "px";
   });
-  $("composerWrap").addEventListener("pointerdown", () => $("side").classList.add("hidden"));
-  $("chat").addEventListener("pointerdown", () => $("side").classList.add("hidden"));
+  if (mobile) {
+    $("composerWrap").addEventListener("pointerdown", () => $("side").classList.add("hidden"));
+    $("chat").addEventListener("pointerdown", () => $("side").classList.add("hidden"));
+  }
 
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SR) {
