@@ -9,7 +9,8 @@ Usage (from the repository root):
 - Configures the app to use a real LLM endpoint at http://100.100.180.90:1234/v1
 - Uses model: openai/google/gemma-4-e4b
 - Enables auto-login (no login required, uses default test user)
-- Uses a temporary data directory by default, or mockdata/ with --mockdata
+- Uses the persistent data-test/ directory by default (data survives reruns),
+  or mockdata/ with --mockdata, or a custom path with --data-dir
 - Press Ctrl+C to stop the server
 """
 
@@ -17,7 +18,6 @@ import argparse
 import os
 import subprocess
 import sys
-import tempfile
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -119,7 +119,7 @@ def main() -> None:
     parser.add_argument(
         "--data-dir",
         default=None,
-        help="Data directory for the testing instance (default: temporary directory)",
+        help="Data directory for the testing instance (default: <repo>/data-test, persistent)",
     )
     parser.add_argument(
         "--mockdata",
@@ -142,8 +142,9 @@ def main() -> None:
         data_dir = Path(args.data_dir).resolve()
         data_dir.mkdir(parents=True, exist_ok=True)
     else:
-        data_dir = Path(tempfile.mkdtemp(prefix="leanchat-test-"))
-        print(f"Using temporary data directory: {data_dir}", flush=True)
+        data_dir = (REPO_ROOT / "data-test").resolve()
+        data_dir.mkdir(parents=True, exist_ok=True)
+        print(f"Using persistent test data directory: {data_dir}", flush=True)
 
     # Initialize test database if using mockdata directory or if data directory is empty
     if args.mockdata or (args.data_dir and "mockdata" in str(args.data_dir)):
@@ -187,12 +188,8 @@ def main() -> None:
         )
     except KeyboardInterrupt:
         print("\nShutting down...", flush=True)
-    finally:
-        # Clean up temporary data directory (but not mockdata or explicitly specified directories)
-        if not args.data_dir and not args.mockdata:
-            import shutil
-            shutil.rmtree(data_dir, ignore_errors=True)
-            print(f"Cleaned up temporary data directory: {data_dir}", flush=True)
+    # Datenverzeichnis wird bewusst nicht aufgeraeumt: data-test/ (Default) und
+    # mockdata/ bleiben erhalten, damit Daten zwischen Testlaeufen persistieren.
 
 
 if __name__ == "__main__":
