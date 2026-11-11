@@ -80,6 +80,7 @@ async def stream_completion(
 
     payload = {**payload, "messages": filter_request_messages(payload.get("messages", []), show_system_prompt)}
     url = base_url.rstrip("/") + "/chat/completions"
+    #print("Chat completion url: ", url)
     headers = {"Content-Type": "application/json"}
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"

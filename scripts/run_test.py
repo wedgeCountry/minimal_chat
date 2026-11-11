@@ -60,22 +60,7 @@ def _init_test_database(data_dir: Path) -> None:
         # Initialize the user's database with some test data
         with db.user_db(user) as con:
             # Create a test session
-            session_id = "test-session-1"
-            con.execute(
-                "INSERT INTO sessions (id, name, ts) VALUES (?, ?, ?)",
-                (session_id, "Test Session", 1234567890)
-            )
-            
-            # Add some test messages
-            con.execute(
-                "INSERT INTO messages (session_id, role, type, text, in_context, attachments, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (session_id, "user", "message", "Hello, this is a test message", 1, "[]", 1234567890)
-            )
-            con.execute(
-                "INSERT INTO messages (session_id, role, type, text, in_context, attachments, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (session_id, "assistant", "message", "This is a test response from the assistant", 1, "[]", 1234567891)
-            )
-            
+
             # Add some user settings
             con.execute(
                 "INSERT INTO user_settings (key, value) VALUES (?, ?)",
@@ -123,6 +108,7 @@ def main() -> None:
     )
     parser.add_argument(
         "--mockdata",
+        default=True,
         action="store_true",
         help="Use the mockdata directory for testing (creates test databases if they don't exist)",
     )
