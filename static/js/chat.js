@@ -135,6 +135,7 @@ export async function send(textOverride, attachmentsOverride) {
   if (typeof textOverride !== "string") {
     input.value = "";
     input.style.height = "auto";
+    input.style.overflowY = "hidden";
   }
   changed();
 
