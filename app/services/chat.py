@@ -80,11 +80,23 @@ async def stream_completion(
 
     payload = {**payload, "messages": filter_request_messages(payload.get("messages", []), show_system_prompt)}
     url = base_url.rstrip("/") + "/chat/completions"
+    #print("Chat completion url: ", url)
     headers = {"Content-Type": "application/json"}
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
+    
+    # Check if LLM server is reachable
     factory = client_factory or httpx.AsyncClient
     async with factory(timeout=DEFAULT_TIMEOUT) as client:
+        # Try to connect to the server with a HEAD request
+        try:
+            await client.head(base_url.rstrip("/"), timeout=5.0)
+        except (httpx.ConnectError, httpx.TimeoutException, httpx.NetworkError):
+            error = json.dumps({"error": "LLM-Server nicht erreichbar. Bitte überprüfe die Server-URL und die Verbindung."})
+            yield f"data: {error}\n\n"
+            yield "data: [DONE]\n\n"
+            return
+        
         async with client.stream("POST", url, headers=headers, json=payload) as res:
             if res.status_code >= 400:
                 body = (await res.aread()).decode("utf-8", errors="replace")[:300]

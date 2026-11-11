@@ -4,23 +4,14 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
-USERNAME_PATTERN = r"^[A-Za-z0-9_.-]{3,32}$"
-
-
-class Credentials(BaseModel):
-    username: str = Field(pattern=USERNAME_PATTERN)
-    password: str = Field(min_length=6, max_length=128)
-    key: str | None = None
+class RegisterRequest(BaseModel):
+    email: str
+    password: str = Field(min_length=8, max_length=1024)
 
 
 class LoginRequest(BaseModel):
-    username: str
+    email: str
     password: str
-
-
-class TokenResponse(BaseModel):
-    token: str
-    username: str
 
 
 class MessageIn(BaseModel):
@@ -64,8 +55,8 @@ class SettingsIn(BaseModel):
     theme: Literal["light", "dark"] | None = None
     api_key: str | None = None
     bubbles_deletable: bool | None = None
-    bubbles_user_checkable: bool | None = None
-    bubbles_user_deletable: bool | None = None
+    bubbles_checkable: bool | None = None
+    bubbles_speaker: bool | None = None
     show_system_prompt: bool | None = None
     show_tool_output: bool | None = None
     show_reasoning: bool | None = None
@@ -75,9 +66,9 @@ class SettingsOut(BaseModel):
     base: str
     model: str
     theme: str
-    bubbles_deletable: bool = True
-    bubbles_user_checkable: bool = True
-    bubbles_user_deletable: bool = True
+    bubbles_deletable: bool = False
+    bubbles_checkable: bool = False
+    bubbles_speaker: bool = False
     show_system_prompt: bool = True
     show_tool_output: bool = True
     show_reasoning: bool = True

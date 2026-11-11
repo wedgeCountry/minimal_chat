@@ -125,7 +125,7 @@ def load_config(
     return AppConfig(
         data_dir=data,
         secret=secret or os.environ.get("LEANCHAT_SECRET") or _load_or_create_secret(data / ".secret"),
-        registry_path=Path(os.environ.get("LEANCHAT_REGISTRY_PATH", str(data / "user_registry.db.enc"))).resolve(),
+        registry_path=Path(os.environ.get("LEANCHAT_REGISTRY_PATH", str(data / "user_registry.db"))).resolve(),
         users_dir=Path(os.environ.get("LEANCHAT_USERS_DIR", str(data / "users"))).resolve(),
         default_llm_base=os.environ.get("LEANCHAT_LLM_BASE", "https://api.openai.com/v1"),
         default_api_key=os.environ.get("LEANCHAT_API_KEY", ""),
@@ -134,3 +134,8 @@ def load_config(
         port=int(os.environ.get("LEANCHAT_PORT", "8000")),
         app_config_path=Path(os.environ["LEANCHAT_CONFIG_PATH"]) if os.environ.get("LEANCHAT_CONFIG_PATH") else None,
     )
+
+
+def is_auto_login_enabled() -> bool:
+    """Check if auto-login mode is enabled (for testing)."""
+    return os.environ.get("LEANCHAT_AUTO_LOGIN", "").lower() in ("1", "true", "yes", "on")

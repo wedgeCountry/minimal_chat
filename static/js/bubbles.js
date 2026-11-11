@@ -1,12 +1,73 @@
 import { esc } from "./util.js";
 import { ICONS } from "./icons.js";
 import { state } from "./state.js";
-import { isBubbleDeletable, isUserBubbleCheckable, isUserBubbleDeletable } from "./visibility.js";
+import { isBubbleDeletable, isBubbleCheckable, isBubbleSpeaker } from "./visibility.js";
 import { BUBBLE_MODES, clampText, nextBubbleMode, bubbleModeTitle } from "./bubbleMode.js";
 
 const typeLabels = { message: "", toolcall: "Tool-Call", reasoning: "Thinking", system: "System" };
 
 let tmpBubbleSeq = 0;
+
+const MIN_BUBBLE_WIDTH = 260;
+const _ss = typeof sessionStorage !== "undefined" ? sessionStorage : null;
+
+function _widthKey(id) {
+  return `leanchat.bubblew-${id}`;
+}
+
+function _widthCap(b) {
+  // nie breiter als die CSS-Maximalbreite der Rolle (z. B. system 88%)
+  // und nie breiter als das Chat-Fenster
+  const chat = document.getElementById("chat");
+  const chatW = chat ? chat.getBoundingClientRect().width : 0;
+  const cssMax = getComputedStyle(b).maxWidth;
+  let cap = chatW > 0 ? chatW * 0.95 : Infinity;
+  if (cssMax.endsWith("%")) cap = Math.min(cap, chatW > 0 ? (parseFloat(cssMax) / 100) * chatW : Infinity);
+  else if (cssMax && cssMax !== "none") cap = Math.min(cap, parseFloat(cssMax));
+  return cap;
+}
+
+function _applySavedWidth(b, m) {
+  if (m.id == null || !_ss) return;
+  const w = parseInt(_ss.getItem(_widthKey(m.id)), 10);
+  if (w <= 0) return;
+  b.style.maxWidth = `${w}px`;
+  // im naechsten Frame (Element attached) gegen Rollen-CSS-Maxbreite clampen
+  requestAnimationFrame(() => {
+    if (b.isConnected) b.style.maxWidth = `${Math.min(w, _widthCap(b))}px`;
+  });
+}
+
+function _makeResizable(b, m) {
+  const handle = document.createElement("div");
+  handle.className = "resizeHandle";
+  handle.dataset.testid = "bubble-resize-handle";
+  handle.title = "Breite per Drag anpassen";
+  b.appendChild(handle);
+  handle.addEventListener("pointerdown", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    handle.setPointerCapture(e.pointerId);
+    handle.classList.add("dragging");
+    const startX = e.clientX;
+    const startW = b.getBoundingClientRect().width;
+    // Griff sitzt unten rechts: Drag nach rechts = breiter, nach links = schmaler
+    const maxW = _widthCap(b);
+    const onMove = (ev) => {
+      const w = Math.min(Math.max(startW + (ev.clientX - startX), MIN_BUBBLE_WIDTH), maxW);
+      b.style.maxWidth = `${Math.round(w)}px`;
+    };
+    const onUp = (ev) => {
+      handle.removeEventListener("pointermove", onMove);
+      handle.removeEventListener("pointerup", onUp);
+      handle.classList.remove("dragging");
+      onMove(ev);
+      if (m.id != null && _ss) _ss.setItem(_widthKey(m.id), b.style.maxWidth);
+    };
+    handle.addEventListener("pointermove", onMove);
+    handle.addEventListener("pointerup", onUp);
+  });
+}
 
 export function setBubbleMode(b, mode) {
   for (const m of BUBBLE_MODES) b.classList.remove(m);
@@ -41,9 +102,9 @@ export function bubbleEl(m, handlers = {}) {
   b.dataset.mode = mode;
   if (m.type === "message") b.classList.add(m.inContext !== false ? "selected" : "deselected");
   const label = m.type === "message" ? m.role : typeLabels[m.type] || m.role;
-  const isUser = m.role === "user";
-  const showChk = m.type === "message" && isUser && isUserBubbleCheckable(state.settings);
-  const showDel = isBubbleDeletable(state.settings) && (!isUser || isUserBubbleDeletable(state.settings));
+  const showChk = m.type === "message" && isBubbleCheckable(state.settings);
+  const showDel = isBubbleDeletable(state.settings);
+  const showTts = isBubbleSpeaker(state.settings);
   const attach = (m.attachments || [])
     .map((a) => `<div class="attachChip" data-testid="bubble-attachment">${ICONS.attach}<span data-testid="bubble-attachment-name">${esc(a.name)}</span></div>`)
     .join("");
@@ -53,7 +114,7 @@ export function bubbleEl(m, handlers = {}) {
       <span class="role" data-testid="bubble-role">${esc(label)}</span>
       <span class="grow"></span>
       ${showChk ? `<input type="checkbox" class="chk" data-testid="bubble-context-chk" ${m.inContext !== false ? "checked" : ""} title="Im Kontext senden" />` : ""}
-      <button class="iconBtn ttsBtn" data-testid="bubble-tts-btn" title="Vorlesen">${ICONS.tts}</button>
+      ${showTts ? `<button class="iconBtn ttsBtn" data-testid="bubble-tts-btn" title="Vorlesen">${ICONS.tts}</button>` : ""}
       <button class="iconBtn copyBtn" data-testid="bubble-copy-btn" title="Kopieren">${ICONS.copy}</button>
       <button class="iconBtn chev" data-testid="bubble-toggle-btn" title="${bubbleModeTitle(mode)}">${ICONS.chev}</button>
     </div>
@@ -88,7 +149,10 @@ export function bubbleEl(m, handlers = {}) {
     };
   const delBtn = b.querySelector(".delBtn");
   if (delBtn) delBtn.onclick = () => handlers.onDelete?.(m);
+  _applySavedWidth(b, m);
+  _makeResizable(b, m);
   const tts = b.querySelector(".ttsBtn");
+  if (tts)
   tts.onclick = () => {
     if (!("speechSynthesis" in window)) return;
     if (speechSynthesis.speaking) {

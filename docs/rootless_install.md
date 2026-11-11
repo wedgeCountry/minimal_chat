@@ -7,10 +7,26 @@ Anleitung, um die GUI-e2e-Tests (`pytest -m e2e tests/e2e`) in einer Umgebung
 
 Voraussetzung: Netzwerkzugriff auf PyPI und die apt-Repositories (Debian/Ubuntu).
 
+## Schnellweg: Setup-Skript
+
+```bash
+pip install -e ".[dev]"
+python3 -m playwright install chromium   # laedt das Browser-Binary nach ~/.cache/ms-playwright
+./scripts/setup_rootless_e2e.sh          # idempotent, siehe unten
+. /tmp/e2e-env.sh                         # FONTCONFIG_FILE + LD_LIBRARY_PATH setzen
+python3 -m pytest -m e2e tests/e2e
+```
+
+`scripts/setup_rootless_e2e.sh` automatisiert die Schritte 2–3 unten
+(Paket-Download mit Fallback ohne `t64`-Suffix, Entpacken, fontconfig,
+`ldd`-Check auf fehlende Bibliotheken) und schreibt die Env-Vars nach
+`/tmp/e2e-env.sh`. Alle Verzeichnisse sind per Umgebungsvariable
+ueberschreibbar (`LIBS_DIR`, `DEBS_DIR`, `FONTS_CONF`, `ENV_FILE`, ...).
+
 ## 1. Python-Pakete
 
 ```bash
-pip install playwright pytest httpx fastapi uvicorn cryptography
+pip install -e ".[dev]"   # installiert u. a. pytest, playwright, fastapi, uvicorn
 python3 -m playwright install chromium   # laedt das Browser-Binary nach ~/.cache/ms-playwright
 ```
 
@@ -64,6 +80,7 @@ sed -e 's|/usr/share/fonts|/tmp/libs/usr/share/fonts|g' \
 
 ```bash
 cd <repo-root>
+# nach dem Setup-Skript genuegt: . /tmp/e2e-env.sh
 FONTCONFIG_FILE=/tmp/fonts.conf \
 LD_LIBRARY_PATH=/tmp/libs/usr/lib/x86_64-linux-gnu \
   python3 -m pytest -m e2e tests/e2e

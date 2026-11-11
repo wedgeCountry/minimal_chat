@@ -221,7 +221,12 @@ __marimo__/
 
 # LeanChat Laufzeitdaten
 data/
+data-test/
+mockdata/
 *.db.enc
+*.db
+*.db-wal
+*.db-shm
 node_modules/
 .pytest_cache/
 __pycache__/

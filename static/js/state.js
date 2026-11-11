@@ -1,15 +1,16 @@
+const _ss = typeof sessionStorage !== "undefined" ? sessionStorage : null;
+
 export const state = {
-  token: sessionStorage.getItem("leanchat.token") || null,
   username: null,
   sessions: [],
-  activeId: sessionStorage.getItem("leanchat.active") || null,
+  activeId: _ss?.getItem("leanchat.active") || null,
   settings: {
     base: "",
     model: "",
     theme: "light",
     bubbles_deletable: true,
-    bubbles_user_checkable: true,
-    bubbles_user_deletable: true,
+    bubbles_checkable: true,
+    bubbles_speaker: true,
     show_system_prompt: true,
     show_tool_output: true,
     show_reasoning: true,
@@ -23,6 +24,7 @@ export const activeSession = () => state.sessions.find((s) => s.id === state.act
 
 export function setActiveId(id) {
   state.activeId = id;
-  if (id) sessionStorage.setItem("leanchat.active", id);
-  else sessionStorage.removeItem("leanchat.active");
+  if (!_ss) return;
+  if (id) _ss.setItem("leanchat.active", id);
+  else _ss.removeItem("leanchat.active");
 }

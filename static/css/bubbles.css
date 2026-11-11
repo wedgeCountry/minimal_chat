@@ -37,6 +37,8 @@
   position:relative;
   display:flex;
   flex-direction:column;
+  flex:none; /* im Spalten-Flex #chat nicht schrumpfen (sonst kollabiert die Hoehe bei overflow:hidden) */
+  overflow:hidden; /* Text darf nicht unten aus der Bubble laufen */
   transition:opacity .15s, padding .15s, min-height .15s;
 }
 
@@ -102,7 +104,10 @@
 .bubbleHead .grow{flex:1}
 .bubble.user .bubbleHead button svg{stroke:#fff}
 .bubble.user .chk{accent-color:#fff}
-.chk{accent-color:var(--accent);width:14px;height:14px;cursor:pointer}
+.chk{accent-color:var(--accent);width:14px;height:14px;cursor:pointer;flex:none}
+.resizeHandle{position:absolute;right:0;bottom:0;width:16px;height:16px;cursor:nwse-resize;opacity:0;transition:opacity .15s;touch-action:none}
+.bubble:hover .resizeHandle,.resizeHandle.dragging{opacity:.55}
+.resizeHandle::after{content:"";position:absolute;right:3px;bottom:3px;width:8px;height:8px;border-right:2px solid currentColor;border-bottom:2px solid currentColor}
 .bubbleBody{font-size:var(--bubble-body-size);line-height:1.5;white-space:pre-wrap;word-break:break-word;min-height:21px}
 .chev{padding:2px}
 .chev svg{width:12px;height:12px}

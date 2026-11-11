@@ -6,6 +6,7 @@ import { bubbleEl, setBubbleMode, setBubbleText } from "./bubbles.js";
 import { buildChatPayload } from "./payload.js";
 import { parseSSE } from "./sse.js";
 import { loadSessions, newSession, changed } from "./sessions.js";
+import { confirmModal, showError } from "./confirm.js";
 import { isBubbleVisible } from "./visibility.js";
 
 export function setStreamingUI(on) {
@@ -22,6 +23,17 @@ export function abortStream() {
   state.abortCtrl?.abort();
 }
 
+export function sortMessagesForRender(messages) {
+  // Chronologisch nach Zeitstempel, bei Gleichstand (Sekundenaufloesung)
+  // nach id (Einfuegereihenfolge) - so landet der Reasoning-Bubble direkt
+  // vor seiner Antwort, weil er vor ihr persistiert wird.
+  return [...messages].sort((a, b) => {
+    const d = (a.ts ?? 0) - (b.ts ?? 0);
+    if (d !== 0) return d;
+    return (a.id ?? 0) - (b.id ?? 0);
+  });
+}
+
 export function renderChat(messages) {
   const chat = $("chat");
   chat.innerHTML = "";
@@ -34,7 +46,8 @@ export function renderChat(messages) {
     chat.appendChild(empty);
     return;
   }
-  messages.filter((m) => isBubbleVisible(m, state.settings)).forEach((m) => chat.appendChild(bubbleEl(m, handlers)));
+  const sortedMessages = sortMessagesForRender(messages);
+  sortedMessages.filter((m) => isBubbleVisible(m, state.settings)).forEach((m) => chat.appendChild(bubbleEl(m, handlers)));
   chat.scrollTop = chat.scrollHeight;
 }
 
@@ -45,7 +58,8 @@ const handlers = {
       api.patch(`/sessions/${s.id}/messages/${m.id}`, { in_context: m.inContext }).catch(() => {});
   },
   onDelete: async (m) => {
-    if (!confirm("Diese Nachricht löschen?")) return;
+    const ok = await confirmModal({ title: "Nachricht löschen", text: "Diese Nachricht löschen?" });
+    if (!ok) return;
     const s = activeSession();
     if (m.id != null && s) await api.del(`/sessions/${s.id}/messages/${m.id}`).catch(() => {});
     changed();
@@ -132,19 +146,25 @@ export async function send() {
     }
   } catch (err) {
     if (err.name !== "AbortError") {
-      const em = { role: "system", type: "message", text: "Fehler: " + err.message, in_context: false };
-      if (isBubbleVisible(em, state.settings)) chat.appendChild(bubbleEl(em, handlers));
-      await persist(em);
+      if (err.message.includes("LLM-Server nicht erreichbar")) {
+        await showError(err.message);
+      } else {
+        const em = { role: "system", type: "message", text: "Fehler: " + err.message, in_context: false };
+        if (isBubbleVisible(em, state.settings)) chat.appendChild(bubbleEl(em, handlers));
+        await persist(em);
+      }
     }
   } finally {
     setStreamingUI(false);
     state.abortCtrl = null;
+    // Reasoning/Toolcalls vor der Antwort persistieren, damit die id-Reihenfolge
+    // der gewuenschten Anzeigereihenfolge entspricht (Thinking vor Antwort).
+    if (hasThink && thinkMsg.text) await persist(thinkMsg);
+    for (const tm of toolMsgs) await persist(tm);
     if (aiMsg.text) {
       const saved = await persist(aiMsg);
       if (saved) aiMsg.id = saved.id;
     }
-    if (hasThink && thinkMsg.text) await persist(thinkMsg);
-    for (const tm of toolMsgs) await persist(tm);
     await loadSessions();
     changed();
   }

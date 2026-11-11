@@ -1,6 +1,7 @@
 /* Auth */
 #authOverlay{position:fixed;inset:0;background:rgba(0,0,0,.4);display:none;align-items:center;justify-content:center;z-index:200}
 #authOverlay.open{display:flex}
+html.auto-login #authOverlay{display:none !important}
 .authModal{width:min(360px,92vw)}
 .authHint{font-size:13px;color:var(--muted);margin:-8px 0 16px}
 .authErr{color:var(--danger);font-size:13px;min-height:18px;margin-top:6px}
@@ -47,6 +48,13 @@
 /* Modal */
 #overlay{position:fixed;inset:0;background:rgba(0,0,0,.4);display:none;align-items:center;justify-content:center;z-index:100}
 #overlay.open{display:flex}
+#confirmOverlay{position:fixed;inset:0;background:rgba(0,0,0,.4);display:none;align-items:center;justify-content:center;z-index:150}
+#confirmOverlay.open{display:flex}
+#errorOverlay{position:fixed;inset:0;background:rgba(0,0,0,.4);display:none;align-items:center;justify-content:center;z-index:150}
+#errorOverlay.open{display:flex}
+#errorOverlay .modal{width:min(640px,94vw);padding:26px}
+.confirmText{font-size:14px;margin-bottom:4px}
+.errorText{font-size:15px;margin-bottom:16px;color:var(--danger);white-space:pre-wrap;word-break:break-word;max-height:50vh;overflow-y:auto}
 .modal{background:var(--panel);border:1px solid var(--border);border-radius:14px;box-shadow:var(--shadow);width:min(420px,92vw);padding:22px}
 .modal h2{font-size:16px;margin-bottom:16px}
 .field{margin-bottom:14px}
@@ -58,3 +66,4 @@
 .row{display:flex;gap:8px;justify-content:flex-end;margin-top:18px}
 .btn{padding:8px 16px;border-radius:9px;font-size:14px;border:1px solid var(--border)}
 .btn.primary{background:var(--accent);color:#fff;border-color:var(--accent)}
+.btn.danger{background:var(--danger);border-color:var(--danger);color:#fff}

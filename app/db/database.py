@@ -1,16 +1,19 @@
 """Einzige Stelle mit Zugriff auf die SQLite-Datenbanken.
 
-Zwei Datenbanken:
+Drei Daten:
 
-- **User Registry** (``<data_dir>/user_registry.db.enc``): Login-Credentials
-  aller User (Schema: ``user_registry.sql``), mit dem Server-Secret
-  verschluesselt. Dient als austauschbares Login-System.
+- **User Registry** (``<data_dir>/user_registry.db``): Login-Credentials
+  aller User; wird von der externen ``user_registry``-Bibliothek verwaltet
+  (siehe app/auth.py) und liegt bewusst getrennt von den App-Daten.
+- **Lokale User-Tabelle** (``<data_dir>/users.db``): credential-freie
+  Zuordnung E-Mail -> lokaler User (uid + Verschluesselungsschluessel der
+  per-user DB, at rest mit dem Server-Secret verschluesselt).
 - **Pro-User-Datenbank** (``<data_dir>/users/<uid>.db.enc``): Sessions,
   Messages und ``user_settings`` (Schema: ``schema.sql``), verschluesselt
-  mit dem einmalig clientseitig generierten Schluessel des Users.
+  mit dem Schluessel aus der lokalen User-Tabelle.
 
-Zum Zugriff wird die jeweilige Datei entschluesselt, in eine
-In-Memory-Datenbank geladen und nach dem Schreiben wieder
+Zum Zugriff auf eine per-user DB wird die jeweilige Datei entschluesselt,
+in eine In-Memory-Datenbank geladen und nach dem Schreiben wieder
 verschluesselt persistiert.
 """
 
@@ -27,11 +30,18 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Iterator
 
-from .. import security
 from . import crypto
 
 SCHEMA_PATH = Path(__file__).with_name("schema.sql")
-REGISTRY_SCHEMA_PATH = Path(__file__).with_name("user_registry.sql")
+
+USERS_SCHEMA = """
+CREATE TABLE IF NOT EXISTS users (
+    uid        TEXT PRIMARY KEY,
+    email      TEXT NOT NULL UNIQUE,
+    key        TEXT NOT NULL,
+    created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
+);
+"""
 
 _lock = threading.RLock()
 
@@ -52,6 +62,8 @@ def _row_to_message(row: sqlite3.Row) -> dict:
         "text": row["text"],
         "in_context": bool(row["in_context"]),
         "attachments": json.loads(row["attachments"] or "[]"),
+        # created_at hat Sekundenaufloesung; als ms-Ts fuer die clientseitige Sortierung
+        "ts": row["created_at"] * 1000,
     }
 
 
@@ -59,109 +71,77 @@ def _row_to_session(row: sqlite3.Row) -> dict:
     return {"id": row["id"], "name": row["name"], "ts": row["ts"]}
 
 
-def _row_to_user(row: sqlite3.Row) -> dict:
-    return {
-        "uid": row["uid"],
-        "username": row["username"],
-        "salt": row["salt"],
-        "verifier": row["verifier"],
-        "key": row["key"],
-    }
-
-
-class UserRegistry:
-    """Login-Credentials in eigener, server-seitig verschluesselter Datenbank."""
-
-    def __init__(self, path: Path, secret: str):
-        self.path = Path(path)
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        digest = hashlib.sha256(secret.encode("utf-8")).digest()
-        self._key = base64.urlsafe_b64encode(digest)
-
-    @contextmanager
-    def _con(self) -> Iterator[sqlite3.Connection]:
-        with _lock:
-            con = sqlite3.connect(":memory:")
-            con.row_factory = sqlite3.Row
-            try:
-                if self.path.exists():
-                    con.deserialize(crypto.decrypt(self._key, self.path.read_bytes()))
-                con.executescript(REGISTRY_SCHEMA_PATH.read_text(encoding="utf-8"))
-                yield con
-                con.commit()
-                tmp = self.path.with_suffix(".tmp")
-                tmp.write_bytes(crypto.encrypt(self._key, con.serialize()))
-                tmp.replace(self.path)
-            finally:
-                con.close()
-
-    def create(self, username: str, password: str, key_b64: str) -> dict:
-        salt = security.new_salt()
-        user = {
-            "uid": _new_uid(),
-            "username": username,
-            "salt": base64.b64encode(salt).decode("ascii"),
-            "verifier": security.hash_password(password, salt),
-            "key": crypto.normalize_key(key_b64).decode("ascii"),
-        }
-        with self._con() as con:
-            if con.execute("SELECT 1 FROM users WHERE username = ?", (username,)).fetchone():
-                raise ValueError("Benutzername bereits vergeben")
-            con.execute(
-                "INSERT INTO users (uid, username, salt, verifier, key) VALUES (?, ?, ?, ?, ?)",
-                (user["uid"], user["username"], user["salt"], user["verifier"], user["key"]),
-            )
-        return user
-
-    def get_by_name(self, username: str) -> dict | None:
-        with self._con() as con:
-            row = con.execute("SELECT * FROM users WHERE username = ?", (username,)).fetchone()
-            return _row_to_user(row) if row else None
-
-    def get_by_id(self, uid: str) -> dict | None:
-        with self._con() as con:
-            row = con.execute("SELECT * FROM users WHERE uid = ?", (uid,)).fetchone()
-            return _row_to_user(row) if row else None
-
-    def verify_login(self, username: str, password: str) -> dict | None:
-        user = self.get_by_name(username)
-        if not user:
-            return None
-        if not security.verify_password(password, user["salt"], user["verifier"]):
-            return None
-        return user
+def _row_to_local_user(row: sqlite3.Row) -> dict:
+    return {"uid": row["uid"], "username": row["email"], "email": row["email"]}
 
 
 class Database:
-    """Verwaltet die User Registry und die verschluesselten per-user Datenbanken."""
+    """Lokale User-Tabelle und die verschluesselten per-user Datenbanken.
+
+    Die Login-Credentials liegen nicht hier, sondern in der externen User
+    Registry (app/auth.py); die lokale Tabelle speichert nur die Zuordnung
+    E-Mail -> uid und den (at rest mit dem Server-Secret verschluesselten)
+    Schluessel der per-user DB.
+    """
 
     def __init__(
         self,
         data_dir: Path,
         secret: str,
-        registry_path: Path | None = None,
         users_dir: Path | None = None,
     ):
         self.data_dir = Path(data_dir)
+        self.data_dir.mkdir(parents=True, exist_ok=True)
         self.secret = secret
         self.users_dir = Path(users_dir) if users_dir else self.data_dir / "users"
         self.users_dir.mkdir(parents=True, exist_ok=True)
-        registry_path = Path(registry_path) if registry_path else self.data_dir / "user_registry.db.enc"
-        self.registry = UserRegistry(registry_path, secret)
+        self.users_db_path = self.data_dir / "users.db"
+        digest = hashlib.sha256(secret.encode("utf-8")).digest()
+        self._store_key = base64.urlsafe_b64encode(digest)
 
-    def create_user(self, username: str, password: str, key_b64: str | None = None) -> dict:
-        user = self.registry.create(username, password, key_b64 or crypto.new_key())
+    @contextmanager
+    def _users_con(self) -> Iterator[sqlite3.Connection]:
+        with _lock:
+            con = sqlite3.connect(self.users_db_path)
+            con.row_factory = sqlite3.Row
+            try:
+                con.executescript(USERS_SCHEMA)
+                yield con
+                con.commit()
+            finally:
+                con.close()
+
+    def _encrypt_key(self, key_b64: str) -> str:
+        return base64.b64encode(crypto.encrypt(self._store_key, crypto.normalize_key(key_b64))).decode("ascii")
+
+    def _decrypt_key(self, token_b64: str) -> str:
+        return crypto.decrypt(self._store_key, base64.b64decode(token_b64)).decode("ascii")
+
+    def create_local_user(self, uid: str, email: str, key_b64: str) -> dict:
+        """Lokalen User anlegen (nach erfolgreicher Registrierung in der Registry)."""
+        user = {"uid": str(uid), "username": email, "email": email, "key": crypto.normalize_key(key_b64).decode("ascii")}
+        with self._users_con() as con:
+            con.execute(
+                "INSERT INTO users (uid, email, key) VALUES (?, ?, ?)",
+                (user["uid"], email.lower(), self._encrypt_key(user["key"])),
+            )
         self._init_user_db(user)
         return user
 
-    def verify_login(self, username: str, password: str) -> dict | None:
-        return self.registry.verify_login(username, password)
-
-    def get_user(self, username: str) -> dict | None:
-        return self.registry.get_by_name(username)
+    def get_user_by_email(self, email: str) -> dict | None:
+        with self._users_con() as con:
+            row = con.execute("SELECT * FROM users WHERE email = ?", (email.strip().lower(),)).fetchone()
+        return self._with_key(row) if row else None
 
     def get_user_by_id(self, uid: str) -> dict | None:
-        return self.registry.get_by_id(uid)
+        with self._users_con() as con:
+            row = con.execute("SELECT * FROM users WHERE uid = ?", (str(uid),)).fetchone()
+        return self._with_key(row) if row else None
+
+    def _with_key(self, row: sqlite3.Row) -> dict:
+        user = _row_to_local_user(row)
+        user["key"] = self._decrypt_key(row["key"])
+        return user
 
     def _db_path(self, user: dict) -> Path:
         return self.users_dir / f"{user['uid']}.db.enc"

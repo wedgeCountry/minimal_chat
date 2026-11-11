@@ -4,10 +4,9 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.config import AppConfig
-from app.db import crypto
 from app.main import create_app
 
-TEST_PASSWORD = "geheim123"
+TEST_PASSWORD = "Geheim-123"
 
 
 @pytest.fixture()
@@ -17,7 +16,7 @@ def config(tmp_path):
     return AppConfig(
         data_dir=data,
         secret="test-secret",
-        registry_path=data / "user_registry.db.enc",
+        registry_path=data / "user_registry.db",
         users_dir=data / "users",
         default_llm_base="http://llm.test/v1",
         default_api_key="test-api-key",
@@ -37,10 +36,11 @@ def client(app):
 
 @pytest.fixture()
 def auth_headers(client):
+    """Registriert alice@example.com; der TestClient haelt anschliessend den
+    Session-Cookie, daher genuegen leere Headers."""
     res = client.post(
         "/api/auth/register",
-        json={"username": "alice", "password": TEST_PASSWORD, "key": crypto.new_key()},
+        json={"email": "alice@example.com", "password": TEST_PASSWORD},
     )
     assert res.status_code == 201, res.text
-    token = res.json()["token"]
-    return {"Authorization": f"Bearer {token}"}
+    return {}

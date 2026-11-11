@@ -2,6 +2,7 @@ import { api } from "./api.js";
 import { activeSession, setActiveId, state } from "./state.js";
 import { $, esc } from "./util.js";
 import { ICONS } from "./icons.js";
+import { confirmModal } from "./confirm.js";
 
 export const changed = () => document.dispatchEvent(new CustomEvent("leanchat:changed"));
 
@@ -87,7 +88,8 @@ export async function renameSession(id) {
 export async function deleteSession(id) {
   const s = state.sessions.find((x) => x.id === id);
   if (!s) return;
-  if (!confirm(`Session "${s.name}" wirklich löschen?`)) return;
+  const ok = await confirmModal({ title: "Session löschen", text: `Session „${s.name}“ wirklich löschen?` });
+  if (!ok) return;
   await api.del(`/sessions/${id}`);
   state.sessions = state.sessions.filter((x) => x.id !== id);
   if (state.activeId === id) setActiveId(state.sessions[0]?.id || null);

@@ -10,10 +10,10 @@ export function isBubbleDeletable(s) {
   return s.bubbles_deletable !== false;
 }
 
-export function isUserBubbleCheckable(s) {
-  return s.bubbles_user_checkable !== false;
+export function isBubbleCheckable(s) {
+  return s.bubbles_checkable !== false;
 }
 
-export function isUserBubbleDeletable(s) {
-  return s.bubbles_user_deletable !== false;
+export function isBubbleSpeaker(s) {
+  return s.bubbles_speaker !== false;
 }

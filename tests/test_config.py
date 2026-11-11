@@ -11,7 +11,7 @@ def _make_config(tmp_path) -> AppConfig:
     return AppConfig(
         data_dir=data,
         secret="cfg-secret",
-        registry_path=data / "user_registry.db.enc",
+        registry_path=data / "user_registry.db",
         users_dir=data / "users",
         default_llm_base="http://llm.test/v1",
         default_api_key="cfg-key",
@@ -100,5 +100,5 @@ def test_load_config_defaults_derive_db_paths_from_data_dir(tmp_path, monkeypatc
     for var in ("LEANCHAT_REGISTRY_PATH", "LEANCHAT_USERS_DIR"):
         monkeypatch.delenv(var, raising=False)
     config = load_config()
-    assert config.registry_path == config.data_dir / "user_registry.db.enc"
+    assert config.registry_path == config.data_dir / "user_registry.db"
     assert config.users_dir == config.data_dir / "users"

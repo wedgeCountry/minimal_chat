@@ -6,8 +6,8 @@ DEFAULTS = {
     "model": "gpt-4o-mini",
     "theme": "light",
     "bubbles_deletable": True,
-    "bubbles_user_checkable": True,
-    "bubbles_user_deletable": True,
+    "bubbles_checkable": True,
+    "bubbles_speaker": True,
     "show_system_prompt": True,
     "show_tool_output": True,
     "show_reasoning": True,
@@ -40,8 +40,8 @@ def test_boolean_display_settings_roundtrip(client, auth_headers):
         "/api/settings",
         json={
             "bubbles_deletable": False,
-            "bubbles_user_checkable": False,
-            "bubbles_user_deletable": False,
+            "bubbles_checkable": False,
+            "bubbles_speaker": False,
             "show_system_prompt": False,
             "show_tool_output": False,
             "show_reasoning": False,
@@ -51,16 +51,31 @@ def test_boolean_display_settings_roundtrip(client, auth_headers):
     assert res.status_code == 200
     body = res.json()
     assert body["bubbles_deletable"] is False
-    assert body["bubbles_user_checkable"] is False
+    assert body["bubbles_checkable"] is False
+    assert body["bubbles_speaker"] is False
     assert body["show_reasoning"] is False
     got = client.get("/api/settings", headers=auth_headers).json()
     assert got["bubbles_deletable"] is False
-    assert got["bubbles_user_checkable"] is False
-    assert got["bubbles_user_deletable"] is False
+    assert got["bubbles_checkable"] is False
+    assert got["bubbles_speaker"] is False
     assert got["show_system_prompt"] is False
     assert got["show_tool_output"] is False
     assert got["show_reasoning"] is False
     assert got["base"] == DEFAULTS["base"]
+
+
+def test_legacy_user_setting_keys_still_apply(client, auth_headers, app):
+    """Umbenannte alte Schluessel (bubbles_user_*) werden als Fallback gelesen."""
+    from app.db import database as dbq
+
+    db = app.state.db
+    user = db.get_user_by_email("alice@example.com")
+    with db.user_db(user) as con:
+        dbq.q_set_user_setting(con, "bubbles_user_checkable", "0")
+        dbq.q_set_user_setting(con, "bubbles_user_deletable", "0")
+    got = client.get("/api/settings", headers=auth_headers).json()
+    assert got["bubbles_checkable"] is False
+    assert got["bubbles_deletable"] is False
 
 
 def test_settings_require_auth(client):
