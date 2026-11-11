@@ -1,0 +1,13 @@
+<div id="overlay">
+  <div class="modal">
+    <h2>Einstellungen</h2>
+    <div class="field"><label>Base-URL</label><input id="setBase" placeholder="https://api.openai.com/v1" /></div>
+    <div class="field"><label>API-Schlüssel (serverseitig gespeichert)</label><input id="setKey" type="password" placeholder="sk-… (optional, überschreibt Server-Key)" /></div>
+    <div class="field"><label>Modell</label><input id="setModel" placeholder="gpt-4o-mini" /></div>
+    <div class="field"><label>Theme</label><select id="setTheme"><option value="light">Hell</option><option value="dark">Dunkel</option></select></div>
+    <div class="row">
+      <button class="btn" id="setCancel">Abbrechen</button>
+      <button class="btn primary" id="setSave">Speichern</button>
+    </div>
+  </div>
+</div>

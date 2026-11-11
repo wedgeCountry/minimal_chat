@@ -1,14 +1,17 @@
 """Einzige Stelle mit Zugriff auf die SQLite-Datenbanken.
 
-Pro User existiert genau eine verschluesselte SQLite-Datei unter
-``<data_dir>/users/<uid>.db.enc``. Der Inhalt wird mit dem einmalig
-clientseitig generierten Schluessel des Users (Fernet) verschluesselt.
-Der Benutzerindex (``users.index.enc``) liegt mit dem Server-Secret
-verschluesselt vor und enthaelt u. a. den Schluessel jedes Users.
+Zwei Datenbanken:
 
-Zum Zugriff wird die Datei entschluesselt, in eine In-Memory-Datenbank
- geladen (Schema aus ``schema.sql``), und nach dem Schreiben wieder
- verschluesselt persistiert.
+- **User Registry** (``<data_dir>/user_registry.db.enc``): Login-Credentials
+  aller User (Schema: ``user_registry.sql``), mit dem Server-Secret
+  verschluesselt. Dient als austauschbares Login-System.
+- **Pro-User-Datenbank** (``<data_dir>/users/<uid>.db.enc``): Sessions,
+  Messages und ``user_settings`` (Schema: ``schema.sql``), verschluesselt
+  mit dem einmalig clientseitig generierten Schluessel des Users.
+
+Zum Zugriff wird die jeweilige Datei entschluesselt, in eine
+In-Memory-Datenbank geladen und nach dem Schreiben wieder
+verschluesselt persistiert.
 """
 
 from __future__ import annotations
@@ -22,12 +25,13 @@ import threading
 import time
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Iterator
 
 from .. import security
 from . import crypto
 
 SCHEMA_PATH = Path(__file__).with_name("schema.sql")
+REGISTRY_SCHEMA_PATH = Path(__file__).with_name("user_registry.sql")
 
 _lock = threading.RLock()
 
@@ -55,67 +59,101 @@ def _row_to_session(row: sqlite3.Row) -> dict:
     return {"id": row["id"], "name": row["name"], "ts": row["ts"]}
 
 
-class Database:
-    """Verwaltet den Benutzerindex und die verschluesselten per-user Datenbanken."""
+def _row_to_user(row: sqlite3.Row) -> dict:
+    return {
+        "uid": row["uid"],
+        "username": row["username"],
+        "salt": row["salt"],
+        "verifier": row["verifier"],
+        "key": row["key"],
+    }
+
+
+class UserRegistry:
+    """Login-Credentials in eigener, server-seitig verschluesselter Datenbank."""
 
     def __init__(self, data_dir: Path, secret: str):
-        self.data_dir = Path(data_dir)
-        self.secret = secret
-        self.users_dir = self.data_dir / "users"
-        self.users_dir.mkdir(parents=True, exist_ok=True)
-        self.index_path = self.data_dir / "users.index.enc"
+        self.path = Path(data_dir) / "user_registry.db.enc"
         digest = hashlib.sha256(secret.encode("utf-8")).digest()
-        self._index_key = base64.urlsafe_b64encode(digest)
+        self._key = base64.urlsafe_b64encode(digest)
 
-    def _index_key_bytes(self) -> bytes:
-        return self._index_key
-
-    def _load_index(self) -> list[dict]:
-        if not self.index_path.exists():
-            return []
-        raw = crypto.decrypt(self._index_key_bytes(), self.index_path.read_bytes())
-        return json.loads(raw.decode("utf-8"))
-
-    def _save_index(self, users: list[dict]) -> None:
-        token = crypto.encrypt(self._index_key_bytes(), json.dumps(users).encode("utf-8"))
-        tmp = self.index_path.with_suffix(".tmp")
-        tmp.write_bytes(token)
-        tmp.replace(self.index_path)
-
-    def create_user(self, username: str, password: str, key_b64: str | None = None) -> dict:
+    @contextmanager
+    def _con(self) -> Iterator[sqlite3.Connection]:
         with _lock:
-            users = self._load_index()
-            if any(u["username"] == username for u in users):
+            con = sqlite3.connect(":memory:")
+            con.row_factory = sqlite3.Row
+            try:
+                if self.path.exists():
+                    con.deserialize(crypto.decrypt(self._key, self.path.read_bytes()))
+                con.executescript(REGISTRY_SCHEMA_PATH.read_text(encoding="utf-8"))
+                yield con
+                con.commit()
+                tmp = self.path.with_suffix(".tmp")
+                tmp.write_bytes(crypto.encrypt(self._key, con.serialize()))
+                tmp.replace(self.path)
+            finally:
+                con.close()
+
+    def create(self, username: str, password: str, key_b64: str) -> dict:
+        salt = security.new_salt()
+        user = {
+            "uid": _new_uid(),
+            "username": username,
+            "salt": base64.b64encode(salt).decode("ascii"),
+            "verifier": security.hash_password(password, salt),
+            "key": crypto.normalize_key(key_b64).decode("ascii"),
+        }
+        with self._con() as con:
+            if con.execute("SELECT 1 FROM users WHERE username = ?", (username,)).fetchone():
                 raise ValueError("Benutzername bereits vergeben")
-            salt = security.new_salt()
-            user = {
-                "uid": _new_uid(),
-                "username": username,
-                "salt": base64.b64encode(salt).decode("ascii"),
-                "verifier": security.hash_password(password, salt),
-                "key": key_b64 or crypto.new_key(),
-            }
-            crypto.normalize_key(user["key"])
-            users.append(user)
-            self._save_index(users)
-            self._init_user_db(user)
-            return user
+            con.execute(
+                "INSERT INTO users (uid, username, salt, verifier, key) VALUES (?, ?, ?, ?, ?)",
+                (user["uid"], user["username"], user["salt"], user["verifier"], user["key"]),
+            )
+        return user
+
+    def get_by_name(self, username: str) -> dict | None:
+        with self._con() as con:
+            row = con.execute("SELECT * FROM users WHERE username = ?", (username,)).fetchone()
+            return _row_to_user(row) if row else None
+
+    def get_by_id(self, uid: str) -> dict | None:
+        with self._con() as con:
+            row = con.execute("SELECT * FROM users WHERE uid = ?", (uid,)).fetchone()
+            return _row_to_user(row) if row else None
 
     def verify_login(self, username: str, password: str) -> dict | None:
-        user = self.get_user(username)
+        user = self.get_by_name(username)
         if not user:
             return None
         if not security.verify_password(password, user["salt"], user["verifier"]):
             return None
         return user
 
+
+class Database:
+    """Verwaltet die User Registry und die verschluesselten per-user Datenbanken."""
+
+    def __init__(self, data_dir: Path, secret: str):
+        self.data_dir = Path(data_dir)
+        self.secret = secret
+        self.users_dir = self.data_dir / "users"
+        self.users_dir.mkdir(parents=True, exist_ok=True)
+        self.registry = UserRegistry(self.data_dir, secret)
+
+    def create_user(self, username: str, password: str, key_b64: str | None = None) -> dict:
+        user = self.registry.create(username, password, key_b64 or crypto.new_key())
+        self._init_user_db(user)
+        return user
+
+    def verify_login(self, username: str, password: str) -> dict | None:
+        return self.registry.verify_login(username, password)
+
     def get_user(self, username: str) -> dict | None:
-        with _lock:
-            return next((u for u in self._load_index() if u["username"] == username), None)
+        return self.registry.get_by_name(username)
 
     def get_user_by_id(self, uid: str) -> dict | None:
-        with _lock:
-            return next((u for u in self._load_index() if u["uid"] == uid), None)
+        return self.registry.get_by_id(uid)
 
     def _db_path(self, user: dict) -> Path:
         return self.users_dir / f"{user['uid']}.db.enc"
@@ -231,16 +269,16 @@ def q_delete_message(con: sqlite3.Connection, mid: int) -> None:
     con.execute("DELETE FROM messages WHERE id = ?", (mid,))
 
 
-# --- Settings ---
+# --- User Settings ---
 
 
-def q_get_settings(con: sqlite3.Connection) -> dict[str, str]:
-    rows = con.execute("SELECT key, value FROM settings").fetchall()
+def q_get_user_settings(con: sqlite3.Connection) -> dict[str, str]:
+    rows = con.execute("SELECT key, value FROM user_settings").fetchall()
     return {r["key"]: r["value"] for r in rows}
 
 
-def q_set_setting(con: sqlite3.Connection, key: str, value: str) -> None:
+def q_set_user_setting(con: sqlite3.Connection, key: str, value: str) -> None:
     con.execute(
-        "INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        "INSERT INTO user_settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
         (key, value),
     )

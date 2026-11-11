@@ -18,7 +18,7 @@ def get_settings(
     config: AppConfig = Depends(get_config),
 ) -> SettingsOut:
     with db.user_db(user) as con:
-        stored = dbq.q_get_settings(con)
+        stored = dbq.q_get_user_settings(con)
     return SettingsOut(
         base=stored.get("base") or config.default_llm_base,
         model=stored.get("model") or config.default_model,
@@ -37,8 +37,8 @@ def put_settings(
         for key in ("base", "model", "theme", "api_key"):
             value = getattr(body, key)
             if value is not None and value != "":
-                dbq.q_set_setting(con, key, value)
-        stored = dbq.q_get_settings(con)
+                dbq.q_set_user_setting(con, key, value)
+        stored = dbq.q_get_user_settings(con)
     return SettingsOut(
         base=stored.get("base") or config.default_llm_base,
         model=stored.get("model") or config.default_model,

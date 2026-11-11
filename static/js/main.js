@@ -7,6 +7,7 @@ import { abortStream, renderChat, renderHeader, send } from "./chat.js";
 import { addAttachments, renderAttachments } from "./attachments.js";
 import { initSettings, loadSettings, openSettings } from "./settings.js";
 import { applyTheme } from "./theme.js";
+import { initPartials } from "./html.js";
 
 let currentMessages = [];
 
@@ -63,6 +64,10 @@ function initEvents() {
   $("settingsBtn").onclick = () => {
     $("burgerMenu").classList.remove("open");
     openSettings();
+  };
+  $("compactBtn").onclick = () => {
+    $("burgerMenu").classList.remove("open");
+    $("chat").classList.toggle("compact");
   };
   $("logoutBtn").onclick = async () => {
     $("burgerMenu").classList.remove("open");
@@ -142,6 +147,7 @@ function initEvents() {
   document.addEventListener("leanchat:unauthorized", () => showAuth());
 }
 
+await initPartials();
 initEvents();
 initAuth(bootstrap);
 bootstrap();

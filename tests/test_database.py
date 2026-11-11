@@ -6,7 +6,16 @@ from pathlib import Path
 import pytest
 
 from app.db import crypto
-from app.db.database import Database, q_add_message, q_create_session, q_get_messages, q_get_session, q_set_setting, q_get_settings
+from app.db.database import (
+    SCHEMA_PATH,
+    Database,
+    q_add_message,
+    q_create_session,
+    q_get_messages,
+    q_get_session,
+    q_get_user_settings,
+    q_set_user_setting,
+)
 
 
 @pytest.fixture()
@@ -42,34 +51,39 @@ def test_wrong_key_cannot_decrypt(db):
     user = _make_user(db)
     with db.user_db(user) as con:
         q_create_session(con, "x")
-    other_key = crypto.new_key()
-    wrong = {**user, "key": other_key}
+    wrong = {**user, "key": crypto.new_key()}
     with pytest.raises(ValueError):
         with db.user_db(wrong):
             pass
 
 
-def test_user_index_is_encrypted(db):
-    _make_user(db, "alice")
-    raw = (db.data_dir / "users.index.enc").read_bytes()
+def test_credentials_live_in_separate_user_registry_db(db):
+    user = _make_user(db, "alice")
+    registry_path = db.data_dir / "user_registry.db.enc"
+    assert registry_path.exists()
+    raw = registry_path.read_bytes()
     assert b"alice" not in raw
-    assert base64.b64decode(_make_user(db, "bob")["salt"])  # salt dekodierbar
+    assert base64.b64decode(user["salt"])
+    assert db.registry.get_by_name("alice")["uid"] == user["uid"]
+    assert db.registry.get_by_id(user["uid"])["username"] == "alice"
+    assert db.registry.verify_login("alice", "geheim123")["uid"] == user["uid"]
+    assert db.registry.verify_login("alice", "falsch") is None
+    with pytest.raises(ValueError):
+        db.create_user("alice", "geheim123")
 
 
-def test_settings_roundtrip(db):
+def test_user_settings_table_roundtrip(db):
     user = _make_user(db)
     with db.user_db(user) as con:
-        q_set_setting(con, "theme", "dark")
-        q_set_setting(con, "api_key", "sk-xyz")
-        stored = q_get_settings(con)
+        q_set_user_setting(con, "theme", "dark")
+        q_set_user_setting(con, "api_key", "sk-xyz")
+        stored = q_get_user_settings(con)
     assert stored == {"theme": "dark", "api_key": "sk-xyz"}
 
 
 def test_schema_file_exists():
-    from app.db.database import SCHEMA_PATH
-
     assert Path(SCHEMA_PATH).exists()
     content = Path(SCHEMA_PATH).read_text()
     assert "CREATE TABLE IF NOT EXISTS sessions" in content
     assert "CREATE TABLE IF NOT EXISTS messages" in content
-    assert "CREATE TABLE IF NOT EXISTS settings" in content
+    assert "CREATE TABLE IF NOT EXISTS user_settings" in content

@@ -24,34 +24,6 @@
 .tile .iconBtn svg{width:13px;height:13px}
 .tile .delBtn:hover{color:var(--danger)}
 
-/* Chat */
-#chat{flex:1;overflow-y:auto;padding:18px 14px;display:flex;flex-direction:column;gap:12px;background:var(--chat-bg)}
-.bubble{max-width:78%;min-height:56px;border-radius:12px;padding:10px 12px;position:relative;box-shadow:var(--shadow);display:flex;flex-direction:column}
-.bubble.user{align-self:flex-end;background:var(--bubble-user);color:var(--bubble-user-text);border-bottom-right-radius:4px}
-.bubble.assistant,.bubble.toolcall{align-self:flex-start;background:var(--bubble-ai);border:1px solid var(--border);border-bottom-left-radius:4px}
-.bubble.system{align-self:center;background:var(--system);border:1px solid var(--border);font-size:13px;color:var(--muted);max-width:88%}
-.bubble.reasoning{align-self:flex-start;background:transparent;border:1px dashed var(--border);color:var(--muted);font-size:13px}
-.bubbleHead{display:flex;align-items:center;gap:6px;margin-bottom:4px;font-size:11px;opacity:.75}
-.bubble.user .bubbleHead{opacity:.85}
-.bubbleHead .role{font-weight:600;text-transform:uppercase;letter-spacing:.4px}
-.bubbleHead .grow{flex:1}
-.bubble.user .bubbleHead button svg{stroke:#fff}
-.bubble.user .chk{accent-color:#fff}
-.chk{accent-color:var(--accent);width:14px;height:14px;cursor:pointer}
-.bubbleBody{font-size:14px;line-height:1.5;white-space:pre-wrap;word-break:break-word;min-height:21px}
-.bubble.reasoning .bubbleBody,.bubble.toolcall .bubbleBody{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12.5px}
-.bubble.collapsed{min-height:0}
-.bubble.collapsed .bubbleBody{display:none}
-.chev{padding:2px}
-.chev svg{width:12px;height:12px}
-.bubble.collapsed .chev svg{transform:rotate(-90deg)}
-.ttsBtn.on{color:var(--accent)}
-.bubble.user .ttsBtn.on{color:#fff}
-.copyBtn.ok svg{stroke:var(--accent)}
-.bubble.user .copyBtn.ok svg{stroke:#fff}
-.attachChip{font-size:12px;opacity:.9;display:flex;gap:6px;align-items:center;margin-bottom:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.attachChip svg{width:13px;height:13px}
-
 /* Progress */
 #progress{height:2px;flex:none;position:relative;overflow:hidden;background:transparent;display:none}
 #progress.show{display:block}

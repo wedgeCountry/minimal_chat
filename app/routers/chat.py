@@ -21,7 +21,7 @@ async def chat(
     config: AppConfig = Depends(get_config),
 ) -> StreamingResponse:
     with db.user_db(user) as con:
-        stored = dbq.q_get_settings(con)
+        stored = dbq.q_get_user_settings(con)
     base_url = stored.get("base") or config.default_llm_base
     api_key = stored.get("api_key") or config.default_api_key
     payload = {

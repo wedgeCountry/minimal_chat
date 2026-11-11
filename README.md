@@ -14,16 +14,21 @@ app/                  FastAPI backend (uvicorn)
   models.py           Pydantic-Schemas
   deps.py             FastAPI-Dependencies (Auth)
   db/
-    schema.sql        SQL-Schema (eigene Datei)
+    schema.sql        SQL-Schema der pro-User-DB (eigene Datei, inkl. user_settings)
+    user_registry.sql SQL-Schema der User Registry (eigene Datei)
     crypto.py         Fernet-Ver-/Entschluesselung
-    database.py       Einziger Zugriff auf die SQLite-Dateien (verschluesselt pro User)
+    database.py       Einziger Zugriff auf alle SQLite-Datenbanken
   routers/            auth.py, sessions.py, settings.py, chat.py (SSE-Proxy)
   services/chat.py    SSE-Streaming-Passthrough zum LLM-Endpunkt
 static/               Frontend (statisch, ohne Build-Schritt)
-  index.html
-  css/                base.css, components.css, responsive.css
-  js/                 ES-Module: main, api, auth, state, sessions, chat, bubbles,
-                      attachments, settings, theme, sse, payload, util, icons
+  index.html          schlanke Shell mit Partial-Platzhaltern
+  partials/           eigene HTML-Dateien: auth-overlay, side-panel,
+                      chat-window, settings-overlay (werden per js/html.js geladen)
+  css/                base.css, components.css, bubbles.css (variables-gesteuertes
+                      Bubble-Styling: Rolle + collapsed/expanded/compact/selected),
+                      responsive.css
+  js/                 ES-Module: main, html, api, auth, state, sessions, chat,
+                      bubbles, attachments, settings, theme, sse, payload, util, icons
 tests/
   test_*.py           Python-Unit-Tests (pytest + httpx TestClient)
   js/*.test.js        JS-Unit-Tests (node:test, ohne npm-Abhaengigkeiten)
@@ -32,10 +37,10 @@ tests/
 
 ## Data storage
 
-- Pro User genau eine **verschluesselte SQLite-Datei** (`data/users/<uid>.db.enc`, Fernet).
+- Pro User genau eine **verschluesselte SQLite-Datei** (`data/users/<uid>.db.enc`, Fernet) mit Sessions, Messages und der Tabelle **`user_settings`** (serverseitige Einstellungen).
 - Der Verschluesselungsschluessel wird **einmalig clientseitig** (WebCrypto, 32 Bytes) bei der Registrierung erzeugt und mitgeschickt.
-- Das SQL-Schema liegt in [`app/db/schema.sql`](app/db/schema.sql); der gesamte DB-Zugriff in [`app/db/database.py`](app/db/database.py).
-- Der Benutzerindex (`data/users.index.enc`) ist mit dem Server-Secret verschluesselt.
+- Die **User-Credentials** liegen in einer eigenen Datenbank, der **User Registry** (`data/user_registry.db.enc`, mit Server-Secret verschluesselt) – das Login-System ist dadurch spaeter austauschbar.
+- Die SQL-Schemas liegen in eigenen Dateien: [`app/db/schema.sql`](app/db/schema.sql) (pro User) und [`app/db/user_registry.sql`](app/db/user_registry.sql) (Registry); der gesamte DB-Zugriff in [`app/db/database.py`](app/db/database.py).
 
 ## Features
 

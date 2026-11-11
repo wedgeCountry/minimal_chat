@@ -1,4 +1,4 @@
--- LeanChat SQL-Schema (pro User, eine verschluesselte SQLite-Datei)
+-- LeanChat SQL-Schema pro User (eine verschluesselte SQLite-Datei pro User)
 
 CREATE TABLE IF NOT EXISTS sessions (
     id   TEXT PRIMARY KEY,
@@ -19,7 +19,7 @@ CREATE TABLE IF NOT EXISTS messages (
 
 CREATE INDEX IF NOT EXISTS idx_messages_session ON messages (session_id, id);
 
-CREATE TABLE IF NOT EXISTS settings (
+CREATE TABLE IF NOT EXISTS user_settings (
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL
 );

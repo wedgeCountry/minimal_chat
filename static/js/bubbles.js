@@ -8,6 +8,8 @@ export function bubbleEl(m, handlers = {}) {
   b.className = `bubble ${m.role} ${m.type}`;
   const collapsible = m.type === "reasoning" || m.type === "toolcall";
   if (collapsible) b.classList.add("collapsed");
+  else b.classList.add("expanded");
+  if (m.type === "message") b.classList.add(m.inContext !== false ? "selected" : "deselected");
   const label = m.type === "message" ? m.role : typeLabels[m.type] || m.role;
   const attach = (m.attachments || [])
     .map((a) => `<div class="attachChip">${ICONS.attach}${esc(a.name)}</div>`)
@@ -25,7 +27,11 @@ export function bubbleEl(m, handlers = {}) {
     ${attach}
     <div class="bubbleBody">${esc(m.text || "")}</div>`;
   const chev = b.querySelector(".chev");
-  if (chev) chev.onclick = () => b.classList.toggle("collapsed");
+  if (chev)
+    chev.onclick = () => {
+      b.classList.toggle("collapsed");
+      b.classList.toggle("expanded");
+    };
   b.querySelector(".copyBtn").onclick = async (e) => {
     const btn = e.currentTarget;
     try {
@@ -45,6 +51,8 @@ export function bubbleEl(m, handlers = {}) {
   if (chk)
     chk.onchange = () => {
       m.inContext = chk.checked;
+      b.classList.toggle("selected", chk.checked);
+      b.classList.toggle("deselected", !chk.checked);
       handlers.onToggleContext?.(m);
     };
   b.querySelector(".delBtn").onclick = () => handlers.onDelete?.(m);
