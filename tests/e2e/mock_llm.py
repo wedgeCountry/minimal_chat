@@ -52,13 +52,19 @@ async def app(scope, receive, send):
             if isinstance(content, list):
                 content = " ".join(str(p.get("text", "")) for p in content)
             file_read = "Krokodil-Ledertasche" in str(content)
+            lorem_read = "Lorem ipsum dolor sit amet" in str(content)
         except Exception:
             file_read = False
+            lorem_read = False
         if file_read:
             # Der Datei-Anhang der letzten Nachricht wurde als Text mitgeschickt:
             # das LLM "liest" ihn und antwortet mit dem geheimen Wort.
             chunks = [
                 {"choices": [{"delta": {"content": "Die Datei enthält das geheime Wort: Krokodil-Ledertasche"}}]},
+            ]
+        elif lorem_read:
+            chunks = [
+                {"choices": [{"delta": {"content": "Die Datei enthält Lorem ipsum (20 Zeilen)."}}]},
             ]
         else:
             chunks = [

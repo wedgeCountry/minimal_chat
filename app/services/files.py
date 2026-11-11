@@ -71,7 +71,12 @@ def _attachment_part(att: dict) -> dict:
 
 
 def expand_attachment_parts(messages: list[dict[str, Any]], attachments_by_id: dict[int, dict]) -> list[dict[str, Any]]:
-    """Ersetzt Content-Parts mit ``attachment_id`` durch die serverseitig aufbereiteten Parts."""
+    """Ersetzt Content-Parts mit ``attachment_id`` durch die serverseitig aufbereiteten Parts.
+
+    Rein textuelle Content-Listen werden zu einem einzigen String verschmolzen:
+    manche LLM-Server verlangen ``content`` als String und antworten sonst mit
+    HTTP 422. Nur bei Bild-Parts bleibt die Listenform (image_url) erhalten.
+    """
     for m in messages:
         content = m.get("content")
         if not isinstance(content, list):
@@ -83,5 +88,8 @@ def expand_attachment_parts(messages: list[dict[str, Any]], attachments_by_id: d
                 expanded.append(_attachment_part(attachments_by_id[int(aid)]))
             else:
                 expanded.append(part)
-        m["content"] = expanded
+        if expanded and all(isinstance(p, dict) and p.get("type") == "text" for p in expanded):
+            m["content"] = "\n\n".join(str(p["text"]) for p in expanded)
+        else:
+            m["content"] = expanded
     return messages

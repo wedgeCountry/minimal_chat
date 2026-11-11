@@ -171,12 +171,13 @@ def test_text_file_reaches_llm_request_untruncated_via_server_processing(client,
     assert res.status_code == 202
 
     _wait_generation(client, auth_headers, sid)
-    sent_parts = seen["body"]["messages"][0]["content"]
-    assert sent_parts[1] == {"type": "text", "text": "Was steht in der Datei?"}
-    sent_file = sent_parts[0]
-    assert sent_file == {"type": "text", "text": f"[Datei: lorem_ipsum.txt]\n{content}"}
+    # Rein textuelle Parts werden zu einem String verschmolzen (422-Regression:
+    # manche LLM-Server verlangen content als String)
+    sent = seen["body"]["messages"][0]["content"]
+    assert isinstance(sent, str)
+    assert sent == f"[Datei: lorem_ipsum.txt]\n{content}\n\nWas steht in der Datei?"
     for line in lines:
-        assert line in sent_file["text"]
+        assert line in sent
 
 
 def test_binary_attachment_sends_note_not_raw_bytes(client, auth_headers, monkeypatch):
@@ -204,6 +205,41 @@ def test_binary_attachment_sends_note_not_raw_bytes(client, auth_headers, monkey
     )
     assert res.status_code == 202
     _wait_generation(client, auth_headers, sid)
-    sent = seen["body"]["messages"][0]["content"][0]["text"]
+    sent = seen["body"]["messages"][0]["content"]
+    assert isinstance(sent, str)
     assert sent.startswith("[Datei: doc.pdf]\n(Binärdatei,")
     assert "%PDF" not in sent
+
+
+def test_image_attachment_keeps_list_content_with_image_url(client, auth_headers, monkeypatch):
+    """Bild-Anhaenge bleiben Listen-Content (image_url-Part), Text-Parts daneben."""
+    seen = _mock_llm(monkeypatch)
+    sid = _new_session(client, auth_headers)
+    png = base64.b64decode(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+    )
+    att = _upload(client, auth_headers, sid, "bild.png", "image/png", png)
+    assert att["kind"] == "image"
+    res = client.post(
+        "/api/chat",
+        json={
+            "session_id": sid,
+            "model": "m",
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": "[Datei: bild.png]", "attachment_id": att["id"]},
+                        {"type": "text", "text": "was ist auf dem Bild?"},
+                    ],
+                }
+            ],
+        },
+        headers=auth_headers,
+    )
+    assert res.status_code == 202
+    _wait_generation(client, auth_headers, sid)
+    sent = seen["body"]["messages"][0]["content"]
+    assert isinstance(sent, list)
+    assert sent[0] == {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{base64.b64encode(png).decode('ascii')}"}}
+    assert sent[1] == {"type": "text", "text": "was ist auf dem Bild?"}
