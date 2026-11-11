@@ -226,3 +226,5 @@ node_modules/
 .pytest_cache/
 __pycache__/
 *.pyc
+/.idea/**
+/.unipi/config/settings-version.json
