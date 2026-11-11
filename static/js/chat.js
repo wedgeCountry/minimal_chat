@@ -6,7 +6,7 @@ import { bubbleEl, setBubbleMode, setBubbleText } from "./bubbles.js";
 import { buildChatPayload } from "./payload.js";
 import { parseSSE } from "./sse.js";
 import { loadSessions, newSession, changed } from "./sessions.js";
-import { confirmModal } from "./confirm.js";
+import { confirmModal, showError } from "./confirm.js";
 import { isBubbleVisible } from "./visibility.js";
 
 export function setStreamingUI(on) {
@@ -146,9 +146,13 @@ export async function send() {
     }
   } catch (err) {
     if (err.name !== "AbortError") {
-      const em = { role: "system", type: "message", text: "Fehler: " + err.message, in_context: false };
-      if (isBubbleVisible(em, state.settings)) chat.appendChild(bubbleEl(em, handlers));
-      await persist(em);
+      if (err.message.includes("LLM-Server nicht erreichbar")) {
+        await showError(err.message);
+      } else {
+        const em = { role: "system", type: "message", text: "Fehler: " + err.message, in_context: false };
+        if (isBubbleVisible(em, state.settings)) chat.appendChild(bubbleEl(em, handlers));
+        await persist(em);
+      }
     }
   } finally {
     setStreamingUI(false);

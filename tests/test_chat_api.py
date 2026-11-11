@@ -21,6 +21,9 @@ def _mock_llm(monkeypatch):
     def handler(request: httpx.Request) -> httpx.Response:
         seen["url"] = str(request.url)
         seen["auth"] = request.headers.get("authorization")
+        # Handle HEAD request for connectivity check
+        if request.method == "HEAD":
+            return httpx.Response(200)
         seen["body"] = json.loads(request.content)
         return httpx.Response(
             200,
@@ -128,3 +131,93 @@ def test_chat_upstream_error_forwarded(client, auth_headers, monkeypatch):
     )
     assert res.status_code == 200
     assert b"HTTP 500" in res.content
+
+
+def test_chat_server_unreachable(client, auth_headers, monkeypatch):
+    def handler(request):
+        if request.method == "HEAD":
+            raise httpx.ConnectError("Connection refused")
+        return httpx.Response(200, content=SSE_BODY)
+
+    def factory(**kwargs):
+        kwargs.pop("timeout", None)
+        return RealAsyncClient(transport=httpx.MockTransport(handler))
+
+    monkeypatch.setattr("app.services.chat.httpx.AsyncClient", factory)
+    res = client.post(
+        "/api/chat",
+        json={"model": "m", "messages": [{"role": "user", "content": "x"}]},
+        headers=auth_headers,
+    )
+    assert res.status_code == 200
+    assert b"LLM-Server nicht erreichbar" in res.content
+    assert b"[DONE]" in res.content
+
+
+def test_chat_server_timeout(client, auth_headers, monkeypatch):
+    """Test that a timeout error during connectivity check is handled properly."""
+    def handler(request):
+        if request.method == "HEAD":
+            raise httpx.TimeoutException("Connection timed out")
+        return httpx.Response(200, content=SSE_BODY)
+
+    def factory(**kwargs):
+        kwargs.pop("timeout", None)
+        return RealAsyncClient(transport=httpx.MockTransport(handler))
+
+    monkeypatch.setattr("app.services.chat.httpx.AsyncClient", factory)
+    res = client.post(
+        "/api/chat",
+        json={"model": "m", "messages": [{"role": "user", "content": "x"}]},
+        headers=auth_headers,
+    )
+    assert res.status_code == 200
+    assert b"LLM-Server nicht erreichbar" in res.content
+    assert b"[DONE]" in res.content
+
+
+def test_chat_server_network_error(client, auth_headers, monkeypatch):
+    """Test that a network error during connectivity check is handled properly."""
+    def handler(request):
+        if request.method == "HEAD":
+            raise httpx.NetworkError("Network unreachable")
+        return httpx.Response(200, content=SSE_BODY)
+
+    def factory(**kwargs):
+        kwargs.pop("timeout", None)
+        return RealAsyncClient(transport=httpx.MockTransport(handler))
+
+    monkeypatch.setattr("app.services.chat.httpx.AsyncClient", factory)
+    res = client.post(
+        "/api/chat",
+        json={"model": "m", "messages": [{"role": "user", "content": "x"}]},
+        headers=auth_headers,
+    )
+    assert res.status_code == 200
+    assert b"LLM-Server nicht erreichbar" in res.content
+    assert b"[DONE]" in res.content
+
+
+def test_chat_server_reachable_but_completions_fail(client, auth_headers, monkeypatch):
+    """Test that connectivity check passes but POST to completions fails."""
+    def handler(request):
+        if request.method == "HEAD":
+            return httpx.Response(200)
+        # POST to /chat/completions fails
+        return httpx.Response(500, content=b"Internal Server Error")
+
+    def factory(**kwargs):
+        kwargs.pop("timeout", None)
+        return RealAsyncClient(transport=httpx.MockTransport(handler))
+
+    monkeypatch.setattr("app.services.chat.httpx.AsyncClient", factory)
+    res = client.post(
+        "/api/chat",
+        json={"model": "m", "messages": [{"role": "user", "content": "x"}]},
+        headers=auth_headers,
+    )
+    assert res.status_code == 200
+    # Should get the HTTP 500 error, not the connectivity error
+    assert b"HTTP 500" in res.content
+    assert b"LLM-Server nicht erreichbar" not in res.content
+    assert b"[DONE]" in res.content

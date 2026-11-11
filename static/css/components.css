@@ -50,7 +50,10 @@ html.auto-login #authOverlay{display:none !important}
 #overlay.open{display:flex}
 #confirmOverlay{position:fixed;inset:0;background:rgba(0,0,0,.4);display:none;align-items:center;justify-content:center;z-index:150}
 #confirmOverlay.open{display:flex}
+#errorOverlay{position:fixed;inset:0;background:rgba(0,0,0,.4);display:none;align-items:center;justify-content:center;z-index:150}
+#errorOverlay.open{display:flex}
 .confirmText{font-size:14px;margin-bottom:4px}
+.errorText{font-size:14px;margin-bottom:16px;color:var(--danger)}
 .modal{background:var(--panel);border:1px solid var(--border);border-radius:14px;box-shadow:var(--shadow);width:min(420px,92vw);padding:22px}
 .modal h2{font-size:16px;margin-bottom:16px}
 .field{margin-bottom:14px}
