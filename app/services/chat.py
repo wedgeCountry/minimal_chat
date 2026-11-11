@@ -61,6 +61,22 @@ async def sse_filter(
         yield _filter_sse_line(buf, show_reasoning, show_tool_output)
 
 
+async def check_llm_connection(base_url: str, api_key: str) -> tuple[bool, str]:
+    """Prueft die Erreichbarkeit des LLM-Servers (GET {base}/models)."""
+    url = base_url.rstrip("/") + "/models"
+    headers = {}
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            res = await client.get(url, headers=headers)
+    except (httpx.ConnectError, httpx.TimeoutException, httpx.NetworkError):
+        return False, "LLM-Server nicht erreichbar"
+    if res.status_code >= 400:
+        return False, f"HTTP {res.status_code}"
+    return True, f"HTTP {res.status_code}"
+
+
 async def stream_completion(
     base_url: str,
     api_key: str,

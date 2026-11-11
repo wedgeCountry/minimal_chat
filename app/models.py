@@ -78,3 +78,8 @@ class ChatRequest(BaseModel):
 class ClientLogIn(BaseModel):
     level: Literal["error", "warning", "info"] = "error"
     message: str = Field(max_length=4000)
+
+
+class SettingsTestIn(BaseModel):
+    base: str | None = None
+    api_key: str | None = None
