@@ -1,6 +1,7 @@
 /* Auth */
 #authOverlay{position:fixed;inset:0;background:rgba(0,0,0,.4);display:none;align-items:center;justify-content:center;z-index:200}
 #authOverlay.open{display:flex}
+html.auto-login #authOverlay{display:none !important}
 .authModal{width:min(360px,92vw)}
 .authHint{font-size:13px;color:var(--muted);margin:-8px 0 16px}
 .authErr{color:var(--danger);font-size:13px;min-height:18px;margin-top:6px}

@@ -134,3 +134,8 @@ def load_config(
         port=int(os.environ.get("LEANCHAT_PORT", "8000")),
         app_config_path=Path(os.environ["LEANCHAT_CONFIG_PATH"]) if os.environ.get("LEANCHAT_CONFIG_PATH") else None,
     )
+
+
+def is_auto_login_enabled() -> bool:
+    """Check if auto-login mode is enabled (for testing)."""
+    return os.environ.get("LEANCHAT_AUTO_LOGIN", "").lower() in ("1", "true", "yes", "on")

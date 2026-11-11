@@ -37,11 +37,32 @@ async function bootstrap() {
   initSettings();
   if (window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches)
     document.documentElement.classList.add("dark");
+  
+  // Check if auto-login is enabled
+  let autoLoginEnabled = false;
+  try {
+    const config = await api.get("/api/auth/config");
+    autoLoginEnabled = config.auto_login || false;
+    if (autoLoginEnabled) {
+      document.documentElement.classList.add("auto-login");
+    }
+  } catch {
+    // If config endpoint fails, continue with normal flow
+  }
+  
   try {
     const me = await api.get("/auth/me");
     state.username = me.email;
-  } catch {
-    showAuth();
+  } catch (err) {
+    // Only show auth overlay if auto-login is not enabled
+    if (!autoLoginEnabled) {
+      showAuth();
+      return;
+    }
+    // If auto-login is enabled but /auth/me still fails, something is wrong
+    // Try to reload the page
+    console.error("Auto-login enabled but /auth/me failed:", err);
+    location.reload();
     return;
   }
   await loadSettings();
@@ -67,6 +88,19 @@ function initEvents() {
     $("burgerMenu").classList.remove("open");
     $("chat").classList.toggle("compact");
   };
+  // Check if auto-login is enabled to hide logout button
+  let autoLoginEnabled = false;
+  try {
+    api.get("/api/auth/config").then(config => {
+      autoLoginEnabled = config.auto_login || false;
+      if (autoLoginEnabled) {
+        $("logoutBtn").style.display = "none";
+      }
+    });
+  } catch {
+    // If config endpoint fails, keep logout button visible
+  }
+  
   $("logoutBtn").onclick = async () => {
     $("burgerMenu").classList.remove("open");
     await api.post("/auth/logout", {}).catch(() => {});

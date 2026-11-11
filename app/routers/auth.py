@@ -64,3 +64,10 @@ def logout(request: Request) -> Response:
 @router.get("/me")
 def me(user: dict = Depends(get_current_user)) -> dict:
     return {"email": user["email"], "username": user["username"]}
+
+
+@router.get("/config")
+def get_auth_config() -> dict:
+    """Get authentication configuration, including auto-login status."""
+    from ..config import is_auto_login_enabled
+    return {"auto_login": is_auto_login_enabled()}
