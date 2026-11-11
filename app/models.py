@@ -4,16 +4,6 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
-class RegisterRequest(BaseModel):
-    email: str
-    password: str = Field(min_length=8, max_length=1024)
-
-
-class LoginRequest(BaseModel):
-    email: str
-    password: str
-
-
 class MessageIn(BaseModel):
     role: Literal["user", "assistant", "system"]
     type: Literal["message", "toolcall", "reasoning"] = "message"

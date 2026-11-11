@@ -25,55 +25,44 @@ E2E_DIR = REPO_ROOT / "tests" / "e2e"
 
 
 def _init_test_database(data_dir: Path) -> None:
-    """Initialize test databases with sample data for testing."""
-    from app.db import crypto
+    """Initialize the per-user test database with sample data for testing."""
+    from app.auth import user_identity
     from app.db.database import Database
-    
+
     print(f"Initializing test database in {data_dir}", flush=True)
-    
+
     # Create directories
     users_dir = data_dir / "users"
     users_dir.mkdir(parents=True, exist_ok=True)
-    
-    # Configuration
-    secret = "test-secret"
-    registry_path = data_dir / "user_registry.db"
-    
-    # Note: We don't create the user_registry.db here - the user_registry library
-    # will create it with the correct schema when init_db() is called
-    # Just make sure the parent directory exists
-    registry_path.parent.mkdir(parents=True, exist_ok=True)
-    
-    # Create local users database
-    db = Database(data_dir, secret, users_dir=users_dir)
-    
-    # Use the same email that the auto-login system expects
-    test_email = "testuser@example.com"
-    test_uid = "testuser-123"
-    
-    existing = db.get_user_by_email(test_email)
-    if not existing:
-        user_key = crypto.new_key()
-        user = db.create_local_user(test_uid, test_email, user_key)
-        print(f"Created local user: {test_email} with uid: {test_uid}", flush=True)
-        
-        # Initialize the user's database with some test data
-        with db.user_db(user) as con:
-            # Create a test session
 
+    # Note: We don't create the user_registry.db here - the user_registry library
+    # will create it with the correct schema when init_db() is called, and the
+    # auto-login flow registers the test user on first request. The per-user DB
+    # identity is derived from secret + e-mail, no local users table needed.
+    (data_dir / "user_registry.db").parent.mkdir(parents=True, exist_ok=True)
+
+    db = Database(data_dir, users_dir=users_dir)
+
+    # Use the same email that the auto-login system expects
+    secret = "test-secret"
+    test_email = "testuser@example.com"
+    user = user_identity(secret, test_email)
+
+    with db.user_db(user) as con:
+        existing = con.execute("SELECT COUNT(*) FROM user_settings").fetchone()[0]
+        if existing:
+            print(f"Test data for user {test_email} already exists", flush=True)
+        else:
             # Add some user settings
             con.execute(
                 "INSERT INTO user_settings (key, value) VALUES (?, ?)",
                 ("theme", "dark")
             )
             con.execute(
-                "INSERT INTO user_settings (key, value) VALUES (?, ?)", 
+                "INSERT INTO user_settings (key, value) VALUES (?, ?)",
                 ("bubbles_deletable", "true")
             )
-            
-            print(f"Initialized test data for user {test_email}", flush=True)
-    else:
-        print(f"Local user {test_email} already exists", flush=True)
+            print(f"Initialized test data for user {test_email} (uid: {user['uid']})", flush=True)
 
 
 def main() -> None:

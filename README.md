@@ -37,8 +37,8 @@ tests/
 ## Data storage
 
 - Pro User genau eine **verschluesselte SQLite-Datei** (`data/users/<uid>.db.enc`, Fernet) mit Sessions, Messages und der Tabelle **`user_settings`** (serverseitige Einstellungen).
-- Der Verschluesselungsschluessel der per-user DB wird von der **User Registry** erzeugt und nach Passwort-Pruefung freigegeben.
-- **Login/Registrierung** laufen ueber die Bibliothek [`user_registry`](docs/user_registry_implementation_guidelines.md) (vendored Wheel in `vendors/`, Argon2id-Passwort-Hashing, Passwort-Policy, AGB-Akzeptanz): Credentials liegen in der eigenen Registry-DB (`data/user_registry.db`), Sessions sind itsdangerous-signierte `auth_session`-Cookies, und unter `/auth` stehen professionelle Seiten (Login, Registrieren, Passwort aendern/loeschen, AGB, Impressum). Die Zuordnung zu den lokalen App-Daten erfolgt credential-frei per E-Mail ueber die Tabelle in `data/users.db`.
+- uid und Verschluesselungsschluessel der per-user DB werden aus dem **Server-Secret und der E-Mail** abgeleitet (`user_identity` in `app/auth.py`) — es gibt keine lokale User-Tabelle.
+- **Login/Registrierung** laufen ueber die Bibliothek [`user_registry`](docs/user_registry_implementation_guidelines.md) (vendored Wheel in `vendors/`, Argon2id-Passwort-Hashing, Passwort-Policy, AGB-Akzeptanz): Credentials liegen in der eigenen Registry-DB (`data/user_registry.db`), Sessions sind itsdangerous-signierte `auth_session`-Cookies, und unter `/auth` stehen professionelle Seiten (Login, Registrieren, Passwort aendern/loeschen, AGB, Impressum). Die Zuordnung zu den per-user App-Daten erfolgt credential-frei per E-Mail.
 - Das SQL-Schema der pro-User-DB liegt in [`app/db/schema.sql`](app/db/schema.sql); der gesamte DB-Zugriff in [`app/db/database.py`](app/db/database.py).
 
 ## Features

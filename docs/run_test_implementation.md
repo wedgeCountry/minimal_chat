@@ -23,7 +23,7 @@ def is_auto_login_enabled() -> bool:
 Modified `get_current_user()` in `app/deps.py` to:
 - Check if auto-login is enabled
 - Return a default test user (`testuser@example.com`) when no valid session exists
-- Automatically create the test user in both the registry and local database if it doesn't exist
+- Automatically create the test user in the registry if it doesn't exist (the per-user DB identity is derived from secret + e-mail, no local user row)
 
 ### 2. Simplified run_test Scripts
 
@@ -75,7 +75,7 @@ Added missing `__init__.py` files to ensure proper module imports:
 4. **Auto-login**: When a user visits the app:
    - If no valid session exists and auto-login is enabled
    - The app automatically uses `testuser@example.com` as the current user
-   - If the user doesn't exist, it's created automatically in both the registry and local database
+   - If the user doesn't exist, it's created automatically in the registry
 5. **Cleanup**: On Ctrl+C, both servers are stopped and temporary data is cleaned up
 
 ## Environment Variables
