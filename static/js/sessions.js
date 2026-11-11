@@ -1,10 +1,12 @@
 import { api } from "./api.js";
 import { activeSession, setActiveId, state } from "./state.js";
-import { $, esc, isMobileInput } from "./util.js";
+import { $, esc } from "./util.js";
 import { ICONS } from "./icons.js";
 import { confirmModal } from "./confirm.js";
 
 export const changed = () => document.dispatchEvent(new CustomEvent("leanchat:changed"));
+
+const selected = () => document.dispatchEvent(new CustomEvent("leanchat:session-selected"));
 
 export function sortedSessions() {
   return [...state.sessions].sort((a, b) => b.ts - a.ts);
@@ -46,23 +48,19 @@ export function renderSessions() {
   }
 }
 
-export function hideSidePanelOnMobile() {
-  if (isMobileInput()) $("side").classList.add("hidden");
-}
-
 export async function newSession(open = true) {
   const s = await api.post("/sessions", { name: "Neue Session" });
   state.sessions.unshift(s);
   if (open) {
     setActiveId(s.id);
-    hideSidePanelOnMobile();
+    selected();
   }
   changed();
 }
 
 export function openSession(id) {
   setActiveId(id);
-  hideSidePanelOnMobile();
+  selected();
   changed();
 }
 

@@ -1,6 +1,6 @@
 import { api } from "./api.js";
 import { state, activeSession } from "./state.js";
-import { $, isMobileInput } from "./util.js";
+import { $, } from "./util.js";
 import { goToLogin } from "./auth.js";
 import { loadSessions, renderSessions, changed } from "./sessions.js";
 import { abortStream, renderChat, renderHeader, send } from "./chat.js";
@@ -28,6 +28,13 @@ function setSideHidden(hidden) {
   try {
     localStorage.setItem(SIDE_HIDDEN_KEY, hidden ? "1" : "0");
   } catch {}
+}
+
+export function isMobileInput() {
+  return (
+    (window.matchMedia && window.matchMedia("(hover: none) and (pointer: coarse)").matches) ||
+    "ontouchstart" in window
+  );
 }
 
 async function refreshChat() {
@@ -226,6 +233,9 @@ function initEvents() {
   }
 
   document.addEventListener("leanchat:changed", renderAll);
+  document.addEventListener("leanchat:session-selected", () => {
+    if (isMobileInput()) $("side").classList.add("hidden");
+  });
   document.addEventListener("leanchat:unauthorized", () => goToLogin());
 }
 

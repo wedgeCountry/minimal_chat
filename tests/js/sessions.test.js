@@ -1,52 +1,34 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-function stubDom({ mobile }) {
-  const side = { classes: new Set(), classList: { add(c) { this.classes.add(c); }, contains(c) { return this.classes.has(c); } } };
-  side.classList.classes = side.classes;
-  globalThis.window = { matchMedia: () => ({ matches: mobile }) };
-  globalThis.document = {
-    getElementById: (id) => (id === "side" ? side : null),
-    dispatchEvent: () => true,
-  };
-  return side;
+function stubDom() {
+  const events = [];
+  globalThis.document = { dispatchEvent: (e) => events.push(e.type) };
+  return events;
 }
 
-const { openSession, newSession, hideSidePanelOnMobile } = await import("../../static/js/sessions.js");
+const { openSession, newSession } = await import("../../static/js/sessions.js");
 const { state } = await import("../../static/js/state.js");
 
-test("openSession hides side panel on mobile", () => {
-  const side = stubDom({ mobile: true });
+test("openSession dispatches leanchat:session-selected", () => {
+  const events = stubDom();
   state.sessions = [{ id: "s1", name: "A", ts: 1 }];
   openSession("s1");
-  assert.ok(side.classList.contains("hidden"));
+  assert.ok(events.includes("leanchat:session-selected"));
   assert.equal(state.activeId, "s1");
 });
 
-test("openSession keeps side panel visible on desktop", () => {
-  const side = stubDom({ mobile: false });
-  state.sessions = [{ id: "s1", name: "A", ts: 1 }];
-  openSession("s1");
-  assert.equal(side.classList.contains("hidden"), false);
-});
-
-test("newSession(open=true) hides side panel on mobile", async () => {
-  const side = stubDom({ mobile: true });
+test("newSession(open=true) dispatches leanchat:session-selected", async () => {
+  const events = stubDom();
   globalThis.fetch = async () => ({ ok: true, status: 200, json: async () => ({ id: "s2", name: "Neue Session", ts: 2 }) });
   await newSession(true);
-  assert.ok(side.classList.contains("hidden"));
+  assert.ok(events.includes("leanchat:session-selected"));
   assert.equal(state.activeId, "s2");
 });
 
-test("newSession(open=false) does not hide side panel", async () => {
-  const side = stubDom({ mobile: true });
+test("newSession(open=false) does not dispatch leanchat:session-selected", async () => {
+  const events = stubDom();
   globalThis.fetch = async () => ({ ok: true, status: 200, json: async () => ({ id: "s3", name: "Neue Session", ts: 3 }) });
   await newSession(false);
-  assert.equal(side.classList.contains("hidden"), false);
-});
-
-test("hideSidePanelOnMobile is a no-op on desktop", () => {
-  const side = stubDom({ mobile: false });
-  hideSidePanelOnMobile();
-  assert.equal(side.classList.contains("hidden"), false);
+  assert.equal(events.includes("leanchat:session-selected"), false);
 });
