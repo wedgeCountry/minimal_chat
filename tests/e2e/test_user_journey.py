@@ -66,8 +66,11 @@ def _login(page, base_url, username, password):
     page.wait_for_selector(f'{T["auth_overlay"]}:not(.open)', state="attached")
 
 
-def _chat_once(page, text, n):
-    """Schickt die n-te Nachricht und wartet, bis der Mock-LLM geantwortet hat."""
+def _chat_once(page, text, n, expect="Hallo Welt", attach=None):
+    """Schickt die n-te Nachricht (optional mit Datei-Anhang) und wartet auf die Mock-Antwort."""
+    if attach is not None:
+        page.set_input_files('[data-testid="file-input"]', attach)
+        page.wait_for_selector('[data-testid^="attachment-chip-"]')
     page.fill(T["chat_input"], text)
     page.click(T["send_btn"])
     page.wait_for_function(
@@ -78,15 +81,15 @@ def _chat_once(page, text, n):
         " && !document.querySelector('[data-testid=\"send-btn\"]').classList.contains('abort')"
     )
     page.wait_for_function(
-        """() => {
+        f"""() => {{
           const msgs = [...document.querySelectorAll('[data-testid="chat"] .bubble[data-role="assistant"][data-type="message"]')];
           const last = msgs[msgs.length - 1];
-          return !!last && last.querySelector('[data-testid="bubble-body"]').textContent.includes('Hallo Welt');
-        }"""
+          return !!last && last.querySelector('[data-testid="bubble-body"]').textContent.includes({expect!r});
+        }}"""
     )
 
 
-def test_full_user_journey(page, base_url):
+def test_full_user_journey(page, base_url, tmp_path):
     # Setup: User per API anlegen, System-Prompt-Anzeige serverseitig deaktivieren
     # (damit er in der Journey "am Anfang versteckt" ist).
     token = _register_api(base_url, USER["username"], USER["password"])
@@ -119,11 +122,19 @@ def test_full_user_journey(page, base_url):
     )
     assert res.status_code == 201, res.text
 
-    # 3. Dreimal mit dem Agenten chatten (Mock-LLM antwortet "Hallo Welt")
-    for i in (1, 2, 3):
-        _chat_once(page, f"Nachricht {i}", i)
+    # 3. Dreimal mit dem Agenten chatten (Mock-LLM); beim zweiten Chat hängt der
+    #    Nutzer eine Textdatei mit geheimem Wort an und fragt danach — das LLM
+    #    antwortet mit dem Dateiinhalt.
+    secret_file = tmp_path / "geheim.txt"
+    secret_file.write_text("Krokodil-Ledertasche", encoding="utf-8")
+    _chat_once(page, "Nachricht 1", 1)
+    _chat_once(page, "Was steht in der Datei?", 2, expect="Krokodil-Ledertasche", attach=secret_file)
+    _chat_once(page, "Nachricht 3", 3)
     assert page.locator(_bubble("user")).count() == 3
     assert page.locator(_bubble("assistant")).count() == 3
+    assert "Krokodil-Ledertasche" in (
+        page.locator(_bubble("assistant")).nth(1).locator('[data-testid="bubble-body"]').inner_text()
+    )
 
     # 4. Neue Session erstellen und einmal chatten
     page.click(T["new_session"])

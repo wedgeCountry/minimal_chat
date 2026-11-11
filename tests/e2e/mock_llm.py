@@ -32,12 +32,28 @@ async def app(scope, receive, send):
                 ],
             }
         )
-        chunks = [
-            {"choices": [{"delta": {"reasoning_content": "Ich denke nach... "}}]},
-            {"choices": [{"delta": {"content": "Hallo"}}]},
-            {"choices": [{"delta": {"content": " Welt"}}]},
-            {"choices": [{"delta": {"tool_calls": [{"function": {"name": "get_weather", "arguments": '{"city":"Berlin"}'}}]}}]},
-        ]
+        try:
+            req = json.loads(body)
+            last = req.get("messages", [])[-1] if req.get("messages") else {}
+            content = last.get("content", "")
+            if isinstance(content, list):
+                content = " ".join(str(p.get("text", "")) for p in content)
+            file_read = "Krokodil-Ledertasche" in str(content)
+        except Exception:
+            file_read = False
+        if file_read:
+            # Der Datei-Anhang der letzten Nachricht wurde als Text mitgeschickt:
+            # das LLM "liest" ihn und antwortet mit dem geheimen Wort.
+            chunks = [
+                {"choices": [{"delta": {"content": "Die Datei enthält das geheime Wort: Krokodil-Ledertasche"}}]},
+            ]
+        else:
+            chunks = [
+                {"choices": [{"delta": {"reasoning_content": "Ich denke nach... "}}]},
+                {"choices": [{"delta": {"content": "Hallo"}}]},
+                {"choices": [{"delta": {"content": " Welt"}}]},
+                {"choices": [{"delta": {"tool_calls": [{"function": {"name": "get_weather", "arguments": '{"city":"Berlin"}'}}]}}]},
+            ]
         for chunk in chunks:
             await send(
                 {
