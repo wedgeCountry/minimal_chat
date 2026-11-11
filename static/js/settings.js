@@ -5,8 +5,8 @@ import { applyTheme } from "./theme.js";
 
 const CHECK_IDS = {
   bubbles_deletable: "setDeletableAll",
-  bubbles_user_checkable: "setCheckable",
-  bubbles_user_deletable: "setDeletable",
+  bubbles_checkable: "setCheckable",
+  bubbles_speaker: "setSpeaker",
   show_system_prompt: "setShowSystem",
   show_tool_output: "setShowTool",
   show_reasoning: "setShowReasoning",

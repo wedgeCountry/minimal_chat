@@ -55,8 +55,8 @@ class SettingsIn(BaseModel):
     theme: Literal["light", "dark"] | None = None
     api_key: str | None = None
     bubbles_deletable: bool | None = None
-    bubbles_user_checkable: bool | None = None
-    bubbles_user_deletable: bool | None = None
+    bubbles_checkable: bool | None = None
+    bubbles_speaker: bool | None = None
     show_system_prompt: bool | None = None
     show_tool_output: bool | None = None
     show_reasoning: bool | None = None
@@ -67,8 +67,8 @@ class SettingsOut(BaseModel):
     model: str
     theme: str
     bubbles_deletable: bool = True
-    bubbles_user_checkable: bool = True
-    bubbles_user_deletable: bool = True
+    bubbles_checkable: bool = True
+    bubbles_speaker: bool = True
     show_system_prompt: bool = True
     show_tool_output: bool = True
     show_reasoning: bool = True

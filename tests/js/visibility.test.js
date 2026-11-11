@@ -1,11 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { isBubbleDeletable, isBubbleVisible, isUserBubbleCheckable, isUserBubbleDeletable } from "../../static/js/visibility.js";
+import { isBubbleDeletable, isBubbleCheckable, isBubbleSpeaker, isBubbleVisible } from "../../static/js/visibility.js";
 
 const allOn = {
   bubbles_deletable: true,
-  bubbles_user_checkable: true,
-  bubbles_user_deletable: true,
+  bubbles_checkable: true,
+  bubbles_speaker: true,
   show_system_prompt: true,
   show_tool_output: true,
   show_reasoning: true,
@@ -34,11 +34,11 @@ test("show_system_prompt=false blendet System-Bubbles aus", () => {
   assert.equal(isBubbleVisible({ role: "system", type: "message" }, s), false);
 });
 
-test("User-Bubble Checkable/Deletable Schalter", () => {
-  assert.ok(isUserBubbleCheckable(allOn));
-  assert.equal(isUserBubbleCheckable({ ...allOn, bubbles_user_checkable: false }), false);
-  assert.ok(isUserBubbleDeletable(allOn));
-  assert.equal(isUserBubbleDeletable({ ...allOn, bubbles_user_deletable: false }), false);
+test("Checkable/Speaker Schalter", () => {
+  assert.ok(isBubbleCheckable(allOn));
+  assert.equal(isBubbleCheckable({ ...allOn, bubbles_checkable: false }), false);
+  assert.ok(isBubbleSpeaker(allOn));
+  assert.equal(isBubbleSpeaker({ ...allOn, bubbles_speaker: false }), false);
 });
 
 test("bubbles_deletable=false sperrt den Loeschen-Button fuer alle Bubbles", () => {

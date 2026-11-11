@@ -49,7 +49,7 @@ tests/
 - **Cancel** – laufende Generierung per X abbrechen, Teilausgabe bleibt erhalten
 - **Message bubbles** – Rolle/Typ (message, tool-call, reasoning), kollabierbar, kopieren, vorlesen, Kontext-Checkbox, löschen
 - **Attachments** – Dateien, Kamera (mobil), Spracheingabe (Web Speech API)
-- **Settings** – Base-URL, Modell, Theme; API-Schlüssel serverseitig (write-only, Env-Fallback) sowie sechs Darstellungsschalter im Settings-Overlay: *Bubbles Deletable* (X-Button) und *Bubbles Checkable* (Kontext-Checkbox) gelten fuer alle Bubbles (User + Assistant), dazu *Show System Prompt*, *Show Tool Output*, *Show Reasoning*. Diese steuern clientseitig das Bubble-Rendering und werden serverseitig als Filter auf Request (System-Prompt) und LLM-SSE-Response (Reasoning, Tool-Calls) angewendet
+- **Settings** – Base-URL, Modell, Theme; API-Schlüssel serverseitig (write-only, Env-Fallback) sowie sechs Darstellungsschalter im Settings-Overlay: *Bubbles Deletable* (X-Button), *Bubbles Checkable* (Kontext-Checkbox) und *Bubbles Speaker* (Vorlesen) gelten fuer alle Bubbles (User + Assistant), dazu *Show System Prompt*, *Show Tool Output*, *Show Reasoning*. Diese steuern clientseitig das Bubble-Rendering und werden serverseitig als Filter auf Request (System-Prompt) und LLM-SSE-Response (Reasoning, Tool-Calls) angewendet
 - **Theme** – hell/dunkel via CSS Custom Properties
 
 ## Configuration (.env)

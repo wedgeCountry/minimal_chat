@@ -1,7 +1,7 @@
 import { esc } from "./util.js";
 import { ICONS } from "./icons.js";
 import { state } from "./state.js";
-import { isBubbleDeletable, isUserBubbleCheckable, isUserBubbleDeletable } from "./visibility.js";
+import { isBubbleDeletable, isBubbleCheckable, isBubbleSpeaker } from "./visibility.js";
 import { BUBBLE_MODES, clampText, nextBubbleMode, bubbleModeTitle } from "./bubbleMode.js";
 
 const typeLabels = { message: "", toolcall: "Tool-Call", reasoning: "Thinking", system: "System" };
@@ -85,8 +85,9 @@ export function bubbleEl(m, handlers = {}) {
   b.dataset.mode = mode;
   if (m.type === "message") b.classList.add(m.inContext !== false ? "selected" : "deselected");
   const label = m.type === "message" ? m.role : typeLabels[m.type] || m.role;
-  const showChk = m.type === "message" && isUserBubbleCheckable(state.settings);
-  const showDel = isBubbleDeletable(state.settings) && isUserBubbleDeletable(state.settings);
+  const showChk = m.type === "message" && isBubbleCheckable(state.settings);
+  const showDel = isBubbleDeletable(state.settings);
+  const showTts = isBubbleSpeaker(state.settings);
   const attach = (m.attachments || [])
     .map((a) => `<div class="attachChip" data-testid="bubble-attachment">${ICONS.attach}<span data-testid="bubble-attachment-name">${esc(a.name)}</span></div>`)
     .join("");
@@ -96,7 +97,7 @@ export function bubbleEl(m, handlers = {}) {
       <span class="role" data-testid="bubble-role">${esc(label)}</span>
       <span class="grow"></span>
       ${showChk ? `<input type="checkbox" class="chk" data-testid="bubble-context-chk" ${m.inContext !== false ? "checked" : ""} title="Im Kontext senden" />` : ""}
-      <button class="iconBtn ttsBtn" data-testid="bubble-tts-btn" title="Vorlesen">${ICONS.tts}</button>
+      ${showTts ? `<button class="iconBtn ttsBtn" data-testid="bubble-tts-btn" title="Vorlesen">${ICONS.tts}</button>` : ""}
       <button class="iconBtn copyBtn" data-testid="bubble-copy-btn" title="Kopieren">${ICONS.copy}</button>
       <button class="iconBtn chev" data-testid="bubble-toggle-btn" title="${bubbleModeTitle(mode)}">${ICONS.chev}</button>
     </div>
@@ -134,6 +135,7 @@ export function bubbleEl(m, handlers = {}) {
   _applySavedWidth(b, m);
   _makeResizable(b, m);
   const tts = b.querySelector(".ttsBtn");
+  if (tts)
   tts.onclick = () => {
     if (!("speechSynthesis" in window)) return;
     if (speechSynthesis.speaking) {
