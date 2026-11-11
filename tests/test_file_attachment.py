@@ -1,18 +1,20 @@
-"""Beispiel-Unit-Test fuer Datei-Anhaenge (Textdateien) im Chat-Request.
+"""Unit-Tests fuer serverseitige Datei-Verarbeitung (Anhaenge).
 
-Nutzt eine echte Datei (tests/fixtures/lorem_ipsum.txt, 20 Zeilen Lorem ipsum)
-und prueft gegen die serverseitige Generierung (POST /api/chat -> Hintergrund-Task,
-Client pollt die Session), dass der komplette Dateiinhalt unverkuerzt im Request
-an das LLM und in der persistierten Session landet.
+Der Client laedt die Rohdatei Base64-kodiert hoch (POST /api/sessions/{sid}/attachments),
+der Server liest/dekodiert sie und expandiert die Referenz beim LLM-Request.
+Nutzt eine echte Datei (tests/fixtures/lorem_ipsum.txt, 20 Zeilen Lorem ipsum).
 """
 
 from __future__ import annotations
 
+import base64
 import json
 import time
 from pathlib import Path
 
 import httpx
+
+from app.services.files import is_text_file, process_upload
 
 RealAsyncClient = httpx.AsyncClient
 
@@ -52,20 +54,94 @@ def _wait_generation(client, auth_headers, sid: str, timeout: float = 10.0) -> d
     raise AssertionError(f"Generierung wurde nicht fertig (letzter Stand: {last})")
 
 
-def _file_content_part(name: str, text: str) -> dict:
-    """Content-Part exakt so gebaut wie static/js/payload.js aus einem Text-Anhang."""
-    return {"type": "text", "text": f"[Datei: {name}]\n{text}"}
+def _new_session(client, auth_headers, name="Dateitest") -> str:
+    res = client.post("/api/sessions", json={"name": name}, headers=auth_headers)
+    assert res.status_code == 201, res.text
+    return res.json()["id"]
 
 
-def test_text_file_reaches_llm_request_untruncated(client, auth_headers, monkeypatch):
-    """Die komplette Textdatei landet als Text-Content-Part im LLM-Request (alle 20 Zeilen)."""
+def _upload(client, auth_headers, sid: str, name: str, mime: str, raw: bytes) -> dict:
+    res = client.post(
+        f"/api/sessions/{sid}/attachments",
+        json={"name": name, "type": mime, "data": base64.b64encode(raw).decode("ascii")},
+        headers=auth_headers,
+    )
+    assert res.status_code == 201, res.text
+    return res.json()
+
+
+def test_is_text_file_detection():
+    assert is_text_file("a.txt", "text/plain") is True
+    assert is_text_file("a.json", "application/json") is True
+    assert is_text_file("a.json", "application/vnd.api+json") is True
+    assert is_text_file("notes.md", "") is True
+    assert is_text_file("script.py", "") is True
+    assert is_text_file("doc.pdf", "application/pdf") is False
+    assert is_text_file("x.png", "image/png") is False
+    assert is_text_file("data.bin", "") is False
+
+
+def test_process_upload_reads_text_file_utf8_untruncated():
+    content = FIXTURE.read_text(encoding="utf-8")
+    att = process_upload("lorem_ipsum.txt", "text/plain", content.encode("utf-8"))
+    assert att["kind"] == "text"
+    assert att["content"] == content
+    assert len(att["content"].splitlines()) == 20
+
+
+def test_process_upload_marks_oversized_text_explicitly():
+    att = process_upload("gross.txt", "text/plain", ("x" * 1_000_001).encode("utf-8"))
+    assert att["kind"] == "text"
+    assert len(att["content"]) == 1_000_000 + len("\n[… gekürzt: Datei zu lang für Inline-Übertragung]")
+    assert att["content"].endswith("[… gekürzt: Datei zu lang für Inline-Übertragung]")
+
+
+def test_process_upload_binary_gets_explicit_note():
+    att = process_upload("doc.pdf", "application/pdf", b"%PDF-1.4 fake")
+    assert att["kind"] == "binary"
+    assert "Binärdatei" in att["content"] and "13 Bytes" in att["content"]
+    assert "%PDF" not in att["content"]
+
+
+def test_upload_endpoint_stores_attachment(client, auth_headers):
+    sid = _new_session(client, auth_headers)
+    raw = FIXTURE.read_bytes()
+    att = _upload(client, auth_headers, sid, "lorem_ipsum.txt", "text/plain", raw)
+    assert att["name"] == "lorem_ipsum.txt"
+    assert att["mime"] == "text/plain"
+    assert att["kind"] == "text"
+    assert att["size"] == len(raw)
+
+
+def test_upload_endpoint_rejects_bad_base64_and_unknown_session(client, auth_headers):
+    sid = _new_session(client, auth_headers)
+    res = client.post(
+        f"/api/sessions/{sid}/attachments",
+        json={"name": "x.txt", "type": "text/plain", "data": "!!!not-base64!!!"},
+        headers=auth_headers,
+    )
+    assert res.status_code == 400
+    res = client.post(
+        "/api/sessions/unknown/attachments",
+        json={"name": "x.txt", "type": "text/plain", "data": base64.b64encode(b"hi").decode()},
+        headers=auth_headers,
+    )
+    assert res.status_code == 404
+
+
+def test_text_file_reaches_llm_request_untruncated_via_server_processing(client, auth_headers, monkeypatch):
+    """Komplette Textdatei (20 Zeilen) landet unverkuerzt im LLM-Request.
+
+    Ablauf wie im Client: Datei hochladen -> Referenz an die Nachricht ->
+    /api/chat -> Server expandiert die Referenz serverseitig.
+    """
     seen = _mock_llm(monkeypatch)
     content = FIXTURE.read_text(encoding="utf-8")
     lines = content.splitlines()
     assert len(lines) == 20
 
-    sid = client.post("/api/sessions", json={"name": "Dateitest"}, headers=auth_headers).json()["id"]
-    attachment = {"name": "lorem_ipsum.txt", "type": "text/plain", "text": content}
+    sid = _new_session(client, auth_headers)
+    att = _upload(client, auth_headers, sid, "lorem_ipsum.txt", "text/plain", content.encode("utf-8"))
     res = client.post(
         f"/api/sessions/{sid}/messages",
         json={
@@ -73,16 +149,19 @@ def test_text_file_reaches_llm_request_untruncated(client, auth_headers, monkeyp
             "type": "message",
             "text": "Was steht in der Datei?",
             "in_context": True,
-            "attachments": [attachment],
+            "attachments": [{"id": att["id"], "name": att["name"], "type": att["mime"]}],
         },
         headers=auth_headers,
     )
     assert res.status_code == 201
 
-    # Payload wie vom Client gebaut (buildChatPayload): Anhang als Text-Part vor dem Message-Text
+    # Payload wie vom Client gebaut (buildChatPayload): Anhang als Referenz-Part
     message = {
         "role": "user",
-        "content": [_file_content_part("lorem_ipsum.txt", content), {"type": "text", "text": "Was steht in der Datei?"}],
+        "content": [
+            {"type": "text", "text": "[Datei: lorem_ipsum.txt]", "attachment_id": att["id"]},
+            {"type": "text", "text": "Was steht in der Datei?"},
+        ],
     }
     res = client.post(
         "/api/chat",
@@ -90,35 +169,41 @@ def test_text_file_reaches_llm_request_untruncated(client, auth_headers, monkeyp
         headers=auth_headers,
     )
     assert res.status_code == 202
-    assert res.json() == {"status": "started"}
 
     _wait_generation(client, auth_headers, sid)
     sent_parts = seen["body"]["messages"][0]["content"]
     assert sent_parts[1] == {"type": "text", "text": "Was steht in der Datei?"}
-    sent_file = sent_parts[0]["text"]
-    assert sent_file == f"[Datei: lorem_ipsum.txt]\n{content}"
+    sent_file = sent_parts[0]
+    assert sent_file == {"type": "text", "text": f"[Datei: lorem_ipsum.txt]\n{content}"}
     for line in lines:
-        assert line in sent_file
+        assert line in sent_file["text"]
 
 
-def test_text_file_attachment_persisted_untruncated(client, auth_headers):
-    """Der Anhang wird vollstaendig in der Session gespeichert (kein serverseitiges Abschneiden)."""
-    content = FIXTURE.read_text(encoding="utf-8")
-    sid = client.post("/api/sessions", json={"name": "Dateitest"}, headers=auth_headers).json()["id"]
-    attachment = {"name": "lorem_ipsum.txt", "type": "text/plain", "text": content}
+def test_binary_attachment_sends_note_not_raw_bytes(client, auth_headers, monkeypatch):
+    seen = _mock_llm(monkeypatch)
+    sid = _new_session(client, auth_headers)
+    raw = b"%PDF-1.4 fake binary \x00\x01\x02"
+    att = _upload(client, auth_headers, sid, "doc.pdf", "application/pdf", raw)
+    assert att["kind"] == "binary"
     res = client.post(
-        f"/api/sessions/{sid}/messages",
+        "/api/chat",
         json={
-            "role": "user",
-            "type": "message",
-            "text": "lies die Datei",
-            "in_context": True,
-            "attachments": [attachment],
+            "session_id": sid,
+            "model": "m",
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": "[Datei: doc.pdf]", "attachment_id": att["id"]},
+                        {"type": "text", "text": "was steht da?"},
+                    ],
+                }
+            ],
         },
         headers=auth_headers,
     )
-    assert res.status_code == 201
-    detail = client.get(f"/api/sessions/{sid}", headers=auth_headers).json()
-    stored = detail["messages"][0]["attachments"][0]["text"]
-    assert stored == content
-    assert len(stored.splitlines()) == 20
+    assert res.status_code == 202
+    _wait_generation(client, auth_headers, sid)
+    sent = seen["body"]["messages"][0]["content"][0]["text"]
+    assert sent.startswith("[Datei: doc.pdf]\n(Binärdatei,")
+    assert "%PDF" not in sent

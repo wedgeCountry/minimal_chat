@@ -1,62 +1,42 @@
+import { api } from "./api.js";
 import { state } from "./state.js";
 import { $, esc } from "./util.js";
 import { ICONS } from "./icons.js";
 
-const TEXT_MIME_TYPES = new Set([
-  "application/json",
-  "application/xml",
-  "application/javascript",
-  "application/x-yaml",
-  "application/yaml",
-]);
-const TEXT_EXTENSIONS = new Set([
-  "txt", "md", "markdown", "json", "csv", "tsv", "log", "xml", "yaml", "yml",
-  "py", "js", "mjs", "cjs", "ts", "html", "htm", "css", "ini", "cfg", "conf",
-  "env", "c", "h", "cpp", "java", "go", "rs", "sh", "sql", "toml",
-]);
-const MAX_TEXT_CHARS = 1000000;
-
-export function isTextFile(name, type) {
-  const t = (type || "").toLowerCase();
-  if (t.startsWith("image/")) return false;
-  if (t.startsWith("text/")) return true;
-  if (TEXT_MIME_TYPES.has(t) || t.endsWith("+json") || t.endsWith("+xml")) return true;
-  if (!t && name.includes(".")) {
-    return TEXT_EXTENSIONS.has(name.split(".").pop().toLowerCase());
-  }
-  return false;
-}
-
 export function addAttachments(files) {
   for (const f of files) {
     if (!f) continue;
-    if (f.type.startsWith("image/")) {
-      const rd = new FileReader();
-      rd.onload = () => {
-        state.pendingAttachments.push({ name: f.name, type: f.type, data: rd.result });
-        renderAttachments();
-      };
-      rd.readAsDataURL(f);
-    } else if (isTextFile(f.name, f.type)) {
-      const rd = new FileReader();
-      rd.onload = () => {
-        let text = String(rd.result);
-        if (text.length > MAX_TEXT_CHARS) {
-          text = text.slice(0, MAX_TEXT_CHARS) + "\n[… gekuertzt: Datei zu lang fuer Inline-Uebertragung]";
-        }
-        state.pendingAttachments.push({ name: f.name, type: f.type || "text/plain", text });
-        renderAttachments();
-      };
-      rd.readAsText(f, "utf-8");
-    } else {
-      state.pendingAttachments.push({
-        name: f.name,
-        type: f.type || "application/octet-stream",
-        text: `(Binaerdatei, ${f.size} Bytes – wird nicht als Text uebertragen)`,
+    state.pendingAttachments.push({ name: f.name, type: f.type || "application/octet-stream", file: f });
+  }
+  renderAttachments();
+}
+
+async function fileToBase64(file) {
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  let bin = "";
+  for (let i = 0; i < bytes.length; i += 0x8000) {
+    bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  }
+  return btoa(bin);
+}
+
+// Laedt die angehaengten Rohdateien zur Session hoch; das Lesen/Dekodieren
+// passiert serverseitig (POST /api/sessions/{sid}/attachments). Liefert References.
+export async function uploadPendingAttachments(sid) {
+  const refs = [];
+  for (const a of state.pendingAttachments.splice(0)) {
+    if (a.file) {
+      const res = await api.post(`/sessions/${sid}/attachments`, {
+        name: a.name,
+        type: a.type,
+        data: await fileToBase64(a.file),
       });
-      renderAttachments();
+      refs.push({ id: res.id, name: res.name, type: res.mime });
+    } else {
+      refs.push(a);
     }
   }
+  return refs;
 }
 
 export function renderAttachments() {

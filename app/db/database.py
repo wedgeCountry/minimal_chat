@@ -193,6 +193,40 @@ def q_delete_message(con: sqlite3.Connection, mid: int) -> None:
     con.execute("DELETE FROM messages WHERE id = ?", (mid,))
 
 
+# --- Attachments ---
+
+
+def _row_to_attachment(row: sqlite3.Row) -> dict:
+    return {
+        "id": row["id"],
+        "session_id": row["session_id"],
+        "name": row["name"],
+        "mime": row["mime"],
+        "kind": row["kind"],
+        "size": row["size"],
+        "content": row["content"],
+    }
+
+
+def q_add_attachment(con: sqlite3.Connection, sid: str, att: dict) -> dict:
+    cur = con.execute(
+        "INSERT INTO attachments (session_id, name, mime, kind, size, content) VALUES (?, ?, ?, ?, ?, ?)",
+        (sid, att["name"], att["mime"], att["kind"], att["size"], att["content"]),
+    )
+    row = con.execute("SELECT * FROM attachments WHERE id = ?", (cur.lastrowid,)).fetchone()
+    return _row_to_attachment(row)
+
+
+def q_get_attachment(con: sqlite3.Connection, aid: int) -> dict | None:
+    row = con.execute("SELECT * FROM attachments WHERE id = ?", (aid,)).fetchone()
+    return _row_to_attachment(row) if row else None
+
+
+def q_get_session_attachments(con: sqlite3.Connection, sid: str) -> list[dict]:
+    rows = con.execute("SELECT * FROM attachments WHERE session_id = ? ORDER BY id ASC", (sid,)).fetchall()
+    return [_row_to_attachment(r) for r in rows]
+
+
 # --- User Settings ---
 
 

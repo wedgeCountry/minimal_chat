@@ -28,7 +28,7 @@ Eine schlanke, eigenständige Chat-Oberfläche für OpenAI-kompatible Endpunkte.
 ### 2.2 Side-Panel (einklappbar)
 
 - Liste von Sessions als chronologisch sortierte Tiles (neueste zuerst)
-- Erstes Tile: **„Neue Session"** mit Plus-Symbol – legt eine neue Session an und öffnet sie
+  - **Plus-Symbol**: Datei anhaengen (Datei-Dialog; die Rohdatei wird an den Server hochgeladen, serverseitig gelesen/dekodiert und als Text-/Bildinhalt in den LLM-Request eingebettet)
 - Jedes Session-Tile enthält:
   - Session-Name (Klick: Session öffnen)
   - Stift-Symbol: Namen inline editieren (Enter bestätigt, Esc bricht ab)
@@ -42,7 +42,7 @@ Eine schlanke, eigenständige Chat-Oberfläche für OpenAI-kompatible Endpunkte.
 - Unten: Eingabefenster (Chat-Composer) mit:
   - Mehrzeiligem Textfeld (Enter sendet, Shift+Enter = Zeilenumbruch)
   - **Senden-Button** (Pfeil-Symbol)
-  - **Plus-Symbol**: Datei anhängen (Auswahl über Datei-Dialog; Dateien werden als Anhang angezeigt und als Text-/Bildinhalt in die Nachricht eingebettet)
+  - **Plus-Symbol**: Datei anhaengen (Datei-Dialog; die Rohdatei wird an den Server hochgeladen, serverseitig gelesen/dekodiert und als Text-/Bildinhalt in den LLM-Request eingebettet)
   - **Kamera-Symbol**: Foto aufnehmen (`<input type="file" accept="image/*" capture="environment">`, primär für Mobilgeräte)
   - **Mikro-Symbol**: Nachricht diktieren (Web Speech API `SpeechRecognition`, falls verfügbar; sonst ausgeblendet/deaktiviert)
   - **X-Symbol** (ersetzt Senden-Button während des Streamings): aktuelle Generierung abbrechen

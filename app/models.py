@@ -75,6 +75,20 @@ class SettingsOut(BaseModel):
     show_image_button: bool = False
 
 
+class AttachmentIn(BaseModel):
+    name: str
+    type: str = ""
+    data: str  # Base64-kodierte Rohdatei
+
+
+class AttachmentOut(BaseModel):
+    id: int
+    name: str
+    mime: str
+    kind: str
+    size: int
+
+
 class ChatMessage(BaseModel):
     role: str
     content: Any

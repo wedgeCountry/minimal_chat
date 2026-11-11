@@ -9,6 +9,7 @@ from ..db import database as dbq
 from ..db.database import Database
 from ..deps import get_config, get_current_user, get_db
 from ..models import ChatAbortRequest, ChatRequest
+from ..services.files import expand_attachment_parts
 from ..services.generation import request_abort, run_generation
 from ..services.settings import BOOL_SETTINGS, resolve_base_url, stored_bool
 
@@ -34,10 +35,11 @@ async def chat(
         if session["generating"]:
             raise HTTPException(status_code=409, detail="Es läuft bereits eine Generierung für diese Session")
         stored = dbq.q_get_user_settings(con)
+        attachments = {a["id"]: a for a in dbq.q_get_session_attachments(con, req.session_id)}
     base_url = resolve_base_url(stored, config)
     api_key = stored.get("api_key") or config.default_api_key
     flags = {key: stored_bool(stored, key) for key in BOOL_SETTINGS}
-    messages = [m.model_dump() for m in req.messages]
+    messages = expand_attachment_parts([m.model_dump() for m in req.messages], attachments)
     system_prompt = stored.get("system_prompt") or ""
     if system_prompt:
         messages.insert(0, {"role": "system", "content": system_prompt})

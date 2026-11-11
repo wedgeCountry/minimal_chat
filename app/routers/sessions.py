@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+import base64
+import binascii
+
 from fastapi import APIRouter, Depends, HTTPException
 
 from ..db import database as dbq
 from ..db.database import Database
 from ..deps import get_current_user, get_db
-from ..models import MessageIn, MessageOut, MessagePatch, SessionDetail, SessionIn, SessionOut, SessionRename
+from ..models import AttachmentIn, AttachmentOut, MessageIn, MessageOut, MessagePatch, SessionDetail, SessionIn, SessionOut, SessionRename
+from ..services.files import process_upload
 
 router = APIRouter(prefix="/api/sessions", tags=["sessions"])
 
@@ -93,3 +97,21 @@ def delete_message(sid: str, mid: int, user: dict = Depends(get_current_user), d
         if not dbq.q_get_message(con, mid):
             raise HTTPException(status_code=404, detail="Nachricht nicht gefunden")
         dbq.q_delete_message(con, mid)
+
+
+@router.post("/{sid}/attachments", response_model=AttachmentOut, status_code=201)
+def add_attachment(sid: str, body: AttachmentIn, user: dict = Depends(get_current_user), db: Database = Depends(get_db)):
+    """Laedt eine Datei-Rohform hoch; das Lesen/Dekodieren passiert serverseitig."""
+    try:
+        raw = base64.b64decode(body.data, validate=True)
+    except (binascii.Error, ValueError):
+        raise HTTPException(status_code=400, detail="Ungueltige Base64-Daten")
+    try:
+        processed = process_upload(body.name, body.type, raw)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    with db.user_db(user) as con:
+        if not dbq.q_get_session(con, sid):
+            raise HTTPException(status_code=404, detail="Session nicht gefunden")
+        stored = dbq.q_add_attachment(con, sid, processed)
+    return AttachmentOut(id=stored["id"], name=stored["name"], mime=stored["mime"], kind=stored["kind"], size=stored["size"])
