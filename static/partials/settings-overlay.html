@@ -13,6 +13,12 @@
         <label class="checkRow" data-testid="checkrow-show-file"><input type="checkbox" id="setShowFile" data-testid="set-show-file" /> Datei-Button anzeigen</label>
         <label class="checkRow" data-testid="checkrow-show-image"><input type="checkbox" id="setShowImage" data-testid="set-show-image" /> Bild-Button anzeigen</label>
       </div>
+      <div class="field" data-testid="field-speech-mode"><label data-testid="label-speech-mode">Sprache (STT/TTS)</label>
+        <label class="checkRow" data-testid="checkrow-speech-system"><input type="radio" name="speechMode" id="setSpeechSystem" data-testid="set-speech-system" value="system" /> System-API (Browser)</label>
+        <label class="checkRow" data-testid="checkrow-speech-server"><input type="radio" name="speechMode" id="setSpeechServer" data-testid="set-speech-server" value="server" /> Server (Voice Companion)</label>
+        <label class="checkRow" data-testid="checkrow-speech-none"><input type="radio" name="speechMode" id="setSpeechNone" data-testid="set-speech-none" value="none" /> Aus</label>
+        <span id="speechStatus" class="connStatus" data-testid="speech-status"></span>
+      </div>
     </div>
     <div id="settingsLlm" data-testid="settings-llm" hidden>
       <div class="field" data-testid="field-host"><label data-testid="label-host">LLM IP/Host</label><input id="setHost" data-testid="set-host" placeholder="192.168.1.10" /></div>

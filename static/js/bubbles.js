@@ -2,7 +2,8 @@ import { esc } from "./util.js";
 import { ICONS } from "./icons.js";
 import { state } from "./state.js";
 import { isBubbleDeletable, isBubbleCheckable, isBubbleSpeaker } from "./visibility.js";
-import { voiceAvailable, synthesizeSpeech, VOICE_UNAVAILABLE_MSG } from "./voice.js";
+import { synthesizeSpeech, VOICE_UNAVAILABLE_MSG } from "./voice.js";
+import { speechMode, controlsVisible, selectedModeAvailable, SYSTEM_UNAVAILABLE_MSG } from "./speech.js";
 import { showError } from "./confirm.js";
 import { BUBBLE_MODES, clampText, isClamped, nextBubbleMode, bubbleModeTitle } from "./bubbleMode.js";
 
@@ -148,7 +149,7 @@ export function bubbleEl(m, handlers = {}, opts = {}) {
   const label = m.type === "message" ? m.role : typeLabels[m.type] || m.role;
   const showChk = m.type === "message" && isBubbleCheckable(state.settings);
   const showDel = isBubbleDeletable(state.settings);
-  const showTts = isBubbleSpeaker(state.settings);
+  const showTts = isBubbleSpeaker(state.settings) && controlsVisible("tts");
   const showResend = m.role === "user" && m.type === "message" && opts.showResend === true;
   const showEdit = m.role === "user" && m.type === "message" && opts.showEdit === true;
   const attach = (m.attachments || [])
@@ -217,8 +218,21 @@ export function bubbleEl(m, handlers = {}, opts = {}) {
       stopActiveSpeech();
       return;
     }
-    if (!(await voiceAvailable())) {
-      await showError(VOICE_UNAVAILABLE_MSG);
+    const mode = speechMode();
+    if (mode === "none" || !controlsVisible("tts")) {
+      await showError("Sprachdienst nicht verfügbar.");
+      return;
+    }
+    if (!(await selectedModeAvailable("tts"))) {
+      await showError(mode === "system" ? SYSTEM_UNAVAILABLE_MSG : VOICE_UNAVAILABLE_MSG);
+      return;
+    }
+    if (mode === "system") {
+      const u = new SpeechSynthesisUtterance(m.text || "");
+      u.lang = "de-DE";
+      u.onend = () => tts.classList.remove("on");
+      tts.classList.add("on");
+      speechSynthesis.speak(u);
       return;
     }
     try {

@@ -17,3 +17,12 @@ export function isBubbleCheckable(s) {
 export function isBubbleSpeaker(s) {
   return s.bubbles_speaker !== false;
 }
+
+// Speech-Controls (Mikrofon/Speaker) sichtbar? Modus "none" oder nicht
+// verfuegbarer Modus blendet das jeweilige Control aus (kind: "stt" | "tts").
+export function speechControlsVisible(mode, kind, speech) {
+  if (mode === "none") return false;
+  if (mode === "system") return kind === "stt" ? !!speech?.systemStt : !!speech?.systemTts;
+  if (mode === "server") return kind === "stt" ? !!speech?.serverStt : !!speech?.serverTts;
+  return false;
+}

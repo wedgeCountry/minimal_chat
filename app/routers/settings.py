@@ -8,7 +8,7 @@ from ..db.database import Database
 from ..deps import get_config, get_current_user, get_db
 from ..models import SettingsIn, SettingsOut, SettingsTestIn
 from ..services.chat import check_llm_connection
-from ..services.settings import BOOL_SETTINGS, resolve_base_url, stored_bool, to_db
+from ..services.settings import BOOL_SETTINGS, resolve_base_url, stored_bool, stored_speech_mode, to_db
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
 
@@ -24,6 +24,7 @@ def _settings_out(stored: dict[str, str], config: AppConfig) -> SettingsOut:
         model=stored.get("model") or config.default_model,
         system_prompt=stored.get("system_prompt") or "",
         theme=stored.get("theme") or "light",
+        speech_mode=stored_speech_mode(stored),
         **{key: stored_bool(stored, key) for key in BOOL_SETTINGS},
     )
 
@@ -62,7 +63,7 @@ def put_settings(
     config: AppConfig = Depends(get_config),
 ) -> SettingsOut:
     with db.user_db(user) as con:
-        for key in ("base", "host", "port", "model", "system_prompt", "theme", "api_key"):
+        for key in ("base", "host", "port", "model", "system_prompt", "theme", "api_key", "speech_mode"):
             value = getattr(body, key)
             # host/port/system_prompt duerfen per leerem String geloescht werden
             if value is not None and (value != "" or key in ("host", "port", "system_prompt")):

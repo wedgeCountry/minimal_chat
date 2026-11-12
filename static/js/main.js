@@ -14,6 +14,8 @@ import { initGlobalErrorHandling } from "./errors.js";
 
 let currentMessages = [];
 
+const sysRecRef = { current: null };
+
 function setSideHidden(hidden) {
   $("side").classList.toggle("hidden", hidden);
 }
@@ -43,6 +45,7 @@ async function refreshChat() {
 function applyComposerButtons() {
   $("attachBtn").style.display = state.settings.show_file_button === false ? "none" : "";
   $("camBtn").style.display = state.settings.show_image_button === false ? "none" : "";
+  $("micBtn").style.display = controlsVisible("stt") ? "" : "none";
 }
 
 function renderAll() {
@@ -50,6 +53,34 @@ function renderAll() {
   renderHeader();
   refreshChat();
   applyComposerButtons();
+}
+
+function startSystemRecognition(input) {
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  const rec = new SR();
+  rec.lang = "de-DE";
+  rec.interimResults = true;
+  rec.continuous = false;
+  let final = "";
+  rec.onresult = (e) => {
+    let interim = "";
+    for (const r of e.results) {
+      if (r.isFinal) final += r[0].transcript;
+      else interim += r[0].transcript;
+    }
+    input.value = final + interim;
+  };
+  rec.onend = () => {
+    sysRecRef.current = null;
+    $("micBtn").classList.remove("on");
+    input.focus();
+  };
+  rec.onerror = () => {
+    sysRecRef.current = null;
+    $("micBtn").classList.remove("on");
+  };
+  rec.start();
+  return rec;
 }
 
 async function startWavRecorder(input) {
@@ -130,6 +161,7 @@ async function bootstrap() {
     return;
   }
   await loadSettings();
+  await refreshSpeechAvailability();
   try {
     const meta = await api.get("/meta");
     if (meta?.app_name) {
@@ -245,12 +277,37 @@ function initEvents() {
     $("micBtn").classList.remove("on");
     r.stop();
   };
+  const stopSystemRec = () => {
+    if (!sysRecRef.current) return;
+    const r = sysRecRef.current;
+    sysRecRef.current = null;
+    $("micBtn").classList.remove("on");
+    r.stop();
+  };
   $("micBtn").onclick = async () => {
+    const mode = speechMode();
+    if (mode === "none" || !controlsVisible("stt")) {
+      await showError("Sprachdienst nicht verfügbar.");
+      return;
+    }
+    if (mode === "system") {
+      if (sysRecRef.current) {
+        stopSystemRec();
+        return;
+      }
+      if (!(await selectedModeAvailable("stt"))) {
+        await showError(SYSTEM_UNAVAILABLE_MSG);
+        return;
+      }
+      sysRecRef.current = startSystemRecognition(input);
+      $("micBtn").classList.add("on");
+      return;
+    }
     if (recorder) {
       stopRecorder();
       return;
     }
-    if (!(await voiceAvailable())) {
+    if (!(await selectedModeAvailable("stt"))) {
       await showError(VOICE_UNAVAILABLE_MSG);
       return;
     }
