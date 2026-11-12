@@ -43,6 +43,12 @@ export function findLastUserMessage(messages) {
   return null;
 }
 
+export function hasMessagesAfter(messages, id) {
+  const sorted = sortMessagesForRender(messages || []);
+  const idx = sorted.findIndex((x) => x.id === id);
+  return idx >= 0 && sorted.slice(idx + 1).length > 0;
+}
+
 let lastMessages = [];
 
 // Keyed reconciliation: Bubbles werden pro Nachricht wiederverwendet und nur
@@ -53,7 +59,7 @@ function bubbleKey(m) {
   return m.id != null ? `msg-${m.id}` : "sys-prompt";
 }
 
-function updateBubble(b, m, showResend) {
+function updateBubble(b, m, showResend, showEdit) {
   b._msg = m;
   const text = m.text || "";
   if (b._fullText !== text) setBubbleText(b, text);
@@ -66,6 +72,8 @@ function updateBubble(b, m, showResend) {
   }
   const resend = b.querySelector(".resendBtn");
   if (resend) resend.style.display = showResend ? "" : "none";
+  const edit = b.querySelector(".editBtn");
+  if (edit) edit.style.display = showEdit ? "" : "none";
 }
 
 export function renderChat(messages) {
@@ -73,6 +81,7 @@ export function renderChat(messages) {
   const s = activeSession();
   if (!s || !messages?.length) {
     lastMessages = [];
+    cancelEdit();
     chat.innerHTML = "";
     bubbleNodes.clear();
     const empty = document.createElement("div");
@@ -85,14 +94,15 @@ export function renderChat(messages) {
   chat.querySelector('[data-testid="chat-empty"]')?.remove();
   const sortedMessages = sortMessagesForRender(messages);
   lastMessages = sortedMessages;
+  if (editingMessageId != null && !sortedMessages.some((m) => m.id === editingMessageId)) cancelEdit();
   const lastUser = findLastUserMessage(sortedMessages);
   const items = [];
   const sysPrompt = state.settings.system_prompt;
   if (sysPrompt && state.settings.show_system_prompt !== false) {
-    items.push({ m: { role: "system", type: "message", text: sysPrompt, in_context: true }, showResend: false });
+    items.push({ m: { role: "system", type: "message", text: sysPrompt, in_context: true }, showResend: false, showEdit: false });
   }
   for (const m of sortedMessages.filter((m) => isBubbleVisible(m, state.settings))) {
-    items.push({ m, showResend: m === lastUser });
+    items.push({ m, showResend: m === lastUser, showEdit: m === lastUser });
   }
   const seen = new Set();
   for (const item of items) {
@@ -100,10 +110,10 @@ export function renderChat(messages) {
     seen.add(key);
     let b = bubbleNodes.get(key);
     if (!b) {
-      b = bubbleEl(item.m, handlers, { showResend: item.showResend });
+      b = bubbleEl(item.m, handlers, { showResend: item.showResend, showEdit: item.showEdit });
       bubbleNodes.set(key, b);
     } else {
-      updateBubble(b, item.m, item.showResend);
+      updateBubble(b, item.m, item.showResend, item.showEdit);
     }
     chat.appendChild(b); // appendChild verschiebt bestehende Knoten an die richtige Stelle
   }
@@ -116,7 +126,39 @@ export function renderChat(messages) {
   chat.scrollTop = chat.scrollHeight;
 }
 
+// Edit-Modus: id der Nutzernachricht, die gerade im Composer bearbeitet wird
+let editingMessageId = null;
+
+function setEditUI(on) {
+  $("composerWrap").classList.toggle("editing", on);
+  const input = $("input");
+  input.placeholder = on ? "Nachricht bearbeiten…" : "Nachricht schreiben…";
+  $("sendBtn").title = on ? "Bearbeiten & erneut senden" : "Senden";
+}
+
+export function startEdit(m) {
+  if (state.streaming || !m || m.id == null) return;
+  editingMessageId = m.id;
+  setEditUI(true);
+  const input = $("input");
+  input.value = m.text || "";
+  input.dispatchEvent(new Event("input"));
+  input.focus();
+  input.setSelectionRange(input.value.length, input.value.length);
+}
+
+export function cancelEdit() {
+  if (editingMessageId == null) return;
+  editingMessageId = null;
+  setEditUI(false);
+  const input = $("input");
+  input.value = "";
+  input.style.height = "auto";
+  input.style.overflowY = "hidden";
+}
+
 const handlers = {
+  onEdit: (m) => startEdit(m),
   onToggleContext: (m) => {
     const s = activeSession();
     if (m.id != null && s)
@@ -190,7 +232,8 @@ export async function send(textOverride, attachmentsOverride) {
     return;
   }
   const input = $("input");
-  const text = (typeof textOverride === "string" ? textOverride : input.value).trim();
+  const composerSubmit = typeof textOverride !== "string";
+  const text = (composerSubmit ? input.value : textOverride).trim();
   const pending = Array.isArray(attachmentsOverride) ? attachmentsOverride : state.pendingAttachments;
   if (!text && !pending.length) return;
   let s = activeSession();
@@ -198,16 +241,40 @@ export async function send(textOverride, attachmentsOverride) {
     await newSession(true);
     s = activeSession();
   }
-  const attachments = Array.isArray(attachmentsOverride) ? attachmentsOverride : await uploadPendingAttachments(s.id);
-  await api.post(`/sessions/${s.id}/messages`, {
-    role: "user",
-    type: "message",
-    text,
-    in_context: true,
-    attachments,
-  });
+  if (composerSubmit && editingMessageId != null) {
+    // Bearbeiten der letzten Nutzernachricht: Text uebernehmen, alles danach
+    // loeschen (Assistenten-Antworten) und anschliessend neu generieren.
+    const mid = editingMessageId;
+    if (hasMessagesAfter(lastMessages, mid)) {
+      const ok = await confirmModal({
+        title: "Nachricht bearbeiten",
+        text: "Alle Nachrichten nach dieser Nachricht (inkl. Antworten des Assistenten) werden gelöscht. Bearbeiten und erneut senden?",
+        okLabel: "Bearbeiten & senden",
+      });
+      if (!ok) return; // Edit-Modus bleibt aktiv
+    }
+    const attachments = await uploadPendingAttachments(s.id);
+    const detail = await api.get(`/sessions/${s.id}`);
+    const old = normalizeMessages(detail.messages).find((x) => x.id === mid);
+    await api.patch(`/sessions/${s.id}/messages/${mid}`, {
+      text,
+      attachments: [...(old?.attachments || []), ...attachments],
+    });
+    await api.del(`/sessions/${s.id}/messages/after/${mid}`).catch(() => {});
+    editingMessageId = null;
+    setEditUI(false);
+  } else {
+    const attachments = Array.isArray(attachmentsOverride) ? attachmentsOverride : await uploadPendingAttachments(s.id);
+    await api.post(`/sessions/${s.id}/messages`, {
+      role: "user",
+      type: "message",
+      text,
+      in_context: true,
+      attachments,
+    });
+  }
   await loadSessions();
-  if (typeof textOverride !== "string") {
+  if (composerSubmit) {
     input.value = "";
     input.style.height = "auto";
     input.style.overflowY = "hidden";

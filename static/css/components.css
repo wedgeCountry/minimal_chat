@@ -31,6 +31,7 @@
 .att button svg{width:11px;height:11px}
 .att img{width:30px;height:30px;object-fit:cover;border-radius:4px}
 #composer{display:flex;align-items:flex-end;gap:4px;background:var(--bg);border:1px solid var(--border);border-radius:14px;padding:6px}
+#composerWrap.editing #composer{border-color:var(--accent)}
 #input{flex:1;resize:none;border:none;outline:none;background:transparent;max-height:180px;padding:7px 4px;font-size:14px;line-height:1.45}
 #sendBtn{color:var(--accent);padding:8px}
 #sendBtn.abort{color:var(--danger)}

@@ -92,6 +92,19 @@ def delete_message(sid: str, mid: int, user: dict = Depends(get_current_user), d
         dbq.q_delete_message(con, mid)
 
 
+@router.delete("/{sid}/messages/after/{mid}", status_code=204)
+def delete_messages_after(sid: str, mid: int, user: dict = Depends(get_current_user), db: Database = Depends(get_db)):
+    """Loescht alle Nachrichten der Session, die nach der Nachricht ``mid`` liegen
+    (z. B. Antworten des Assistenten beim Bearbeiten einer Nutzernachricht)."""
+    with db.user_db(user) as con:
+        if not dbq.q_get_session(con, sid):
+            raise HTTPException(status_code=404, detail="Session nicht gefunden")
+        msg = dbq.q_get_message(con, mid)
+        if not msg or msg["session_id"] != sid:
+            raise HTTPException(status_code=404, detail="Nachricht nicht gefunden")
+        dbq.q_delete_messages_after(con, sid, mid)
+
+
 @router.post("/{sid}/attachments", response_model=AttachmentOut, status_code=201)
 async def add_attachment(
     sid: str,

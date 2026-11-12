@@ -111,6 +111,7 @@ export function bubbleEl(m, handlers = {}, opts = {}) {
   const showDel = isBubbleDeletable(state.settings);
   const showTts = isBubbleSpeaker(state.settings);
   const showResend = m.role === "user" && m.type === "message" && opts.showResend === true;
+  const showEdit = m.role === "user" && m.type === "message" && opts.showEdit === true;
   const attach = (m.attachments || [])
     .map((a) => `<div class="attachChip" data-testid="bubble-attachment">${ICONS.attach}<span data-testid="bubble-attachment-name">${esc(a.name)}</span></div>`)
     .join("");
@@ -120,6 +121,7 @@ export function bubbleEl(m, handlers = {}, opts = {}) {
       <span class="role" data-testid="bubble-role">${esc(label)}</span>
       <span class="grow"></span>
       ${showChk ? `<input type="checkbox" class="chk" data-testid="bubble-context-chk" ${m.inContext !== false ? "checked" : ""} title="Im Kontext senden" />` : ""}
+      ${showEdit ? `<button class="iconBtn editBtn" data-testid="bubble-edit-btn" title="Bearbeiten">${ICONS.edit}</button>` : ""}
       ${showResend ? `<button class="iconBtn resendBtn" data-testid="bubble-resend-btn" title="Erneut senden">${ICONS.refresh}</button>` : ""}
       ${showTts ? `<button class="iconBtn ttsBtn" data-testid="bubble-tts-btn" title="Vorlesen">${ICONS.tts}</button>` : ""}
       <button class="iconBtn copyBtn" data-testid="bubble-copy-btn" title="Kopieren">${ICONS.copy}</button>
@@ -165,6 +167,8 @@ export function bubbleEl(m, handlers = {}, opts = {}) {
   if (delBtn) delBtn.onclick = () => handlers.onDelete?.(b._msg);
   const resendBtn = b.querySelector(".resendBtn");
   if (resendBtn) resendBtn.onclick = () => handlers.onResend?.(b._msg);
+  const editBtn = b.querySelector(".editBtn");
+  if (editBtn) editBtn.onclick = () => handlers.onEdit?.(b._msg);
   _applySavedWidth(b, m);
   _makeResizable(b, m);
   const tts = b.querySelector(".ttsBtn");

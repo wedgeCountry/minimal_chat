@@ -816,6 +816,81 @@ def test_resend_last_user_message(page, base_url, llm_expect):
     )
 
 
+def test_edit_last_user_message(page, base_url, llm_expect, server_data_dir):
+    """Edit-Button nur auf der letzten User-Bubble: Text aendern und erneut senden -
+    Nachrichten danach (Assistenten-Antworten) werden gelöscht und neu generiert."""
+    email = "edit-user@example.com"
+    api_client = _register_client(base_url, email, "Geheim-123")
+    _login(page, base_url, email, "Geheim-123")
+    sid = _new_named_session(page, api_client)
+
+    _chat_once(page, "Erste Frage", 1, llm_expect["default"], llm_expect["timeout_ms"])
+    _chat_once(page, "Zweite Frage", 2, llm_expect["default"], llm_expect["timeout_ms"])
+    assert page.locator(_bubble("user")).count() == 2
+    assert page.locator(_bubble("assistant")).count() == 2
+
+    # Edit-Button ist nur auf der letzten User-Bubble sichtbar
+    assert page.locator(f'{_bubble("user")} [data-testid="bubble-edit-btn"]:visible').count() == 1
+    assert page.locator(_bubble("user")).last.locator('[data-testid="bubble-edit-btn"]:visible').count() == 1
+    assert page.locator(_bubble("user")).first.locator('[data-testid="bubble-edit-btn"]:visible').count() == 0
+
+    # Klick fuellt den Composer mit dem bisherigen Text; Escape bricht ab
+    page.locator(_bubble("user")).last.locator('[data-testid="bubble-edit-btn"]').click()
+    assert page.locator(T["chat_input"]).input_value() == "Zweite Frage"
+    page.locator(T["chat_input"]).press("Escape")
+    assert page.locator(T["chat_input"]).input_value() == ""
+
+    # Erneut oeffnen, Text aendern und absenden
+    page.locator(_bubble("user")).last.locator('[data-testid="bubble-edit-btn"]').click()
+    assert page.locator(T["chat_input"]).input_value() == "Zweite Frage"
+    page.fill(T["chat_input"], "Zweite Frage (bearbeitet)")
+    page.click(T["send_btn"])
+
+    # Assistenten-Antwort folgt auf die Nachricht -> Bestaetigungs-Modal -> OK
+    _confirm_delete(page)
+
+    # Generierung startet (Senden-Button wird zum Abbrechen-Button) ...
+    page.wait_for_function(
+        "() => document.querySelector('[data-testid=\\\"send-btn\\\"]').classList.contains('abort')",
+        timeout=llm_expect["timeout_ms"],
+    )
+    # ... und endet mit genau einer neuen Assistenten-Antwort
+    page.wait_for_function(
+        "() => document.querySelectorAll('[data-testid=\\\"chat\\\"] .bubble[data-role=\\\"assistant\\\"][data-type=\\\"message\\\"]').length === 2"
+        " && !document.querySelector('[data-testid=\\\"send-btn\\\"]').classList.contains('abort')",
+        timeout=llm_expect["timeout_ms"],
+    )
+    # User-Bubbles bleiben 2, die letzte traegt den bearbeiteten Text
+    page.wait_for_function(
+        f"() => [...document.querySelectorAll('{T['chat']} .bubble[data-role=\\\"user\\\"]')]"
+        " .some(b => b.querySelector('[data-testid=\\\"bubble-body\\\"]').textContent.includes('Zweite Frage (bearbeitet)'))",
+        timeout=llm_expect["timeout_ms"],
+    )
+    assert page.locator(_bubble("user")).count() == 2
+    assert "Erste Frage" in page.locator(_bubble("user")).first.locator('[data-testid="bubble-body"]').inner_text()
+
+    # DB: Text wurde geaendert (alte Fassung weg), alte Assistenten-Antwort der
+    # zweiten Frage geloescht, genau eine neue Antwort nach der bearbeiteten Nachricht
+    user_msgs = [m for m in api_client.get(f"/api/sessions/{sid}").json()["messages"] if m["role"] == "user"]
+    assert len(user_msgs) == 2
+    assert sorted(m["text"] for m in user_msgs) == ["Erste Frage", "Zweite Frage (bearbeitet)"]
+    edited_id = next(m["id"] for m in user_msgs if "(bearbeitet)" in m["text"])
+    con = _open_user_db(server_data_dir, email)
+    try:
+        assistant_after = con.execute(
+            "SELECT COUNT(*) FROM messages WHERE session_id = ? AND role = 'assistant' AND type = 'message' AND id > ?",
+            (sid, edited_id),
+        ).fetchone()[0]
+        total_assistant = con.execute(
+            "SELECT COUNT(*) FROM messages WHERE session_id = ? AND role = 'assistant' AND type = 'message'",
+            (sid,),
+        ).fetchone()[0]
+    finally:
+        con.close()
+    assert assistant_after == 1, "genau eine neue Assistenten-Antwort nach der bearbeiteten Nachricht"
+    assert total_assistant == 2, "alte zweite Antwort wurde geloescht, erste Antwort bleibt"
+
+
 def test_compact_mode_toggle(page, base_url, llm_expect):
     """Burger-Menue -> Kompaktmodus toggelt die .compact-Klasse am Chat."""
     email = "compact-user@example.com"
