@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import time
 from typing import Any
 
 from ..db import database as dbq
@@ -116,34 +115,51 @@ async def run_generation(
             if not dbq.q_get_session(con, sid):
                 return
             dbq.q_set_generating(con, sid, True)
-        last_flush = time.monotonic()
-        async for chunk in stream_completion(base_url, api_key, payload, settings=settings):
-            if ev.is_set():
-                break
-            buf += chunk
-            events, buf = _parse_events(buf)
-            for j in events:
-                if j.get("error"):
-                    error = str(j["error"])
+        # Periodisches Flushen: Teilausgabe landet auch ohne neuen Chunk
+        # nach spaetestens FLUSH_INTERVAL_S in der DB (nicht nur bei Chunk-Eingang).
+        stop_flush = asyncio.Event()
+
+        async def _periodic_flush() -> None:
+            while True:
+                try:
+                    await asyncio.wait_for(stop_flush.wait(), FLUSH_INTERVAL_S)
+                    return
+                except asyncio.TimeoutError:
+                    flush()
+
+        flusher = asyncio.create_task(_periodic_flush())
+        try:
+            async for chunk in stream_completion(base_url, api_key, payload, settings=settings):
+                if ev.is_set():
                     break
-                choices = j.get("choices") or [{}]
-                delta = choices[0].get("delta") or {}
-                reasoning = delta.get("reasoning_content")
-                if reasoning is None:
-                    reasoning = delta.get("reasoning")
-                if reasoning:
-                    think_text += reasoning
-                if delta.get("content"):
-                    ai_text += delta["content"]
-                for tc in delta.get("tool_calls") or []:
-                    idx = tc.get("index", len(tools))
-                    t = tools.setdefault(idx, {"name": "", "args": ""})
-                    fn = tc.get("function") or {}
-                    t["name"] += fn.get("name") or ""
-                    t["args"] += fn.get("arguments") or ""
-            if time.monotonic() - last_flush >= FLUSH_INTERVAL_S:
-                flush()
-                last_flush = time.monotonic()
+                buf += chunk
+                events, buf = _parse_events(buf)
+                for j in events:
+                    if j.get("error"):
+                        error = str(j["error"])
+                        break
+                    choices = j.get("choices") or [{}]
+                    delta = choices[0].get("delta") or {}
+                    reasoning = delta.get("reasoning_content")
+                    if reasoning is None:
+                        reasoning = delta.get("reasoning")
+                    if reasoning:
+                        think_text += reasoning
+                    if delta.get("content"):
+                        ai_text += delta["content"]
+                    for tc in delta.get("tool_calls") or []:
+                        idx = tc.get("index", len(tools))
+                        t = tools.setdefault(idx, {"name": "", "args": ""})
+                        fn = tc.get("function") or {}
+                        t["name"] += fn.get("name") or ""
+                        t["args"] += fn.get("arguments") or ""
+        finally:
+            stop_flush.set()
+            flusher.cancel()
+            try:
+                await flusher
+            except asyncio.CancelledError:
+                pass
     except asyncio.CancelledError:
         raise
     except Exception as exc:  # noqa: BLE001 - Fehler wird als System-Message persistiert

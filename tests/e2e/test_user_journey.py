@@ -655,8 +655,13 @@ def test_abort_preserves_partial_output(page, base_url, llm_expect, server_data_
     page.fill(T["chat_input"], "langsam bitte")
     page.click(T["send_btn"])
 
-    # Senden-Button ist sofort nach dem Start der Generierung im Abbruch-Modus;
-    # der Abbruch muss vor dem zweiten Mock-Chunk (10 s Pause) erfolgen.
+    # Teilausgabe erscheint dank periodischem Flush (~0.25 s) ohne weiteren Chunk
+    page.wait_for_function(
+        """() => [...document.querySelectorAll('[data-testid="chat"] .bubble[data-role="assistant"][data-type="message"]')]
+              .some(b => b.querySelector('[data-testid="bubble-body"]').textContent.includes('Teil A'))""",
+        timeout=llm_expect["timeout_ms"],
+    )
+    # Abbrechen, solange der zweite Mock-Chunk (10 s Pause) noch nicht da ist
     page.wait_for_function(
         "() => document.querySelector('[data-testid=\"send-btn\"]').classList.contains('abort')",
         timeout=llm_expect["timeout_ms"],

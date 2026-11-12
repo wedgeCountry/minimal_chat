@@ -162,6 +162,41 @@ def test_run_generation_persists_error_event_as_system_message(db, user, sid, mo
     assert "LLM-Server nicht erreichbar" in system[0]["text"]
 
 
+def test_partial_output_flushed_within_interval_without_new_chunk(db, user, sid, monkeypatch):
+    """Regression: Teilausgabe muss nach spaetestens ~FLUSH_INTERVAL_S in der DB
+    landen, auch wenn der LLM-Stream keinen weiteren Chunk schickt."""
+    import time
+
+    release = asyncio.Event()
+
+    async def fake_stream(*args, **kwargs):
+        yield 'data: {"choices":[{"delta":{"content":"Teil A "}}]}\n\n'
+        await release.wait()  # kein weiterer Chunk, bis der Test freigibt
+        yield 'data: {"choices":[{"delta":{"content":"Teil B"}}]}\n\n'
+        yield "data: [DONE]\n\n"
+
+    monkeypatch.setattr("app.services.generation.stream_completion", fake_stream)
+
+    async def main():
+        task = asyncio.create_task(run_generation(db, user, sid, "http://llm.test/v1", "k", {"messages": []}))
+        deadline = time.monotonic() + 2.0  # deutlich unter der release-Wartezeit
+        seen = []
+        while time.monotonic() < deadline:
+            with db.user_db(user) as con:
+                seen = [m["text"] for m in dbq.q_get_messages(con, sid) if m["role"] == "assistant"]
+            if seen:
+                break
+            await asyncio.sleep(0.05)
+        assert seen == ["Teil A "], f"Teilausgabe wurde nicht ohne neuen Chunk geflusht: {seen}"
+        release.set()
+        await asyncio.wait_for(task, timeout=5)
+        with db.user_db(user) as con:
+            texts = [m["text"] for m in dbq.q_get_messages(con, sid) if m["role"] == "assistant"]
+        assert texts == ["Teil A Teil B"]
+
+    asyncio.run(main())
+
+
 def test_run_generation_unknown_session_is_noop(db, user, monkeypatch):
     async def fake_stream(*args, **kwargs):
         yield _sse({"content": "x"})
