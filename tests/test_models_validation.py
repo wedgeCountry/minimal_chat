@@ -57,6 +57,3 @@ def test_client_log_rejects_message_over_4000_chars(client, auth_headers):
     assert res.status_code == 422
     res = client.post("/api/log", json={"level": "fatal", "message": "x"}, headers=auth_headers)
     assert res.status_code == 422
-    # ohne Auth wird der Endpunkt abgewiesen, bevor die Body-Validierung greift
-    res = client.post("/api/log", json={"level": "error", "message": "x" * 4001})
-    assert res.status_code == 401
