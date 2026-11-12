@@ -15,14 +15,6 @@ router = APIRouter(prefix="/api/sessions", tags=["sessions"])
 DEFAULT_SESSION_NAME = "Neue Session"
 
 
-def _get_or_404(db: Database, user: dict, sid: str):
-    with db.user_db(user) as con:
-        session = dbq.q_get_session(con, sid)
-    if not session:
-        raise HTTPException(status_code=404, detail="Session nicht gefunden")
-    return session
-
-
 @router.get("", response_model=list[SessionOut])
 def list_sessions(user: dict = Depends(get_current_user), db: Database = Depends(get_db)):
     with db.user_db(user) as con:

@@ -1,6 +1,6 @@
 import { api } from "./api.js";
 import { activeSession, normalizeMessages, state } from "./state.js";
-import { $, esc } from "./util.js";
+import { $ } from "./util.js";
 import { ICONS } from "./icons.js";
 import { bubbleEl, setBubbleText } from "./bubbles.js";
 import { buildChatPayload } from "./payload.js";
@@ -234,5 +234,3 @@ export function renderHeader() {
   const s = activeSession();
   $("headerTitle").textContent = s ? `${state.appName} · ${s.name}` : state.appName;
 }
-
-export { esc };

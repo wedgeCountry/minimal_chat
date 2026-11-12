@@ -250,11 +250,6 @@ def q_add_attachment(con: sqlite3.Connection, sid: str, att: dict) -> dict:
     return _row_to_attachment(row)
 
 
-def q_get_attachment(con: sqlite3.Connection, aid: int) -> dict | None:
-    row = con.execute("SELECT * FROM attachments WHERE id = ?", (aid,)).fetchone()
-    return _row_to_attachment(row) if row else None
-
-
 def q_get_session_attachments(con: sqlite3.Connection, sid: str) -> list[dict]:
     rows = con.execute("SELECT * FROM attachments WHERE session_id = ? ORDER BY id ASC", (sid,)).fetchall()
     return [_row_to_attachment(r) for r in rows]

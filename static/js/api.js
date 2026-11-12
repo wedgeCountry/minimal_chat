@@ -1,6 +1,6 @@
 import { state } from "./state.js";
 
-async function request(path, { method = "GET", body, raw = false, signal } = {}) {
+async function request(path, { method = "GET", body, signal } = {}) {
   const headers = {};
   const isForm = typeof FormData !== "undefined" && body instanceof FormData;
   if (body !== undefined && !isForm) headers["Content-Type"] = "application/json";
@@ -24,7 +24,7 @@ async function request(path, { method = "GET", body, raw = false, signal } = {})
     throw new Error(msg);
   }
   if (res.status === 204) return null;
-  return raw ? res : res.json();
+  return res.json();
 }
 
 export const api = {
