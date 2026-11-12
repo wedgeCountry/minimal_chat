@@ -14,7 +14,8 @@ from app.auth import user_identity
 from app.db import database as dbq
 from app.db.database import Database
 from app.services import generation
-from app.services.generation import _parse_events, is_running, request_abort, run_generation
+from app.services.chat import parse_sse_buffer
+from app.services.generation import is_running, request_abort, run_generation
 
 SECRET = "test-secret"
 EMAIL = "gen@example.com"
@@ -46,21 +47,21 @@ def _sse(*deltas) -> str:
     return "".join(parts)
 
 
-# --- _parse_events (Unit) ---
+# --- parse_sse_buffer (Unit) ---
 
 
-def test_parse_events_skips_done_and_invalid_json():
+def test_parse_sse_buffer_skips_done_and_invalid_json():
     import json
 
     good = json.dumps({"choices": [{"delta": {"content": "x"}}]})
-    events, rest = _parse_events(f"data: [DONE]\ndata: {{broken\ndata: {good}\ndata: partial")
+    events, rest = parse_sse_buffer(f"data: [DONE]\ndata: {{broken\ndata: {good}\ndata: partial")
     assert len(events) == 1
     assert events[0]["choices"][0]["delta"]["content"] == "x"
     assert rest == "data: partial"
 
 
-def test_parse_events_ignores_non_data_lines():
-    events, rest = _parse_events(": ping\nevent: message\n")
+def test_parse_sse_buffer_ignores_non_data_lines():
+    events, rest = parse_sse_buffer(": ping\nevent: message\n")
     assert events == []
     assert rest == ""
 

@@ -559,10 +559,10 @@ def test_error_popup_when_llm_unreachable(page, base_url, llm_expect, server_dat
     page.wait_for_selector(f'{T["session_tile"]}.active')
     
     # We need to make the LLM server unreachable for this test
-    # This would require modifying the mock_llm server to fail HEAD requests
+    # This would require modifying the mock_llm server to reject POST requests
     # For now, we'll skip this test as it requires special setup
     # In a real scenario, you would:
-    # 1. Stop the mock_llm server or configure it to reject HEAD requests
+    # 1. Stop the mock_llm server or configure it to reject POST /chat/completions
     # 2. Send a message
     # 3. Verify the error popup appears
     
@@ -572,7 +572,7 @@ def test_error_popup_when_llm_unreachable(page, base_url, llm_expect, server_dat
     assert page.locator(T["error_ok"]).count() == 1
     
     # Note: To fully test this, you would need to:
-    # 1. Create a fixture that starts a mock server that fails HEAD requests
+    # 1. Create a fixture that starts a mock server that rejects POST /chat/completions
     # 2. Or use monkeypatch to modify the httpx.AsyncClient behavior in the backend
     # This is left as a manual test for now
 

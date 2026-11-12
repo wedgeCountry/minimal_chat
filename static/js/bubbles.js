@@ -94,6 +94,7 @@ function renderBubbleBody(b) {
 
 export function bubbleEl(m, handlers = {}, opts = {}) {
   const b = document.createElement("div");
+  b._msg = m; // aktuelle Nachricht; renderChat aktualisiert sie bei wiederverwendeten Bubbles
   const uid = m.id != null ? `msg-${m.id}` : `tmp-${++tmpBubbleSeq}`;
   b.dataset.testid = `bubble-${uid}`;
   b.dataset.role = m.role;
@@ -138,11 +139,12 @@ export function bubbleEl(m, handlers = {}, opts = {}) {
     });
   b.querySelector(".copyBtn").onclick = async (e) => {
     const btn = e.currentTarget;
+    const text = b._msg?.text || "";
     try {
-      await navigator.clipboard.writeText(m.text || "");
+      await navigator.clipboard.writeText(text);
     } catch {
       const ta = document.createElement("textarea");
-      ta.value = m.text || "";
+      ta.value = text;
       document.body.appendChild(ta);
       ta.select();
       document.execCommand("copy");
@@ -154,15 +156,15 @@ export function bubbleEl(m, handlers = {}, opts = {}) {
   const chk = b.querySelector(".chk");
   if (chk)
     chk.onchange = () => {
-      m.inContext = chk.checked;
+      b._msg.inContext = chk.checked;
       b.classList.toggle("selected", chk.checked);
       b.classList.toggle("deselected", !chk.checked);
-      handlers.onToggleContext?.(m);
+      handlers.onToggleContext?.(b._msg);
     };
   const delBtn = b.querySelector(".delBtn");
-  if (delBtn) delBtn.onclick = () => handlers.onDelete?.(m);
+  if (delBtn) delBtn.onclick = () => handlers.onDelete?.(b._msg);
   const resendBtn = b.querySelector(".resendBtn");
-  if (resendBtn) resendBtn.onclick = () => handlers.onResend?.(m);
+  if (resendBtn) resendBtn.onclick = () => handlers.onResend?.(b._msg);
   _applySavedWidth(b, m);
   _makeResizable(b, m);
   const tts = b.querySelector(".ttsBtn");
@@ -174,7 +176,7 @@ export function bubbleEl(m, handlers = {}, opts = {}) {
       document.querySelectorAll(".ttsBtn.on").forEach((x) => x.classList.remove("on"));
       return;
     }
-    const u = new SpeechSynthesisUtterance(m.text || "");
+    const u = new SpeechSynthesisUtterance(b._msg?.text || "");
     u.lang = "de-DE";
     u.onend = () => tts.classList.remove("on");
     tts.classList.add("on");

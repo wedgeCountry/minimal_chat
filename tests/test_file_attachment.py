@@ -1,6 +1,6 @@
 """Unit-Tests fuer serverseitige Datei-Verarbeitung (Anhaenge).
 
-Der Client laedt die Rohdatei Base64-kodiert hoch (POST /api/sessions/{sid}/attachments),
+Der Client laedt die Rohdatei per Multipart-Upload hoch (POST /api/sessions/{sid}/attachments),
 der Server liest/dekodiert sie und expandiert die Referenz beim LLM-Request.
 Nutzt eine echte Datei (tests/fixtures/lorem_ipsum.txt, 20 Zeilen Lorem ipsum).
 """
@@ -27,8 +27,6 @@ def _mock_llm(monkeypatch):
     seen = {}
 
     def handler(request: httpx.Request) -> httpx.Response:
-        if request.method == "HEAD":
-            return httpx.Response(200)
         seen["body"] = json.loads(request.content)
         return httpx.Response(200, headers={"content-type": "text/event-stream"}, content=SSE_BODY)
 
@@ -63,7 +61,7 @@ def _new_session(client, auth_headers, name="Dateitest") -> str:
 def _upload(client, auth_headers, sid: str, name: str, mime: str, raw: bytes) -> dict:
     res = client.post(
         f"/api/sessions/{sid}/attachments",
-        json={"name": name, "type": mime, "data": base64.b64encode(raw).decode("ascii")},
+        files={"file": (name, raw, mime)},
         headers=auth_headers,
     )
     assert res.status_code == 201, res.text
@@ -90,9 +88,9 @@ def test_process_upload_reads_text_file_utf8_untruncated():
 
 
 def test_process_upload_marks_oversized_text_explicitly():
-    att = process_upload("gross.txt", "text/plain", ("x" * 1_000_001).encode("utf-8"))
+    att = process_upload("gross.txt", "text/plain", ("x" * 100_001).encode("utf-8"))
     assert att["kind"] == "text"
-    assert len(att["content"]) == 1_000_000 + len("\n[… gekürzt: Datei zu lang für Inline-Übertragung]")
+    assert len(att["content"]) == 100_000 + len("\n[… gekürzt: Datei zu lang für Inline-Übertragung]")
     assert att["content"].endswith("[… gekürzt: Datei zu lang für Inline-Übertragung]")
 
 
@@ -113,17 +111,19 @@ def test_upload_endpoint_stores_attachment(client, auth_headers):
     assert att["size"] == len(raw)
 
 
-def test_upload_endpoint_rejects_bad_base64_and_unknown_session(client, auth_headers):
+def test_upload_endpoint_rejects_oversize_and_unknown_session(client, auth_headers):
+    from app.services.files import MAX_UPLOAD_BYTES
+
     sid = _new_session(client, auth_headers)
     res = client.post(
         f"/api/sessions/{sid}/attachments",
-        json={"name": "x.txt", "type": "text/plain", "data": "!!!not-base64!!!"},
+        files={"file": ("gross.bin", b"x" * (MAX_UPLOAD_BYTES + 1), "application/octet-stream")},
         headers=auth_headers,
     )
     assert res.status_code == 400
     res = client.post(
         "/api/sessions/unknown/attachments",
-        json={"name": "x.txt", "type": "text/plain", "data": base64.b64encode(b"hi").decode()},
+        files={"file": ("x.txt", b"hi", "text/plain")},
         headers=auth_headers,
     )
     assert res.status_code == 404

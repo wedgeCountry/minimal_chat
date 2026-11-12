@@ -20,16 +20,12 @@ SSE_BODY = (
 )
 
 
-def _mock_llm(monkeypatch, body: bytes = SSE_BODY, head_status: int = 200):
+def _mock_llm(monkeypatch, body: bytes = SSE_BODY):
     seen = {}
 
     def handler(request: httpx.Request) -> httpx.Response:
         seen["url"] = str(request.url)
         seen["auth"] = request.headers.get("authorization")
-        if request.method == "HEAD":
-            if head_status >= 400:
-                return httpx.Response(head_status)
-            return httpx.Response(200)
         seen["body"] = json.loads(request.content)
         return httpx.Response(
             200,
@@ -247,8 +243,6 @@ def test_chat_uses_per_user_settings_and_key(client, auth_headers, monkeypatch):
 
 def test_chat_upstream_error_persisted_as_system_message(client, auth_headers, monkeypatch):
     def handler(request):
-        if request.method == "HEAD":
-            return httpx.Response(200)
         return httpx.Response(500, content=b"boom")
 
     def factory(**kwargs):
@@ -266,9 +260,7 @@ def test_chat_upstream_error_persisted_as_system_message(client, auth_headers, m
 
 def test_chat_server_unreachable_persisted_as_system_message(client, auth_headers, monkeypatch):
     def handler(request):
-        if request.method == "HEAD":
-            raise httpx.ConnectError("Connection refused")
-        return httpx.Response(200, content=SSE_BODY)
+        raise httpx.ConnectError("Connection refused")
 
     def factory(**kwargs):
         kwargs.pop("timeout", None)
@@ -280,7 +272,7 @@ def test_chat_server_unreachable_persisted_as_system_message(client, auth_header
     assert _start_chat(client, auth_headers, sid).status_code == 202
     detail = _wait_generation(client, auth_headers, sid)
     errors = [m["text"] for m in detail["messages"] if m["role"] == "system"]
-    assert any("LLM-Server nicht erreichbar" in e for e in errors)
+    assert any("Fehler" in e and "Connection refused" in e for e in errors)
 
 
 def test_chat_prepends_system_prompt_from_settings(client, auth_headers, monkeypatch):

@@ -47,6 +47,28 @@ def test_user_db_persists_across_reopen(db):
         assert q_get_messages(con, s["id"])[0]["text"] == "Hallo"
 
 
+def test_user_db_read_only_access_does_not_write_file(db):
+    """Reine Lesezugriffe duerfen die verschluesselte Datei nicht neu schreiben."""
+    user = _make_user()
+    with db.user_db(user) as con:
+        q_create_session(con, "Session A")
+    path = db.users_dir / f"{user['uid']}.db.enc"
+    content_after_write = path.read_bytes()
+    with db.user_db(user) as con:
+        q_get_session(con, "egal")
+        q_get_messages(con, "egal")
+        q_get_user_settings(con)
+    assert path.read_bytes() == content_after_write
+
+
+def test_user_db_read_on_missing_file_creates_no_file(db):
+    """Lesezugriff auf eine nicht existente User-DB legt keine Datei an."""
+    user = _make_user()
+    with db.user_db(user) as con:
+        assert q_get_user_settings(con) == {}
+    assert not (db.users_dir / f"{user['uid']}.db.enc").exists()
+
+
 def test_messages_sorted_by_timestamp_with_system_first(db):
     user = _make_user()
     with db.user_db(user) as con:

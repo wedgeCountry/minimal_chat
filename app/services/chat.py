@@ -10,6 +10,31 @@ DEFAULT_TIMEOUT = httpx.Timeout(connect=10.0, read=None, write=30.0, pool=10.0)
 ClientFactory = Callable[..., httpx.AsyncClient]
 
 
+def parse_sse_data(data: str) -> dict | None:
+    """Parst einen einzelnen SSE-data-Payload; ``[DONE]`` und ungueltiges JSON -> None."""
+    if data == "[DONE]":
+        return None
+    try:
+        return json.loads(data)
+    except json.JSONDecodeError:
+        return None
+
+
+def parse_sse_buffer(buf: str) -> tuple[list[dict], str]:
+    """Zerlegt einen SSE-Puffer in vollstaendige Events und den unvollstaendigen Rest."""
+    events: list[dict] = []
+    lines = buf.split("\n")
+    rest = lines.pop()
+    for line in lines:
+        t = line.strip()
+        if not t.startswith("data:"):
+            continue
+        event = parse_sse_data(t[len("data:"):].strip())
+        if event is not None:
+            events.append(event)
+    return events, rest
+
+
 def filter_request_messages(messages: list[dict[str, Any]], show_system_prompt: bool) -> list[dict[str, Any]]:
     """Serverseitiges Filtern des Requests: System-Prompt nur mitsenden, wenn aktiviert."""
     if show_system_prompt:
@@ -20,9 +45,8 @@ def filter_request_messages(messages: list[dict[str, Any]], show_system_prompt: 
 def _filter_sse_data(data: str, show_reasoning: bool, show_tool_output: bool) -> str:
     if data == "[DONE]":
         return data
-    try:
-        event = json.loads(data)
-    except json.JSONDecodeError:
+    event = parse_sse_data(data)
+    if event is None:
         return data
     choices = event.get("choices")
     if isinstance(choices, list) and choices and isinstance(choices[0], dict):
@@ -96,23 +120,15 @@ async def stream_completion(
 
     payload = {**payload, "messages": filter_request_messages(payload.get("messages", []), show_system_prompt)}
     url = base_url.rstrip("/") + "/chat/completions"
-    #print("Chat completion url: ", url)
     headers = {"Content-Type": "application/json"}
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
-    
-    # Check if LLM server is reachable
+
     factory = client_factory or httpx.AsyncClient
     async with factory(timeout=DEFAULT_TIMEOUT) as client:
-        # Try to connect to the server with a HEAD request
-        try:
-            await client.head(base_url.rstrip("/"), timeout=5.0)
-        except (httpx.ConnectError, httpx.TimeoutException, httpx.NetworkError):
-            error = json.dumps({"error": f"LLM-Server nicht erreichbar ({base_url.rstrip('/')}). Bitte überprüfe die Server-URL und die Verbindung."})
-            yield f"data: {error}\n\n"
-            yield "data: [DONE]\n\n"
-            return
-        
+        # Erreichbarkeit des LLM-Servers ergibt sich aus dem POST selbst:
+        # ConnectError/TimeoutError propagieren und werden vom Aufrufer
+        # (run_generation) als System-Message persistiert.
         async with client.stream("POST", url, headers=headers, json=payload) as res:
             if res.status_code >= 400:
                 body = (await res.aread()).decode("utf-8", errors="replace")[:300]

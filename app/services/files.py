@@ -1,6 +1,6 @@
 """Serverseitige Datei-Verarbeitung fuer Anhaenge.
 
-Der Client laedt die Rohdatei hoch (Base64 im JSON-Body); hier wird entschieden,
+Der Client laedt die Rohdatei hoch (Multipart-Form); hier wird entschieden,
 ob es sich um eine Textdatei handelt, sie als UTF-8 dekodiert (mit explizitem
 Kuerzungs-Marker jenseits des Limits) bzw. als Data-URL (Bilder) aufbereitet.
 Beim LLM-Request werden Anhang-Referenzen (``attachment_id`` in Content-Parts)
@@ -12,7 +12,7 @@ from __future__ import annotations
 import base64
 from typing import Any
 
-MAX_TEXT_CHARS = 1_000_000
+MAX_TEXT_CHARS = 100_000
 MAX_UPLOAD_BYTES = 20 * 1024 * 1024
 
 TEXT_MIME_TYPES = {

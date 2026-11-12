@@ -30,8 +30,6 @@ from . import crypto
 
 SCHEMA_PATH = Path(__file__).with_name("schema.sql")
 
-_lock = threading.RLock()
-
 
 def _now_ms() -> int:
     return int(time.time() * 1000)
@@ -75,6 +73,18 @@ class Database:
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self.users_dir = Path(users_dir) if users_dir else self.data_dir / "users"
         self.users_dir.mkdir(parents=True, exist_ok=True)
+        self._locks_guard = threading.Lock()
+        self._locks: dict[str, threading.RLock] = {}
+
+    def _lock_for(self, user: dict) -> threading.RLock:
+        """Pro-User-Sperre: gleichzeitige Zugriffe verschiedener User blockieren sich nicht."""
+        key = str(self._db_path(user))
+        with self._locks_guard:
+            lock = self._locks.get(key)
+            if lock is None:
+                lock = threading.RLock()
+                self._locks[key] = lock
+            return lock
 
     def _db_path(self, user: dict) -> Path:
         return self.users_dir / f"{user['uid']}.db.enc"
@@ -89,8 +99,13 @@ class Database:
 
     @contextmanager
     def user_db(self, user: dict) -> Iterator[sqlite3.Connection]:
-        """Entschluesselte In-Memory-Sicht auf die SQLite-Datei eines Users."""
-        with _lock:
+        """Entschluesselte In-Memory-Sicht auf die SQLite-Datei eines Users.
+
+        Zurueckgeschrieben (verschluesselt persistiert) wird nur, wenn sich
+        tatsaechlich etwas geaendert hat (``total_changes``); reine
+        Lesezugriffe erzeugen kein Datei-I/O.
+        """
+        with self._lock_for(user):
             key = crypto.normalize_key(user["key"])
             path = self._db_path(user)
             con = sqlite3.connect(":memory:")
@@ -104,9 +119,11 @@ class Database:
                 cols = {r[1] for r in con.execute("PRAGMA table_info(sessions)").fetchall()}
                 if "generating" not in cols:
                     con.execute("ALTER TABLE sessions ADD COLUMN generating INTEGER NOT NULL DEFAULT 0")
+                changes_before = con.total_changes
                 yield con
-                con.commit()
-                self._write_encrypted(user, con.serialize())
+                if con.total_changes > changes_before:
+                    con.commit()
+                    self._write_encrypted(user, con.serialize())
             finally:
                 con.close()
 

@@ -2,7 +2,7 @@ import { api } from "./api.js";
 import { activeSession, normalizeMessages, state } from "./state.js";
 import { $, esc } from "./util.js";
 import { ICONS } from "./icons.js";
-import { bubbleEl } from "./bubbles.js";
+import { bubbleEl, setBubbleText } from "./bubbles.js";
 import { buildChatPayload } from "./payload.js";
 import { loadSessions, newSession, changed } from "./sessions.js";
 import { uploadPendingAttachments } from "./attachments.js";
@@ -45,12 +45,36 @@ export function findLastUserMessage(messages) {
 
 let lastMessages = [];
 
+// Keyed reconciliation: Bubbles werden pro Nachricht wiederverwendet und nur
+// bei Aenderung aktualisiert, statt das gesamte Chat-DOM bei jedem Poll neu zu bauen.
+const bubbleNodes = new Map();
+
+function bubbleKey(m) {
+  return m.id != null ? `msg-${m.id}` : "sys-prompt";
+}
+
+function updateBubble(b, m, showResend) {
+  b._msg = m;
+  const text = m.text || "";
+  if (b._fullText !== text) setBubbleText(b, text);
+  const inCtx = m.inContext !== false;
+  const chk = b.querySelector(".chk");
+  if (chk) chk.checked = inCtx;
+  if (m.type === "message") {
+    b.classList.toggle("selected", inCtx);
+    b.classList.toggle("deselected", !inCtx);
+  }
+  const resend = b.querySelector(".resendBtn");
+  if (resend) resend.style.display = showResend ? "" : "none";
+}
+
 export function renderChat(messages) {
   const chat = $("chat");
-  chat.innerHTML = "";
   const s = activeSession();
   if (!s || !messages?.length) {
     lastMessages = [];
+    chat.innerHTML = "";
+    bubbleNodes.clear();
     const empty = document.createElement("div");
     empty.dataset.testid = "chat-empty";
     empty.style.cssText = "margin:auto;color:var(--muted);font-size:14px;text-align:center";
@@ -58,14 +82,37 @@ export function renderChat(messages) {
     chat.appendChild(empty);
     return;
   }
+  chat.querySelector('[data-testid="chat-empty"]')?.remove();
   const sortedMessages = sortMessagesForRender(messages);
   lastMessages = sortedMessages;
   const lastUser = findLastUserMessage(sortedMessages);
+  const items = [];
   const sysPrompt = state.settings.system_prompt;
   if (sysPrompt && state.settings.show_system_prompt !== false) {
-    chat.appendChild(bubbleEl({ role: "system", type: "message", text: sysPrompt, in_context: true }, handlers));
+    items.push({ m: { role: "system", type: "message", text: sysPrompt, in_context: true }, showResend: false });
   }
-  sortedMessages.filter((m) => isBubbleVisible(m, state.settings)).forEach((m) => chat.appendChild(bubbleEl(m, handlers, { showResend: m === lastUser })));
+  for (const m of sortedMessages.filter((m) => isBubbleVisible(m, state.settings))) {
+    items.push({ m, showResend: m === lastUser });
+  }
+  const seen = new Set();
+  for (const item of items) {
+    const key = bubbleKey(item.m);
+    seen.add(key);
+    let b = bubbleNodes.get(key);
+    if (!b) {
+      b = bubbleEl(item.m, handlers, { showResend: item.showResend });
+      bubbleNodes.set(key, b);
+    } else {
+      updateBubble(b, item.m, item.showResend);
+    }
+    chat.appendChild(b); // appendChild verschiebt bestehende Knoten an die richtige Stelle
+  }
+  for (const [key, el] of bubbleNodes) {
+    if (!seen.has(key)) {
+      el.remove();
+      bubbleNodes.delete(key);
+    }
+  }
   chat.scrollTop = chat.scrollHeight;
 }
 

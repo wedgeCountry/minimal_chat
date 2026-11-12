@@ -76,12 +76,6 @@ class SettingsOut(BaseModel):
     show_image_button: bool = False
 
 
-class AttachmentIn(BaseModel):
-    name: str
-    type: str = ""
-    data: str  # Base64-kodierte Rohdatei
-
-
 class AttachmentOut(BaseModel):
     id: int
     name: str

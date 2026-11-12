@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import base64
 import time
 
 from app.auth import user_identity
@@ -126,7 +125,7 @@ def test_delete_session_cascades_messages_and_attachments(client, auth_headers, 
     )
     res = client.post(
         f"/api/sessions/{s['id']}/attachments",
-        json={"name": "a.txt", "type": "text/plain", "data": base64.b64encode(b"hi").decode()},
+        files={"file": ("a.txt", b"hi", "text/plain")},
         headers=auth_headers,
     )
     assert res.status_code == 201, res.text
