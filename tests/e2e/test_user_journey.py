@@ -788,32 +788,62 @@ def test_switch_between_sessions(page, base_url, llm_expect):
     assert "Session Zwei Nachricht" in page.locator(_bubble("user")).first.locator('[data-testid="bubble-body"]').inner_text()
 
 
-def test_resend_last_user_message(page, base_url, llm_expect):
-    """Nur die letzte User-Bubble traegt den Erneut-senden-Button; Klick fragt nach und sendet erneut."""
+def test_resend_last_user_message(page, base_url, llm_expect, server_data_dir):
+    """Erneut-senden-Button nur auf der letzten User-Bubble: wie Bearbeiten ohne
+    Text-Aenderung - die Nachricht wird gepatcht, alle Nachrichten danach (alte
+    Assistenten-Antworten) werden geloescht und die Antwort neu generiert."""
     email = "resend-user@example.com"
     api_client = _register_client(base_url, email, "Geheim-123")
     _login(page, base_url, email, "Geheim-123")
-    _new_named_session(page, api_client)
+    sid = _new_named_session(page, api_client)
 
     _chat_once(page, "Erste Frage", 1, llm_expect["default"], llm_expect["timeout_ms"])
+    _chat_once(page, "Zweite Frage", 2, llm_expect["default"], llm_expect["timeout_ms"])
 
     user_bubbles = page.locator(_bubble("user"))
-    assert user_bubbles.count() == 1
-    resend = user_bubbles.first.locator('[data-testid="bubble-resend-btn"]')
+    assert user_bubbles.count() == 2
+    # Resend-Button nur auf der letzten User-Bubble sichtbar
+    assert page.locator(f'{_bubble("user")} [data-testid="bubble-resend-btn"]:visible').count() == 1
+    resend = user_bubbles.last.locator('[data-testid="bubble-resend-btn"]')
     assert resend.count() == 1
 
     resend.click()
     # Bereits beantwortet -> Bestaetigungs-Modal -> OK
     _confirm_delete(page)
+
+    # Generierung startet ...
     page.wait_for_function(
-        "() => document.querySelectorAll('[data-testid=\"chat\"] .bubble[data-role=\"user\"]').length === 2",
+        "() => document.querySelector('[data-testid=\\\"send-btn\\\"]').classList.contains('abort')",
         timeout=llm_expect["timeout_ms"],
     )
+    # ... und endet: weiterhin 2 User-Bubbles (keine neue angehaengt), die alte
+    # zweite Assistenten-Antwort wurde geloescht und neu generiert
     page.wait_for_function(
-        "() => document.querySelectorAll('[data-testid=\"chat\"] .bubble[data-role=\"assistant\"][data-type=\"message\"]').length === 2"
-        " && !document.querySelector('[data-testid=\"send-btn\"]').classList.contains('abort')",
+        "() => document.querySelectorAll('[data-testid=\\\"chat\\\"] .bubble[data-role=\\\"user\\\"]').length === 2"
+        " && document.querySelectorAll('[data-testid=\\\"chat\\\"] .bubble[data-role=\\\"assistant\\\"][data-type=\\\"message\\\"]').length === 2"
+        " && !document.querySelector('[data-testid=\\\"send-btn\\\"]').classList.contains('abort')",
         timeout=llm_expect["timeout_ms"],
     )
+
+    # DB: weiterhin genau 2 User-Messages (kein Duplikat), genau eine Assistenten-
+    # Antwort nach der letzten User-Nachricht (die alte zweite Antwort ist weg)
+    user_msgs = [m for m in api_client.get(f"/api/sessions/{sid}").json()["messages"] if m["role"] == "user"]
+    assert [m["text"] for m in user_msgs] == ["Erste Frage", "Zweite Frage"]
+    last_user_id = user_msgs[-1]["id"]
+    con = _open_user_db(server_data_dir, email)
+    try:
+        assistant_after = con.execute(
+            "SELECT COUNT(*) FROM messages WHERE session_id = ? AND role = 'assistant' AND type = 'message' AND id > ?",
+            (sid, last_user_id),
+        ).fetchone()[0]
+        total_assistant = con.execute(
+            "SELECT COUNT(*) FROM messages WHERE session_id = ? AND role = 'assistant' AND type = 'message'",
+            (sid,),
+        ).fetchone()[0]
+    finally:
+        con.close()
+    assert assistant_after == 1
+    assert total_assistant == 2
 
 
 def test_edit_last_user_message(page, base_url, llm_expect, server_data_dir):

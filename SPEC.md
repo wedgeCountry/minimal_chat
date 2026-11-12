@@ -61,7 +61,7 @@ Eigenschaften je Bubble:
 | Mindestzeilenanzahl | Bubbles behalten eine Mindesthöhe, damit kurze Nachrichten das Layout nicht springen lassen |
 | Kopieren | Kopier-Symbol kopiert den Inhalt in die Zwischenablage (`navigator.clipboard`, Fallback `execCommand`) |
 | Bearbeiten | Stift-Symbol nur auf der letzten Nutzernachricht: lädt den Text in den Composer (Edit-Modus, Esc bricht ab); beim erneuten Senden wird die Nachricht per `PATCH` aktualisiert, alle Nachrichten danach per `DELETE /api/sessions/{id}/messages/after/{mid}` gelöscht und die Antwort neu generiert |
-| Erneut senden | Refresh-Symbol nur auf der letzten Nutzernachricht: sendet die Nachricht unverändert erneut an das LLM |
+| Erneut senden | Refresh-Symbol nur auf der letzten Nutzernachricht: dasselbe wie **Bearbeiten ohne Textänderung** – die Nachricht wird per `PATCH` unverändert übernommen, alle Nachrichten danach gelöscht und die Antwort neu generiert |
 | Vorlesen | Audio-Symbol: Vorlesen per `speechSynthesis`, erneuter Klick stoppt |
 | Kontext-Checkbox | Rechts oben; legt fest, ob die Nachricht beim nächsten Request im `messages`-Array mitgesendet wird |
 | Löschen | Mülleimer-Symbol entfernt die Nachricht aus der Session |

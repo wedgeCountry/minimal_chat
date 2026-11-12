@@ -172,18 +172,13 @@ const handlers = {
     changed();
   },
   onResend: async (m) => {
-    if (state.streaming) return;
-    const idx = lastMessages.findIndex((x) => x.id === m.id);
-    const answered = idx >= 0 && lastMessages.slice(idx + 1).some((x) => x.role === "assistant");
-    if (answered) {
-      const ok = await confirmModal({
-        title: "Erneut senden",
-        text: "Auf diese Nachricht hat der Assistent bereits geantwortet. Erneut senden?",
-        okLabel: "Erneut senden",
-      });
-      if (!ok) return;
-    }
+    // Erneut senden = Bearbeiten ohne Text-Aenderung: gleicher Code-Pfad wie der
+    // Edit-Button (Nachricht patchen, alles danach loeschen, neu generieren).
+    if (state.streaming || m.id == null) return;
+    const prev = editingMessageId;
+    editingMessageId = m.id;
     await send(m.text, m.attachments || []);
+    if (editingMessageId === m.id) editingMessageId = prev; // abgebrochen -> vorheriger Zustand
   },
 };
 
@@ -241,25 +236,26 @@ export async function send(textOverride, attachmentsOverride) {
     await newSession(true);
     s = activeSession();
   }
-  if (composerSubmit && editingMessageId != null) {
-    // Bearbeiten der letzten Nutzernachricht: Text uebernehmen, alles danach
-    // loeschen (Assistenten-Antworten) und anschliessend neu generieren.
+  if (editingMessageId != null) {
+    // Bearbeiten/Erneut-senden der letzten Nutzernachricht: Text uebernehmen,
+    // alles danach loeschen (Assistenten-Antworten) und anschliessend neu generieren.
     const mid = editingMessageId;
     if (hasMessagesAfter(lastMessages, mid)) {
       const ok = await confirmModal({
-        title: "Nachricht bearbeiten",
-        text: "Alle Nachrichten nach dieser Nachricht (inkl. Antworten des Assistenten) werden gelöscht. Bearbeiten und erneut senden?",
-        okLabel: "Bearbeiten & senden",
+        title: composerSubmit ? "Nachricht bearbeiten" : "Erneut senden",
+        text:
+          "Alle Nachrichten nach dieser Nachricht (inkl. Antworten des Assistenten) werden gelöscht. " +
+          (composerSubmit ? "Bearbeiten und erneut senden?" : "Erneut senden?"),
+        okLabel: composerSubmit ? "Bearbeiten & senden" : "Erneut senden",
       });
       if (!ok) return; // Edit-Modus bleibt aktiv
     }
-    const attachments = await uploadPendingAttachments(s.id);
     const detail = await api.get(`/sessions/${s.id}`);
     const old = normalizeMessages(detail.messages).find((x) => x.id === mid);
-    await api.patch(`/sessions/${s.id}/messages/${mid}`, {
-      text,
-      attachments: [...(old?.attachments || []), ...attachments],
-    });
+    let attachments = Array.isArray(attachmentsOverride) ? attachmentsOverride : old?.attachments || [];
+    if (composerSubmit && !Array.isArray(attachmentsOverride))
+      attachments = [...attachments, ...(await uploadPendingAttachments(s.id))];
+    await api.patch(`/sessions/${s.id}/messages/${mid}`, { text, attachments });
     await api.del(`/sessions/${s.id}/messages/after/${mid}`).catch(() => {});
     editingMessageId = null;
     setEditUI(false);
