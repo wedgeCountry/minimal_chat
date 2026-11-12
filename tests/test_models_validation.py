@@ -52,8 +52,11 @@ def test_chat_message_requires_role_and_content(client, auth_headers):
     assert res.status_code == 422
 
 
-def test_client_log_rejects_message_over_4000_chars(client):
+def test_client_log_rejects_message_over_4000_chars(client, auth_headers):
+    res = client.post("/api/log", json={"level": "error", "message": "x" * 4001}, headers=auth_headers)
+    assert res.status_code == 422
+    res = client.post("/api/log", json={"level": "fatal", "message": "x"}, headers=auth_headers)
+    assert res.status_code == 422
+    # ohne Auth wird der Endpunkt abgewiesen, bevor die Body-Validierung greift
     res = client.post("/api/log", json={"level": "error", "message": "x" * 4001})
-    assert res.status_code == 422
-    res = client.post("/api/log", json={"level": "fatal", "message": "x"})
-    assert res.status_code == 422
+    assert res.status_code == 401
