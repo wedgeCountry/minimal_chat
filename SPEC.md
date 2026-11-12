@@ -27,6 +27,7 @@ Eine schlanke, eigenständige Chat-Oberfläche für OpenAI-kompatible Endpunkte.
 
 ### 2.2 Side-Panel (einklappbar)
 
+- Beim App-Start (erstmalig und nach Refresh) ist das Side-Panel eingeklappt; existiert noch keine Session, wird automatisch eine neue Session angelegt und geoeffnet
 - Liste von Sessions als chronologisch sortierte Tiles (neueste zuerst)
   - **Plus-Symbol**: Datei anhaengen (Datei-Dialog; die Rohdatei wird an den Server hochgeladen, serverseitig gelesen/dekodiert und als Text-/Bildinhalt in den LLM-Request eingebettet)
 - Jedes Session-Tile enthält:

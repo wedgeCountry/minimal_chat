@@ -22,6 +22,8 @@ USER = {"email": "journey-user@example.com", "password": "Geheim-123"}
 SYSTEM_PROMPT = "Du bist ein hilfsbereiter Assistent (Journey-System-Prompt)."
 
 T = {
+    "panel_btn": '[data-testid="panel-btn"]',
+    "side_panel": '[data-testid="side-panel"]',
     "login_email": '[data-testid="login-email"]',
     "login_password": '[data-testid="login-password"]',
     "login_submit": '[data-testid="login-submit"]',
@@ -118,6 +120,12 @@ def _login(page, base_url, email, password):
     page.wait_for_selector(T["new_session"])
 
 
+def _open_panel(page):
+    """Klappt das Side-Panel auf (beim App-Start ist es eingeklappt)."""
+    page.click(T["panel_btn"])
+    page.wait_for_selector(f'{T["side_panel"]}:not(.hidden)')
+
+
 def _chat_once(page, text, n, expect, timeout_ms, attach=None):
     """Schickt die n-te Nachricht (optional mit Datei-Anhang) und wartet auf die LLM-Antwort.
 
@@ -167,8 +175,8 @@ def test_full_user_journey(page, base_url, tmp_path, llm_expect, server_data_dir
     # 1. Anmelden
     _login(page, base_url, USER["email"], USER["password"])
 
-    # 2. Neue Session eroeffnen
-    page.click(T["new_session"])
+    # 2. Beim ersten Start wird automatisch eine neue Session geoeffnet
+    _open_panel(page)
     page.wait_for_selector(f'{T["session_tile"]}.active')
 
     # System-Prompt als erste Nachricht der Session seeden (ueber API, id 1 -> ganz oben).
@@ -285,7 +293,8 @@ def test_reasoning_bubbles_appear_before_response_and_are_collapsed(page, base_u
     # 1. Anmelden
     _login(page, base_url, "reasoning-user@example.com", "Geheim-123")
 
-    # 2. Neue Session eroeffnen
+    # 2. Side-Panel aufklappen und neue Session eroeffnen
+    _open_panel(page)
     page.click(T["new_session"])
     page.wait_for_selector(f'{T["session_tile"]}.active')
 
@@ -352,7 +361,8 @@ def test_reasoning_bubbles_can_be_expanded(page, base_url, llm_expect):
     # 1. Anmelden
     _login(page, base_url, "expand-user@example.com", "Geheim-123")
 
-    # 2. Neue Session eroeffnen
+    # 2. Side-Panel aufklappen und neue Session eroeffnen
+    _open_panel(page)
     page.click(T["new_session"])
     page.wait_for_selector(f'{T["session_tile"]}.active')
 
@@ -417,6 +427,7 @@ def test_session_db_updated_immediately_when_user_message_sent(page, base_url, l
     email = "persist-user@example.com"
     api_client = _register_client(base_url, email, "Geheim-123")
     _login(page, base_url, email, "Geheim-123")
+    _open_panel(page)
     page.click(T["new_session"])
     page.wait_for_selector(f'{T["session_tile"]}.active')
     sid = api_client.get("/api/sessions").json()[0]["id"]
@@ -454,6 +465,7 @@ def test_bubble_width_resizable_and_persisted(page, base_url, llm_expect):
     email = "resize-user@example.com"
     _register_client(base_url, email, "Geheim-123")
     _login(page, base_url, email, "Geheim-123")
+    _open_panel(page)
     page.click(T["new_session"])
     page.wait_for_selector(f'{T["session_tile"]}.active')
 
@@ -492,6 +504,33 @@ def test_bubble_width_resizable_and_persisted(page, base_url, llm_expect):
     assert abs(w2 - w1) < 5, f"Breite nach Reload soll erhalten bleiben ({w1} vs {w2})"
 
 
+def test_startup_side_panel_collapsed_and_new_session_on_first_start(page, base_url, llm_expect):
+    """Beim App-Start (erstmalig und nach Refresh) ist das Side-Panel eingeklappt.
+    Existiert noch keine Session, wird automatisch eine neue geoeffnet; nach einem
+    Refresh bleibt die aktive Session erhalten und das Panel bleibt eingeklappt."""
+    email = "startup-user@example.com"
+    _register_client(base_url, email, "Geheim-123")
+    _login(page, base_url, email, "Geheim-123")
+
+    # Erststart: Panel eingeklappt, genau eine Session existiert und ist aktiv
+    page.wait_for_selector(f'{T["side_panel"]}.hidden')
+    page.wait_for_selector(f'{T["session_tile"]}.active', state="attached")
+    assert page.locator(T["session_tile"]).count() == 1
+
+    # Eine Nachricht senden, damit nach dem Refresh der Session-Inhalt sichtbar ist
+    _chat_once(page, "Start-Nachricht", 1, llm_expect["default"], llm_expect["timeout_ms"])
+
+    # Refresh: Panel bleibt eingeklappt, keine neue Session wird angelegt,
+    # die aktive Session (mit ihren Bubbles) bleibt offen
+    page.reload()
+    page.wait_for_selector(T["chat_input"])
+    page.wait_for_selector(f'{T["side_panel"]}.hidden')
+    page.wait_for_selector(f'{T["session_tile"]}.active', state="attached")
+    assert page.locator(T["session_tile"]).count() == 1
+    page.wait_for_selector(_bubble("user"))
+    assert page.locator(_bubble("user")).count() == 1
+
+
 def test_login_rejects_wrong_password(page, base_url):
     _register_client(base_url, "journey-user-2@example.com", "Geheim-123")
     page.goto(base_url)
@@ -514,6 +553,7 @@ def test_error_popup_when_llm_unreachable(page, base_url, llm_expect, server_dat
     _login(page, base_url, email, "Geheim-123")
     
     # Create new session
+    _open_panel(page)
     page.click(T["new_session"])
     page.wait_for_selector(f'{T["session_tile"]}.active')
     
@@ -545,8 +585,9 @@ def test_file_upload_user_journey(page, base_url, llm_expect, server_data_dir):
     email = "file-user@example.com"
     api_client = _register_client(base_url, email, "Geheim-123")
 
-    # 1. Anmelden und neue Session
+    # 1. Anmelden, Side-Panel aufklappen und neue Session
     _login(page, base_url, email, "Geheim-123")
+    _open_panel(page)
     page.click(T["new_session"])
     page.wait_for_selector(f'{T["session_tile"]}.active')
     sid = api_client.get("/api/sessions").json()[0]["id"]

@@ -2,7 +2,7 @@ import { api } from "./api.js";
 import { state, activeSession } from "./state.js";
 import { $, } from "./util.js";
 import { goToLogin } from "./auth.js";
-import { loadSessions, renderSessions, changed } from "./sessions.js";
+import { loadSessions, renderSessions, newSession, changed } from "./sessions.js";
 import { abortStream, pollOnce, renderChat, renderHeader, send } from "./chat.js";
 import { addAttachments, renderAttachments } from "./attachments.js";
 import { initSettings, loadSettings, openSettings } from "./settings.js";
@@ -14,14 +14,6 @@ import { initGlobalErrorHandling } from "./errors.js";
 let currentMessages = [];
 
 const SIDE_HIDDEN_KEY = "leanchat.sideHidden";
-
-function sideHidden() {
-  try {
-    return localStorage.getItem(SIDE_HIDDEN_KEY) === "1";
-  } catch {
-    return true;
-  }
-}
 
 function setSideHidden(hidden) {
   $("side").classList.toggle("hidden", hidden);
@@ -105,7 +97,8 @@ async function bootstrap() {
     }
   } catch {}
   await loadSessions();
-  $("side").classList.toggle("hidden", sideHidden());
+  if (state.sessions.length === 0) await newSession(true);
+  $("side").classList.add("hidden");
   renderAll();
   // Falls serverseitig noch eine Generierung laeuft (z.B. nach App-Neustart
   // oder Wechsel aus einer anderen App): sofort synchronisieren und polln.
