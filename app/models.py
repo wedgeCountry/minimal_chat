@@ -26,7 +26,8 @@ class SessionIn(BaseModel):
 
 
 class SessionRename(BaseModel):
-    name: str = Field(min_length=1, max_length=120)
+    # Leer/Whitespace-only ist erlaubt: der Router behaelt dann den alten Namen.
+    name: str = Field(max_length=120)
 
 
 class SessionOut(BaseModel):

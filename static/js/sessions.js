@@ -75,7 +75,10 @@ export async function renameSession(id) {
   nameEl.replaceChildren(inp);
   inp.focus();
   inp.select();
+  let finished = false;
   const done = async (ok) => {
+    if (finished) return; // Escape (done(false)) darf nicht durch das anschliessende blur (done(true)) ueberschrieben werden
+    finished = true;
     const name = inp.value.trim();
     if (ok && name && name !== s.name) {
       await api.patch(`/sessions/${id}`, { name });

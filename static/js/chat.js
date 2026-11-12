@@ -1,5 +1,5 @@
 import { api } from "./api.js";
-import { activeSession, state } from "./state.js";
+import { activeSession, normalizeMessages, state } from "./state.js";
 import { $, esc } from "./util.js";
 import { ICONS } from "./icons.js";
 import { bubbleEl } from "./bubbles.js";
@@ -114,7 +114,8 @@ export async function pollOnce() {
     if (s) {
       try {
         const detail = await api.get(`/sessions/${s.id}`);
-        if (JSON.stringify(detail.messages) !== JSON.stringify(lastMessages)) renderChat(detail.messages);
+        const msgs = normalizeMessages(detail.messages);
+        if (JSON.stringify(msgs) !== JSON.stringify(lastMessages)) renderChat(msgs);
       } catch {}
     }
     setStreamingUI(!!s?.generating);
@@ -167,7 +168,7 @@ export async function send(textOverride, attachmentsOverride) {
   changed();
 
   const detail = await api.get(`/sessions/${s.id}`);
-  const payload = buildChatPayload({ model: state.settings.model, messages: detail.messages });
+  const payload = buildChatPayload({ model: state.settings.model, messages: normalizeMessages(detail.messages) });
   try {
     await api.post("/chat", { session_id: s.id, ...payload });
   } catch (err) {
