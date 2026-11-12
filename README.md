@@ -17,8 +17,8 @@ app/                  FastAPI backend (uvicorn)
     schema.sql        SQL-Schema der pro-User-DB (eigene Datei, inkl. user_settings)
     crypto.py         Fernet-Ver-/Entschluesselung
     database.py       Einziger Zugriff auf die lokalen SQLite-Datenbanken
-  routers/            auth.py, sessions.py, settings.py, chat.py (SSE-Proxy)
-  services/chat.py    SSE-Streaming-Passthrough zum LLM-Endpunkt
+  routers/            auth.py, sessions.py, settings.py, chat.py (serverseitige Generierung)
+  services/chat.py    SSE-Client zum LLM-Endpunkt (stream_completion, SSE-Parsing/ -Filter)
 static/               Frontend (statisch, ohne Build-Schritt)
   index.html          schlanke Shell mit Partial-Platzhaltern
   partials/           eigene HTML-Dateien: side-panel, chat-window,
@@ -27,7 +27,7 @@ static/               Frontend (statisch, ohne Build-Schritt)
                       Bubble-Styling: Rolle + collapsed/expanded/compact/selected),
                       responsive.css
   js/                 ES-Module: main, html, api, auth, state, sessions, chat,
-                      bubbles, attachments, settings, theme, sse, payload, util, icons
+                      bubbles, attachments, settings, theme, payload, util, icons
 tests/
   test_*.py           Python-Unit-Tests (pytest + httpx TestClient)
   js/*.test.js        JS-Unit-Tests (node:test, ohne npm-Abhaengigkeiten)
@@ -45,10 +45,10 @@ tests/
 
 - **Auth** – Registrieren/Anmelden per user_registry (signiertes Session-Cookie), Logout; Daten sind pro User getrennt
 - **Sessions** – Side-Panel mit chronologisch sortierten Tiles; anlegen, inline umbenennen, löschen
-- **Streaming** – SSE vom OpenAI-kompatiblen Endpunkt wird ueber das FastAPI-Backend (`POST /api/chat`) live durchgereicht
+- **Streaming** – die Generierung laeuft serverseitig als Hintergrund-Task (`POST /api/chat` -> `202`); der LLM-SSE-Stream wird chunk-weise in der per-user DB persistiert, der Client pollt `GET /api/sessions/{id}`
 - **Cancel** – laufende Generierung per X abbrechen, Teilausgabe bleibt erhalten
 - **Message bubbles** – Rolle/Typ (message, tool-call, reasoning), kollabierbar, kopieren, vorlesen, Kontext-Checkbox, löschen
-- **Attachments** – Dateien, Kamera (mobil), Spracheingabe (Web Speech API); Datei-Uploads werden serverseitig verarbeitet (`POST /api/sessions/{id}/attachments`, Tabelle `attachments`)
+- **Attachments** – Dateien, Kamera (mobil), Spracheingabe (Web Speech API); Datei-Uploads gehen als Multipart (`POST /api/sessions/{id}/attachments`) an den Server und werden serverseitig verarbeitet (Tabelle `attachments`)
 - **Settings** – Base-URL, Modell, Theme; API-Schlüssel serverseitig (write-only, Env-Fallback) sowie sechs Darstellungsschalter im Settings-Overlay: *Bubbles Deletable* (X-Button), *Bubbles Checkable* (Kontext-Checkbox) und *Bubbles Speaker* (Vorlesen) gelten fuer alle Bubbles (User + Assistant), dazu *Show System Prompt*, *Show Tool Output*, *Show Reasoning*. Diese steuern clientseitig das Bubble-Rendering und werden serverseitig als Filter auf Request (System-Prompt) und LLM-SSE-Response (Reasoning, Tool-Calls) angewendet
 - **Theme** – hell/dunkel via CSS Custom Properties
 
@@ -97,7 +97,7 @@ See [SPEC.md](SPEC.md) for the original design specification (German).
 
 ## Tech
 
-- Backend: FastAPI + uvicorn, httpx (SSE-Proxy), cryptography (Fernet), SQLite (stdlib)
+- Backend: FastAPI + uvicorn, httpx (SSE-Client zum LLM), cryptography (Fernet), argon2-cffi (Schluesselableitung), SQLite (stdlib)
 - Frontend: statische HTML/CSS + vanilla JS als ES-Module, kein Build-Tool
 - OpenAI-compatible protocol: `POST {baseURL}/chat/completions`, `Authorization: Bearer {key}`, `stream: true`
 - Supports `delta.content`, `delta.reasoning_content` and `delta.tool_calls`

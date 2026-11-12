@@ -106,14 +106,30 @@ class Database:
         Lesezugriffe erzeugen kein Datei-I/O.
         """
         with self._lock_for(user):
-            key = crypto.normalize_key(user["key"])
             path = self._db_path(user)
             con = sqlite3.connect(":memory:")
             con.row_factory = sqlite3.Row
             con.execute("PRAGMA foreign_keys = ON")
             try:
                 if path.exists():
-                    con.deserialize(crypto.decrypt(key, path.read_bytes()))
+                    token = path.read_bytes()
+                    plain = None
+                    last_error: ValueError | None = None
+                    # Primaeren (Argon2id-)Schluessel versuchen, bei Bedarf den
+                    # Legacy-Schluessel (alte SHA-256-Ableitung): erfolgreiche
+                    # Migration wird beim naechsten Schreibzugriff mit dem
+                    # neuen Schluessel persistiert.
+                    for key_b64 in (user.get("key"), user.get("legacy_key")):
+                        if not key_b64:
+                            continue
+                        try:
+                            plain = crypto.decrypt(crypto.normalize_key(key_b64), token)
+                            break
+                        except ValueError as exc:
+                            last_error = exc
+                    if plain is None:
+                        raise last_error or ValueError("Entschluesselung fehlgeschlagen")
+                    con.deserialize(plain)
                 con.executescript(SCHEMA_PATH.read_text(encoding="utf-8"))
                 # Migration fuer bestehende DBs: generating-Spalte nachziehen
                 cols = {r[1] for r in con.execute("PRAGMA table_info(sessions)").fetchall()}

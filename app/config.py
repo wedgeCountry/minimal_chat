@@ -39,14 +39,14 @@ class AppConfig:
     app_config_path: Path | None = None
 
     def to_dict(self) -> dict:
+        # secret und default_api_key werden bewusst NICHT persistiert:
+        # keine Secrets at rest in der app_config.json (liegen in .env/.secret).
         return {
             "data_dir": str(self.data_dir),
-            "secret": self.secret,
             "registry_path": str(self.registry_path),
             "users_dir": str(self.users_dir),
             "default_llm_host": self.default_llm_host,
             "default_llm_port": self.default_llm_port,
-            "default_api_key": self.default_api_key,
             "default_model": self.default_model,
             "app_name": self.app_name,
             "host": self.host,
@@ -59,6 +59,8 @@ class AppConfig:
     @classmethod
     def from_dict(cls, data: dict) -> "AppConfig":
         kwargs = dict(data)
+        kwargs.setdefault("secret", "")
+        kwargs.setdefault("default_api_key", "")
         for key in PATH_FIELDS:
             if kwargs.get(key) is not None:
                 kwargs[key] = Path(kwargs[key])
@@ -141,7 +143,7 @@ def load_config(
         default_model=os.environ.get("LEANCHAT_MODEL", "gpt-4o-mini"),
         app_name=os.environ.get("LEANCHAT_APP_NAME", "LeanChat"),
         host=os.environ.get("LEANCHAT_HOST", "127.0.0.1"),
-        port=int(os.environ.get("LEANCHAT_PORT", "1234")),
+        port=int(os.environ.get("LEANCHAT_PORT", "8000")),
         ssl_certfile=Path(os.environ["LEANCHAT_SSL_CERTFILE"]) if os.environ.get("LEANCHAT_SSL_CERTFILE") else None,
         ssl_keyfile=Path(os.environ["LEANCHAT_SSL_KEYFILE"]) if os.environ.get("LEANCHAT_SSL_KEYFILE") else None,
         app_config_path=Path(os.environ["LEANCHAT_CONFIG_PATH"]) if os.environ.get("LEANCHAT_CONFIG_PATH") else None,

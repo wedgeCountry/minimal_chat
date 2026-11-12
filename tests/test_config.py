@@ -29,6 +29,16 @@ def test_app_config_file_roundtrip(tmp_path):
     assert loaded.port == 9001
 
 
+def test_app_config_file_never_contains_secrets(tmp_path):
+    cfg = _make_config(tmp_path)
+    path = cfg.save(tmp_path / "out" / "app_config.json")
+    raw = path.read_text(encoding="utf-8")
+    assert "cfg-secret" not in raw
+    assert "cfg-key" not in raw
+    assert "secret" not in AppConfig.load(path).to_dict()
+    assert AppConfig.load(path).secret == ""
+
+
 def test_create_app_generates_config_file_and_ignores_env(tmp_path, monkeypatch):
     monkeypatch.setenv("LEANCHAT_API_KEY", "env-key-wins-nicht")
     monkeypatch.setenv("LEANCHAT_MODEL", "env-model")
@@ -38,7 +48,7 @@ def test_create_app_generates_config_file_and_ignores_env(tmp_path, monkeypatch)
     assert app.state.config.default_model == "gpt-4o-mini"
     generated = cfg.data_dir / "app_config.json"
     assert generated.exists()
-    assert AppConfig.load(generated).secret == "cfg-secret"
+    assert "cfg-secret" not in generated.read_text(encoding="utf-8")
 
 
 def test_parse_env_text_skips_comments_and_quotes():

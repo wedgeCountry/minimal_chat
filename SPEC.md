@@ -6,8 +6,8 @@ Eine schlanke, eigenständige Chat-Oberfläche für OpenAI-kompatible Endpunkte.
 
 **Ziele**
 
-- Eine einzige, self-contained HTML-Datei (HTML + CSS + JavaScript, keine externen Abhängigkeiten)
-- Streaming von OpenAI-kompatiblen Endpunkten (`/v1/chat/completions`, SSE)
+- Schlankes Chat-Frontend (statische ES-Module ohne Build-Schritt) mit FastAPI-Backend und verschlüsselten per-user SQLite-Dateien (siehe README.md)
+- Serverseitige Generierung von OpenAI-kompatiblen Endpunkten (`/v1/chat/completions`, SSE); der Client pollt den persistierten Stand
 - Elegantes, minimalistisches Design mit hellem und dunklem Theme (Standard: hell)
 - Sessions mit klaren, minimalen Interaktionsmöglichkeiten
 
@@ -87,7 +87,7 @@ Dialog (Modal) mit Feldern:
 - **Modell** (freie Texteingabe oder Auswahl aus `/v1/models`, wenn erreichbar)
 - **Theme**: hell / dunkel (Standard hell), umgeschaltet per CSS-Klasse und `prefers-color-scheme` als Initial-Fallback
 
-Speicherung: `localStorage` für Einstellungen und Sessions (Key `leanchat.*`).
+Speicherung: serverseitig in der verschlüsselten per-user SQLite (`user_settings`); nur UI-Zustand (aktives Panel, Bubble-Breiten) liegt im `localStorage`/`sessionStorage` (Key `leanchat.*`).
 
 ## 6. Design
 
@@ -98,8 +98,8 @@ Speicherung: `localStorage` für Einstellungen und Sessions (Key `leanchat.*`).
 
 ## 7. Technische Rahmenbedingungen
 
-- Single-File: `index.html` mit inline `<style>` und `<script>`
-- Keine externen Ressourcen, keine Build-Tools
+- FastAPI-Backend (`app/`) + statisches Frontend (`static/`, ES-Module ohne Build-Tools)
+- Datei-Uploads per Multipart (`POST /api/sessions/{id}/attachments`), serverseitige Verarbeitung
 - OpenAI-kompatibles Protokoll: `POST {baseURL}/chat/completions`, `Authorization: Bearer {key}`
 - Fehlerbehandlung: Netzwerk-/Auth-Fehler als System-Bubble im Chat
-- Alle Zustandsmutationen sofort in `localStorage` persistiert
+- App-Zustand serverseitig in der verschlüsselten per-user DB persistiert

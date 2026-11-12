@@ -101,11 +101,30 @@ def test_user_identity_is_derived_from_secret_and_email():
     a = user_identity("secret-1", "Alice@Example.com")
     b = user_identity("secret-1", "alice@example.com")
     c = user_identity("secret-2", "alice@example.com")
-    assert a == b  # E-Mail case-insensitive
+    assert a["uid"] == b["uid"] and a["key"] == b["key"]  # E-Mail case-insensitive, Ableitung deterministisch
     assert a["uid"] == c["uid"] and a["key"] != c["key"]  # uid aus E-Mail, Schluessel aus Secret + E-Mail
     assert a["email"] == "alice@example.com"
     assert a["username"] == "alice"
     assert len(__import__("base64").urlsafe_b64decode(a["key"])) == 32
+
+
+def test_user_db_migrates_legacy_key_on_write(db):
+    """Mit der alten SHA-256-Ableitung verschluesselte DBs werden per Legacy-Fallback
+    gelesen und beim naechsten Schreibzugriff mit dem neuen Argon2id-Schluessel persistiert."""
+    from app.auth import legacy_key, user_identity
+
+    secret = "migrations-secret"
+    email = "migrate@example.com"
+    identity = user_identity(secret, email)
+    legacy_user = {"uid": identity["uid"], "email": email, "username": email, "key": legacy_key(secret, email)}
+    with db.user_db(legacy_user) as con:
+        s = q_create_session(con, "Alt")
+    with db.user_db(identity) as con:
+        assert q_get_session(con, s["id"])["name"] == "Alt"
+        q_set_user_setting(con, "theme", "dark")
+    token = (db.users_dir / f"{identity['uid']}.db.enc").read_bytes()
+    plain = crypto.decrypt(crypto.normalize_key(identity["key"]), token)
+    assert b"dark" in plain
 
 
 def test_user_settings_table_roundtrip(db):
