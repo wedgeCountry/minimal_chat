@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 
 from ..db import database as dbq
@@ -112,8 +114,13 @@ async def add_attachment(
         processed = process_upload(file.filename or "datei", file.content_type or "", raw)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
-    with db.user_db(user) as con:
-        if not dbq.q_get_session(con, sid):
-            raise HTTPException(status_code=404, detail="Session nicht gefunden")
-        stored = dbq.q_add_attachment(con, sid, processed)
+
+    def _store() -> dict:
+        with db.user_db(user) as con:
+            if not dbq.q_get_session(con, sid):
+                raise HTTPException(status_code=404, detail="Session nicht gefunden")
+            return dbq.q_add_attachment(con, sid, processed)
+
+    # DB-Zugriff ist blockierend -> nicht auf dem Event-Loop ausfuehren
+    stored = await asyncio.to_thread(_store)
     return AttachmentOut(id=stored["id"], name=stored["name"], mime=stored["mime"], kind=stored["kind"], size=stored["size"])
