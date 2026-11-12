@@ -1,5 +1,5 @@
 import { api } from "./api.js";
-import { state, activeSession } from "./state.js";
+import { state, activeSession, normalizeMessages } from "./state.js";
 import { $, } from "./util.js";
 import { goToLogin } from "./auth.js";
 import { loadSessions, renderSessions, newSession, changed } from "./sessions.js";
@@ -34,7 +34,7 @@ async function refreshChat() {
   if (s) {
     try {
       const detail = await api.get(`/sessions/${s.id}`);
-      currentMessages = detail.messages;
+      currentMessages = normalizeMessages(detail.messages);
     } catch {
       currentMessages = [];
     }

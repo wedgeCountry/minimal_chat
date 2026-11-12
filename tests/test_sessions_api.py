@@ -94,14 +94,16 @@ def test_sessions_listed_newest_first(client, auth_headers):
 
 
 def test_rename_validation_and_404(client, auth_headers):
-    s = _create_session(client, auth_headers)
-    # Leerer Name wird abgelehnt (SessionRename: min_length=1)
-    res = client.patch(f"/api/sessions/{s['id']}", json={"name": ""}, headers=auth_headers)
-    assert res.status_code == 422
+    s = _create_session(client, auth_headers, "Projekt")
+    # Leerer oder reiner Whitespace-Name behaelt den alten Namen (kein 422, kein Leerstring)
+    for empty in ("", "   "):
+        res = client.patch(f"/api/sessions/{s['id']}", json={"name": empty}, headers=auth_headers)
+        assert res.status_code == 200, res.text
+        assert res.json()["name"] == "Projekt"
+    # Zu langer Name wird abgelehnt
     res = client.patch(f"/api/sessions/{s['id']}", json={"name": "x" * 121}, headers=auth_headers)
     assert res.status_code == 422
-    # Name bleibt nach den abgelehnten Patches unveraendert
-    assert client.get(f"/api/sessions/{s['id']}", headers=auth_headers).json()["name"] == "Neue Session"
+    assert client.get(f"/api/sessions/{s['id']}", headers=auth_headers).json()["name"] == "Projekt"
     # Unbekannte Session -> 404
     assert client.patch("/api/sessions/unknown", json={"name": "x"}, headers=auth_headers).status_code == 404
     assert client.delete("/api/sessions/unknown", headers=auth_headers).status_code == 404

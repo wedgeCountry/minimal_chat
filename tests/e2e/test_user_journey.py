@@ -121,8 +121,9 @@ def _login(page, base_url, email, password):
 
 
 def _open_panel(page):
-    """Klappt das Side-Panel auf (beim App-Start ist es eingeklappt)."""
-    page.click(T["panel_btn"])
+    """Klappt das Side-Panel auf (beim App-Start ist es eingeklappt); idempotent."""
+    if "hidden" in (page.locator(T["side_panel"]).get_attribute("class") or ""):
+        page.click(T["panel_btn"])
     page.wait_for_selector(f'{T["side_panel"]}:not(.hidden)')
 
 
@@ -633,3 +634,238 @@ def test_file_upload_user_journey(page, base_url, llm_expect, server_data_dir):
     assert len(att_content.splitlines()) == 20
     refs = json.loads(msg_att[0])
     assert refs and refs[0]["name"] == "lorem_ipsum.txt" and "id" in refs[0]
+
+
+def _new_named_session(page, api_client):
+    _open_panel(page)
+    page.click(T["new_session"])
+    page.wait_for_selector(f'{T["session_tile"]}.active')
+    return api_client.get("/api/sessions").json()[0]["id"]
+
+
+def test_abort_preserves_partial_output(page, base_url, llm_expect, server_data_dir):
+    """Abbruch waehrend des Streams (Mock-LLM 'langsam'): Teilausgabe bleibt in UI und DB."""
+    if llm_expect["default"] is None:
+        pytest.skip("Abbruch-Test braucht den Mock-LLM (langsame Antwort)")
+    email = "abort-user@example.com"
+    api_client = _register_client(base_url, email, "Geheim-123")
+    _login(page, base_url, email, "Geheim-123")
+    sid = _new_named_session(page, api_client)
+
+    page.fill(T["chat_input"], "langsam bitte")
+    page.click(T["send_btn"])
+
+    # Senden-Button ist sofort nach dem Start der Generierung im Abbruch-Modus;
+    # der Abbruch muss vor dem zweiten Mock-Chunk (10 s Pause) erfolgen.
+    page.wait_for_function(
+        "() => document.querySelector('[data-testid=\"send-btn\"]').classList.contains('abort')",
+        timeout=llm_expect["timeout_ms"],
+    )
+    page.click(T["send_btn"])
+    page.wait_for_function(
+        "() => !document.querySelector('[data-testid=\"send-btn\"]').classList.contains('abort')",
+        timeout=llm_expect["timeout_ms"],
+    )
+    # Sicherstellen, dass "Teil B" nicht mehr nachgereicht wird
+    page.wait_for_timeout(3000)
+
+    body = page.locator(_bubble("assistant", "message")).first.locator('[data-testid="bubble-body"]').inner_text()
+    assert "Teil A" in body
+    assert "Teil B" not in body
+
+    _, messages = _db_session_state(server_data_dir, email, sid)
+    texts = [(r, t, x) for r, t, x in messages]
+    assert ("assistant", "message", "Teil A ") in texts
+    assert not any(r == "system" for r, _, _ in texts), "Abbruch darf keine Fehlermeldung erzeugen"
+
+
+def test_rename_empty_keeps_name_and_escape_cancels(page, base_url, llm_expect):
+    """Inline-Umbenennen: leerer Name behaelt den alten Namen, Escape bricht ab."""
+    email = "rename-user@example.com"
+    api_client = _register_client(base_url, email, "Geheim-123")
+    _login(page, base_url, email, "Geheim-123")
+    _new_named_session(page, api_client)
+
+    tile = page.locator(T["session_tile"]).first
+
+    # Leerer Name -> alter Name bleibt
+    tile.locator('[data-testid^="session-rename-btn-"]').click()
+    rename_input = page.locator('[data-testid^="session-rename-input-"]')
+    rename_input.fill("")
+    rename_input.press("Enter")
+    page.wait_for_selector('[data-testid^="session-rename-input-"]', state="detached")
+    page.wait_for_timeout(300)
+    assert "Neue Session" in tile.locator('[data-testid^="session-name-"]').inner_text()
+
+    # Escape -> Aenderung wird verworfen
+    tile.locator('[data-testid^="session-rename-btn-"]').click()
+    rename_input = page.locator('[data-testid^="session-rename-input-"]')
+    rename_input.fill("Verworfen")
+    rename_input.press("Escape")
+    page.wait_for_selector('[data-testid^="session-rename-input-"]', state="detached")
+    page.wait_for_timeout(300)
+    assert "Neue Session" in tile.locator('[data-testid^="session-name-"]').inner_text()
+
+    # Neuer Name -> wird uebernommen (serverseitig gepinnt: leer waere 200 + alter Name)
+    tile.locator('[data-testid^="session-rename-btn-"]').click()
+    rename_input = page.locator('[data-testid^="session-rename-input-"]')
+    rename_input.fill("Umbenannt")
+    rename_input.press("Enter")
+    page.wait_for_selector(f'{T["session_tile"]}:has-text("Umbenannt")')
+    sid = api_client.get("/api/sessions").json()[0]["id"]
+    assert api_client.get(f"/api/sessions/{sid}").json()["name"] == "Umbenannt"
+    res = api_client.patch(f"/api/sessions/{sid}", json={"name": ""})
+    assert res.status_code == 200
+    assert api_client.get(f"/api/sessions/{sid}").json()["name"] == "Umbenannt"
+
+
+def test_context_checkbox_persisted_across_reload(page, base_url, llm_expect):
+    """Kontext-Checkbox abwaehlen -> in_context=false serverseitig persistiert, auch nach Reload."""
+    email = "ctx-user@example.com"
+    api_client = _register_client(base_url, email, "Geheim-123")
+    _login(page, base_url, email, "Geheim-123")
+    sid = _new_named_session(page, api_client)
+
+    _chat_once(page, "Kontext-Test", 1, llm_expect["default"], llm_expect["timeout_ms"])
+
+    chk = page.locator(_bubble("user")).first.locator('[data-testid="bubble-context-chk"]')
+    assert chk.is_checked()
+    chk.uncheck()
+    page.wait_for_timeout(500)
+
+    msgs = api_client.get(f"/api/sessions/{sid}").json()["messages"]
+    user_msg = next(m for m in msgs if m["role"] == "user")
+    assert user_msg["in_context"] is False
+
+    page.reload()
+    page.wait_for_selector(_bubble("user"), timeout=llm_expect["timeout_ms"])
+    assert not page.locator(_bubble("user")).first.locator('[data-testid="bubble-context-chk"]').is_checked()
+
+
+def test_theme_setting_persists_across_reload(page, base_url, llm_expect):
+    """Theme 'dark' ueber das Settings-Overlay setzen -> html.dark + serverseitig gespeichert."""
+    email = "theme-user@example.com"
+    api_client = _register_client(base_url, email, "Geheim-123")
+    _login(page, base_url, email, "Geheim-123")
+
+    page.click(T["burger_btn"])
+    page.click(T["settings_btn"])
+    page.wait_for_selector(f'{T["settings_overlay"]}.open')
+    page.select_option('[data-testid="set-theme"]', "dark")
+    page.click(T["set_save"])
+    page.wait_for_selector(f'{T["settings_overlay"]}:not(.open)', state="attached")
+
+    assert "dark" in (page.locator("html").get_attribute("class") or "")
+    assert api_client.get("/api/settings").json()["theme"] == "dark"
+
+    page.reload()
+    page.wait_for_function(
+        "() => document.documentElement.classList.contains('dark')",
+        timeout=llm_expect["timeout_ms"],
+    )
+
+
+def test_switch_between_sessions(page, base_url, llm_expect):
+    """Zwei Sessions mit eigenen Nachrichten: Wechsel ueber die Tiles zeigt die richtigen Bubbles."""
+    email = "switch-user@example.com"
+    api_client = _register_client(base_url, email, "Geheim-123")
+    _login(page, base_url, email, "Geheim-123")
+    _new_named_session(page, api_client)
+
+    _chat_once(page, "Session Zwei Nachricht", 1, llm_expect["default"], llm_expect["timeout_ms"])
+    _new_named_session(page, api_client)
+    _chat_once(page, "Session Drei Nachricht", 1, llm_expect["default"], llm_expect["timeout_ms"])
+    assert page.locator(_bubble("user")).count() == 1
+
+    page.locator(T["session_tile"], has_text="Session Zwei Nachricht").locator('[data-testid^="session-name-"]').click()
+    page.wait_for_timeout(500)
+    assert page.locator(_bubble("user")).count() == 1
+    assert "Session Zwei Nachricht" in page.locator(_bubble("user")).first.locator('[data-testid="bubble-body"]').inner_text()
+
+
+def test_resend_last_user_message(page, base_url, llm_expect):
+    """Nur die letzte User-Bubble traegt den Erneut-senden-Button; Klick fragt nach und sendet erneut."""
+    email = "resend-user@example.com"
+    api_client = _register_client(base_url, email, "Geheim-123")
+    _login(page, base_url, email, "Geheim-123")
+    _new_named_session(page, api_client)
+
+    _chat_once(page, "Erste Frage", 1, llm_expect["default"], llm_expect["timeout_ms"])
+
+    user_bubbles = page.locator(_bubble("user"))
+    assert user_bubbles.count() == 1
+    resend = user_bubbles.first.locator('[data-testid="bubble-resend-btn"]')
+    assert resend.count() == 1
+
+    resend.click()
+    # Bereits beantwortet -> Bestaetigungs-Modal -> OK
+    _confirm_delete(page)
+    page.wait_for_function(
+        "() => document.querySelectorAll('[data-testid=\"chat\"] .bubble[data-role=\"user\"]').length === 2",
+        timeout=llm_expect["timeout_ms"],
+    )
+    page.wait_for_function(
+        "() => document.querySelectorAll('[data-testid=\"chat\"] .bubble[data-role=\"assistant\"][data-type=\"message\"]').length === 2"
+        " && !document.querySelector('[data-testid=\"send-btn\"]').classList.contains('abort')",
+        timeout=llm_expect["timeout_ms"],
+    )
+
+
+def test_compact_mode_toggle(page, base_url, llm_expect):
+    """Burger-Menue -> Kompaktmodus toggelt die .compact-Klasse am Chat."""
+    email = "compact-user@example.com"
+    _register_client(base_url, email, "Geheim-123")
+    _login(page, base_url, email, "Geheim-123")
+
+    page.click(T["burger_btn"])
+    page.click('[data-testid="compact-btn"]')
+    assert "compact" in (page.locator(T["chat"]).get_attribute("class") or "")
+    page.click(T["burger_btn"])
+    page.click('[data-testid="compact-btn"]')
+    assert "compact" not in (page.locator(T["chat"]).get_attribute("class") or "")
+
+
+def test_long_message_bubble_clamp_cycle(page, base_url, llm_expect):
+    """Lange Assistant-Nachricht (Mock 'lang'): normal (10 Zeilen + [...]) -> full -> collapsed -> normal."""
+    if llm_expect["default"] is None:
+        pytest.skip("Clamp-Test braucht den Mock-LLM (lange Antwort)")
+    email = "clamp-user@example.com"
+    api_client = _register_client(base_url, email, "Geheim-123")
+    _login(page, base_url, email, "Geheim-123")
+    _new_named_session(page, api_client)
+
+    page.fill(T["chat_input"], "lang")
+    page.click(T["send_btn"])
+    page.wait_for_function(
+        "() => document.querySelectorAll('[data-testid=\"chat\"] .bubble[data-role=\"assistant\"][data-type=\"message\"]').length === 1"
+        " && !document.querySelector('[data-testid=\"send-btn\"]').classList.contains('abort')",
+        timeout=llm_expect["timeout_ms"],
+    )
+
+    bubble = page.locator(_bubble("assistant", "message")).first
+    body = bubble.locator('[data-testid="bubble-body"]')
+    toggle = bubble.locator('[data-testid="bubble-toggle-btn"]')
+
+    # normal: auf 10 Zeilen gekuerzt
+    assert bubble.get_attribute("data-mode") == "normal"
+    assert body.inner_text().endswith("[...]")
+    assert "Zeile 15" not in body.inner_text()
+
+    toggle.click()  # -> full
+    page.wait_for_function(
+        f"() => document.querySelector('{_bubble('assistant', 'message')}').getAttribute('data-mode') === 'full'"
+    )
+    assert "Zeile 15" in body.inner_text()
+    assert not body.inner_text().endswith("[...]")
+
+    toggle.click()  # -> collapsed
+    page.wait_for_function(
+        f"() => document.querySelector('{_bubble('assistant', 'message')}').getAttribute('data-mode') === 'collapsed'"
+    )
+    text = body.inner_text()
+    assert text.endswith("[...]") and "\n" not in text
+
+    toggle.click()  # -> normal
+    page.wait_for_function(
+        f"() => document.querySelector('{_bubble('assistant', 'message')}').getAttribute('data-mode') === 'normal'"
+    )

@@ -53,8 +53,10 @@ def rename_session(sid: str, body: SessionRename, user: dict = Depends(get_curre
         session = dbq.q_get_session(con, sid)
         if not session:
             raise HTTPException(status_code=404, detail="Session nicht gefunden")
-        dbq.q_rename_session(con, sid, body.name.strip())
-        session = dbq.q_get_session(con, sid)
+        name = body.name.strip()
+        if name:  # Leer/Whitespace-only behaelt den alten Namen
+            dbq.q_rename_session(con, sid, name)
+            session = dbq.q_get_session(con, sid)
     return SessionOut(**session)
 
 

@@ -66,6 +66,17 @@ async def app(scope, receive, send):
             chunks = [
                 {"choices": [{"delta": {"content": "Die Datei enthält Lorem ipsum (20 Zeilen)."}}]},
             ]
+        elif "langsam" in str(content):
+            # Langsamer Stream mit Pause: zum Testen des Abbruchs (Teilausgabe bleibt erhalten)
+            chunks = [
+                {"choices": [{"delta": {"content": "Teil A "}}]},
+                {"choices": [{"delta": {"content": "Teil B"}}]},
+            ]
+        elif "lang" in str(content):
+            # Lange mehrzeilige Antwort: zum Testen des Bubble-Clamp-Zyklus
+            chunks = [
+                {"choices": [{"delta": {"content": "\n".join(f"Zeile {i}" for i in range(1, 16))}}]},
+            ]
         else:
             chunks = [
                 {"choices": [{"delta": {"reasoning_content": "Ich denke nach... "}}]},
@@ -73,6 +84,7 @@ async def app(scope, receive, send):
                 {"choices": [{"delta": {"content": " Welt"}}]},
                 {"choices": [{"delta": {"tool_calls": [{"function": {"name": "get_weather", "arguments": '{"city":"Berlin"}'}}]}}]},
             ]
+        slow = "langsam" in str(content)
         for chunk in chunks:
             await send(
                 {
@@ -81,7 +93,7 @@ async def app(scope, receive, send):
                     "more_body": True,
                 }
             )
-            await asyncio.sleep(0.02)
+            await asyncio.sleep(10.0 if slow else 0.02)
         await send({"type": "http.response.body", "body": b"data: [DONE]\n\n", "more_body": False})
     else:
         await send(

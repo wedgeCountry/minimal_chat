@@ -69,3 +69,18 @@ test("baut Mehrfach-Content mit Anhaengen", () => {
     },
   ]);
 });
+
+test("inContext=false schliesst die Nachricht aus dem Payload aus (auch nach normalizeMessages)", async () => {
+  const { normalizeMessages } = await import("../../static/js/state.js");
+  // Server-Shape mit in_context=false, wie nach einem Reload geladen
+  const serverMsgs = [
+    { role: "user", type: "message", text: "alt", in_context: false, id: 1 },
+    { role: "assistant", type: "message", text: "antwort", in_context: true, id: 2 },
+    { role: "user", type: "message", text: "neu", in_context: true, id: 3 },
+  ];
+  const payload = buildChatPayload({ model: "m", messages: normalizeMessages(serverMsgs) });
+  assert.deepEqual(
+    payload.messages.map((m) => m.content),
+    ["antwort", "neu"]
+  );
+});
