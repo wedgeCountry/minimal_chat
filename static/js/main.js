@@ -162,7 +162,7 @@ async function bootstrap() {
   if (window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches)
     document.documentElement.classList.add("dark");
   
-  // Check if auto-login is enabled (einmalig; initEvents nutzt das Ergebnis via applyAutoLoginUI)
+  // einmalig ermitteln; applyAutoLoginUI wendet das Ergebnis an
   try {
     const config = await api.get("/auth/config");
     autoLoginEnabled = config.auto_login || false;

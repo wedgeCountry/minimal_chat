@@ -139,16 +139,12 @@ export function cancelEdit() {
   if (b) exitBubbleEdit(b);
 }
 
-// Gemeinsamer Kern von Bearbeiten (inline) und Erneut-senden: Nachricht patchen,
-// alle Nachrichten danach loeschen. Beim Bearbeiten gibt es keinen Bestaetigungsdialog
-// mehr (direktes Speichern).
+// Bearbeiten und Erneut-senden teilen sich diesen Pfad: patchen, alles danach loeschen
 async function resubmitMessage(s, mid, text, attachments) {
   await api.patch(`/sessions/${s.id}/messages/${mid}`, { text, attachments });
   await api.del(`/sessions/${s.id}/messages/after/${mid}`).catch(() => {});
 }
 
-// Erneut senden = Bearbeiten ohne Textaenderung: gleicher Code-Pfad wie der Edit-Button
-// (Nachricht patchen, alles danach loeschen, neu generieren).
 async function resendMessage(m) {
   const s = activeSession();
   if (!s || state.streaming || m.id == null) return;

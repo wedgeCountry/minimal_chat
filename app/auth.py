@@ -37,7 +37,6 @@ def init_auth(app: FastAPI, cfg: AppConfig) -> AuthConfig:
         terms={"version": TERMS_VERSION},
         imprint={"document": str(REPO_ROOT / "docs" / "impressum.html")},
         login_redirect="/",
-        # Session-Cookie nur mit Secure-Flag, sobald der Server selbst per TLS laeuft
         cookie_secure=cfg.ssl_certfile is not None,
     )
     app.state.registry = registry

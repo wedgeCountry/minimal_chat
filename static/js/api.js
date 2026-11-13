@@ -1,6 +1,5 @@
 import { state } from "./state.js";
 
-// Parst die Fehlermeldung aus einer nicht-ok Response (JSON detail, sonst Rohtext/Status).
 export async function parseErrorResponse(res, fallback = "") {
   const text = await res.text().catch(() => "");
   let msg = text || res.statusText;

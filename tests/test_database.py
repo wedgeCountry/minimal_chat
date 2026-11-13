@@ -139,7 +139,6 @@ def test_user_settings_table_roundtrip(db):
 
 
 def test_try_start_generating_is_atomic_check_and_set(db):
-    """Race-freier Generierungsstart: ok -> busy -> (reset) -> ok; unbekannt -> missing."""
     user = _make_user()
     with db.user_db(user) as con:
         s = q_create_session(con, "S")

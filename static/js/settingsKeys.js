@@ -1,5 +1,4 @@
-// Single Source of Truth fuer die boolschen User-Settings im Frontend.
-// Muss zu BOOL_SETTINGS in app/services/settings.py passen (Namen + Defaults).
+// Single Source of Truth im Frontend; muss zu BOOL_SETTINGS (app/services/settings.py) passen.
 export const BOOL_SETTING_KEYS = [
   "bubbles_deletable",
   "bubbles_checkable",

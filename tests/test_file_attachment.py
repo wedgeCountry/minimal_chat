@@ -127,7 +127,6 @@ def test_read_upload_capped_streams_and_enforces_limit():
 
 
 def test_expand_attachment_parts_tolerates_malformed_attachment_id():
-    """Defekte attachment_id darf nicht zu 500 fuehren; Part bleibt unveraendert."""
     messages = [{"role": "user", "content": [{"type": "text", "text": "hi", "attachment_id": "abc"}]}]
     out = expand_attachment_parts(messages, {})
     assert out[0]["content"] == "hi"  # rein textuelle Parts werden zu einem String verschmolzen

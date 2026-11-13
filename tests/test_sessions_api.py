@@ -192,7 +192,6 @@ def test_delete_messages_after_rejects_message_of_other_session(client, auth_hea
 
 
 def test_message_patch_and_delete_reject_message_of_other_session(client, auth_headers):
-    """Nachricht einer anderen Session darf nicht ueber diese Session geaendert werden."""
     s1 = _create_session(client, auth_headers, "Eins")
     s2 = _create_session(client, auth_headers, "Zwei")
     foreign = client.post(
@@ -207,7 +206,6 @@ def test_message_patch_and_delete_reject_message_of_other_session(client, auth_h
 
 
 def test_attachment_upload_size_limit_413(client, auth_headers, app):
-    """Upload ueber dem Byte-Limit -> 413 (gestreamtes Lesen, kein komplettes In-RAM-Lesen)."""
     app.state.config.max_upload_bytes = 4
     s = _create_session(client, auth_headers)
     res = client.post(
@@ -219,7 +217,6 @@ def test_attachment_upload_size_limit_413(client, auth_headers, app):
 
 
 def test_attachment_storage_quota_413(client, auth_headers, app):
-    """Per-user Speicher-Kontingent fuer Anhaenge wird durchgesetzt."""
     app.state.config.max_upload_bytes = 100
     app.state.config.max_user_storage_bytes = 5
     s = _create_session(client, auth_headers)
