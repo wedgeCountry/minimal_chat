@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import ipaddress
 import json
+import logging
 import socket
 from typing import Any, AsyncIterator, Callable
 from urllib.parse import urlparse
@@ -86,9 +87,12 @@ def filter_request_messages(messages: list[dict[str, Any]], show_system_prompt: 
 def _filter_sse_data(data: str, show_reasoning: bool, show_tool_output: bool) -> str:
     if data == "[DONE]":
         return data
+
     event = parse_sse_data(data)
+
     if event is None:
         return data
+
     choices = event.get("choices")
     if isinstance(choices, list) and choices and isinstance(choices[0], dict):
         delta = choices[0].get("delta")
@@ -96,6 +100,7 @@ def _filter_sse_data(data: str, show_reasoning: bool, show_tool_output: bool) ->
             if not show_reasoning:
                 delta.pop("reasoning_content", None)
                 delta.pop("reasoning", None)
+                delta.pop("thinking", None)
             if not show_tool_output:
                 delta.pop("tool_calls", None)
                 delta.pop("tool_results", None)
@@ -107,7 +112,9 @@ def _filter_sse_line(line: str, show_reasoning: bool, show_tool_output: bool) ->
     t = line.strip()
     if t.startswith("data:"):
         data = t[len("data:"):].strip()
-        return "data: " + _filter_sse_data(data, show_reasoning, show_tool_output) + "\n"
+        filtered_sse_data = _filter_sse_data(data, show_reasoning, show_tool_output)
+        if filtered_sse_data:
+            return "data: " + filtered_sse_data + "\n"
     return line + "\n"
 
 
@@ -204,11 +211,10 @@ async def stream_completion(
         # ConnectError/TimeoutError propagieren und werden vom Aufrufer
         # (run_generation) als System-Message persistiert.
         stream_cm = client.stream("POST", url, headers=headers, json=payload)
-        if abort is not None and abort.is_set():
-            return
-        if abort is None:
-            res = await stream_cm.__aenter__()
-        else:
+        if abort is not None:
+            if abort.is_set():
+                return
+
             enter = asyncio.ensure_future(stream_cm.__aenter__())
             abort_wait = asyncio.ensure_future(abort.wait())
             done, _pending = await asyncio.wait({enter, abort_wait}, return_when=asyncio.FIRST_COMPLETED)
@@ -219,6 +225,10 @@ async def stream_completion(
             abort_wait.cancel()
             await asyncio.gather(abort_wait, return_exceptions=True)
             res = enter.result()
+
+        else:
+            res = await stream_cm.__aenter__()
+
         try:
             if res.status_code >= 400:
                 # Upstream-Body nicht an den Client reichen (Info-Leak bei internen Zielen)
@@ -227,6 +237,8 @@ async def stream_completion(
                 yield "data: [DONE]\n\n"
                 return
             raw = _aiter_until_abort(res.aiter_bytes(), abort)
+            print(raw)
+
             if show_reasoning and show_tool_output:
                 async for chunk in raw:
                     yield chunk.decode("utf-8", errors="replace")
