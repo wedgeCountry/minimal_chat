@@ -25,6 +25,9 @@ export async function refreshSpeechAvailability() {
   const s = await voiceStatus();
   state.speech.serverStt = !!s.stt;
   state.speech.serverTts = !!s.tts;
+  // UI (Mikrofon-/Speaker-Buttons) sofort nachziehen, nicht erst beim naechsten Render
+  if (typeof document !== "undefined")
+    document.dispatchEvent(new CustomEvent("leanchat:speech-availability"));
   return state.speech;
 }
 
