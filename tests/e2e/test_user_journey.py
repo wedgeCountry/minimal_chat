@@ -897,10 +897,9 @@ def test_edit_last_user_message(page, base_url, llm_expect, server_data_dir):
     assert last_user.locator('[data-testid="bubble-edit-save-btn"]').count() == 0
     edit_input.press("Enter")
 
-    # Assistenten-Antwort folgt auf die Nachricht -> Bestaetigungs-Modal -> OK
-    _confirm_delete(page)
-
-    # Generierung startet (Senden-Button wird zum Abbrechen-Button) ...
+    # Kein Bestaetigungsdialog beim Bearbeiten: Generierung startet direkt
+    assert page.locator(f'{T["confirm_overlay"]}.open').count() == 0
+    # (Senden-Button wird zum Abbrechen-Button) ...
     page.wait_for_function(
         "() => document.querySelector('[data-testid=\\\"send-btn\\\"]').classList.contains('abort')",
         timeout=llm_expect["timeout_ms"],

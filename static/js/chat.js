@@ -140,8 +140,9 @@ export function cancelEdit() {
 
 // Gemeinsamer Kern von Bearbeiten (inline) und Erneut-senden: Nachricht patchen,
 // alle Nachrichten danach loeschen. Liefert false, wenn der Nutzer abbricht.
+// Beim Bearbeiten gibt es keinen Bestaetigungsdialog mehr (direktes Speichern).
 async function resubmitMessage(s, mid, text, attachments, mode) {
-  if (hasMessagesAfter(lastMessages, mid)) {
+  if (mode !== "edit" && hasMessagesAfter(lastMessages, mid)) {
     const ok = await confirmModal({
       title: mode === "edit" ? "Nachricht bearbeiten" : "Erneut senden",
       text:
