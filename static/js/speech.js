@@ -27,8 +27,25 @@ export async function refreshSpeechAvailability() {
   return state.speech;
 }
 
+function modeAvailableFor(mode, kind) {
+  if (mode === "system") return kind === "stt" ? !!state.speech.systemStt : !!state.speech.systemTts;
+  if (mode === "server") return kind === "stt" ? !!state.speech.serverStt : !!state.speech.serverTts;
+  return false;
+}
+
+// Effektiver Modus: gewaehlter Modus, Fallback auf den anderen Modus wenn der
+// gewaehlte nicht verfuegbar ist (z.B. Server down -> Browser), sonst "none".
+export function effectiveModeFor(kind) {
+  const mode = speechMode();
+  if (mode === "none") return "none";
+  if (modeAvailableFor(mode, kind)) return mode;
+  const other = mode === "system" ? "server" : "system";
+  if (modeAvailableFor(other, kind)) return other;
+  return "none";
+}
+
 export function controlsVisible(kind) {
-  return speechControlsVisible(speechMode(), kind, state.speech);
+  return effectiveModeFor(kind) !== "none";
 }
 
 export async function selectedModeAvailable(kind) {
@@ -57,11 +74,13 @@ export function mergeTranscript(finalSoFar, results, resultIndex) {
 
 export function speechStatusLabel(mode, speech) {
   if (mode === "none") return { text: "Deaktiviert", cls: "" };
-  const ok =
-    mode === "system"
+  const avail = (m) =>
+    m === "system"
       ? !!(speech?.systemStt && speech?.systemTts)
       : !!(speech?.serverStt && speech?.serverTts);
-  return ok
-    ? { text: "Verfügbar", cls: "ok" }
-    : { text: "Nicht verfügbar", cls: "err" };
+  if (avail(mode)) return { text: "Verfügbar", cls: "ok" };
+  const other = mode === "system" ? "server" : "system";
+  if (avail(other))
+    return { text: "Nicht verfügbar – Fallback: " + (other === "system" ? "System-API" : "Server"), cls: "err" };
+  return { text: "Nicht verfügbar", cls: "err" };
 }

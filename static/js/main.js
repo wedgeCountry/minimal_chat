@@ -8,7 +8,7 @@ import { addAttachments } from "./attachments.js";
 import { initSettings, loadSettings, openSettings } from "./settings.js";
 import { initConfirm, showError } from "./confirm.js";
 import { transcribeAudio, encodeWav, VOICE_UNAVAILABLE_MSG } from "./voice.js";
-import { speechMode, controlsVisible, selectedModeAvailable, refreshSpeechAvailability, mergeTranscript, SYSTEM_UNAVAILABLE_MSG } from "./speech.js";
+import { effectiveModeFor, controlsVisible, selectedModeAvailable, refreshSpeechAvailability, mergeTranscript, SYSTEM_UNAVAILABLE_MSG } from "./speech.js";
 import { initPartials } from "./html.js";
 import { initGlobalErrorHandling } from "./errors.js";
 
@@ -305,7 +305,7 @@ function initEvents() {
     r.stop();
   };
   $("micBtn").onclick = async () => {
-    const mode = speechMode();
+    const mode = effectiveModeFor("stt");
     if (mode === "none" || !controlsVisible("stt")) {
       await showError("Sprachdienst nicht verfügbar.");
       return;

@@ -3,7 +3,7 @@ import { ICONS } from "./icons.js";
 import { state } from "./state.js";
 import { isBubbleDeletable, isBubbleCheckable, isBubbleSpeaker } from "./visibility.js";
 import { synthesizeSpeech, VOICE_UNAVAILABLE_MSG } from "./voice.js";
-import { speechMode, controlsVisible, selectedModeAvailable, SYSTEM_UNAVAILABLE_MSG } from "./speech.js";
+import { effectiveModeFor, controlsVisible, selectedModeAvailable, SYSTEM_UNAVAILABLE_MSG } from "./speech.js";
 import { showError } from "./confirm.js";
 import { BUBBLE_MODES, clampText, isClamped, nextBubbleMode, bubbleModeTitle } from "./bubbleMode.js";
 
@@ -218,7 +218,7 @@ export function bubbleEl(m, handlers = {}, opts = {}) {
       stopActiveSpeech();
       return;
     }
-    const mode = speechMode();
+    const mode = effectiveModeFor("tts");
     if (mode === "none" || !controlsVisible("tts")) {
       await showError("Sprachdienst nicht verfügbar.");
       return;

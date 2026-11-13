@@ -1,7 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { speechControlsVisible } from "../../static/js/visibility.js";
-import { speechStatusLabel, SPEECH_MODES, mergeTranscript } from "../../static/js/speech.js";
+import { speechStatusLabel, SPEECH_MODES, mergeTranscript, effectiveModeFor } from "../../static/js/speech.js";
+import { state } from "../../static/js/state.js";
 
 const avail = { systemStt: true, systemTts: true, serverStt: true, serverTts: true };
 const availOff = { systemStt: false, systemTts: false, serverStt: false, serverTts: false };
@@ -39,7 +40,37 @@ test("speechStatusLabel: none = deaktiviert, sonst gruen/rot", () => {
   assert.deepEqual(speechStatusLabel("server", availOff), { text: "Nicht verfügbar", cls: "err" });
   assert.deepEqual(speechStatusLabel("system", avail), { text: "Verfügbar", cls: "ok" });
   assert.deepEqual(speechStatusLabel("system", availOff), { text: "Nicht verfügbar", cls: "err" });
-  assert.deepEqual(speechStatusLabel("system", serverOnly), { text: "Nicht verfügbar", cls: "err" });
+  assert.deepEqual(speechStatusLabel("system", serverOnly), {
+    text: "Nicht verfügbar – Fallback: Server",
+    cls: "err",
+  });
+  assert.deepEqual(speechStatusLabel("server", serverOnly), { text: "Verfügbar", cls: "ok" });
+});
+
+test("effectiveModeFor: Fallback auf den anderen Modus, beide weg -> none", () => {
+  const saved = { mode: state.settings.speech_mode, speech: state.speech };
+  try {
+    state.speech = { systemStt: true, systemTts: true, serverStt: false, serverTts: false };
+    state.settings.speech_mode = "server";
+    assert.equal(effectiveModeFor("stt"), "system");
+    assert.equal(effectiveModeFor("tts"), "system");
+
+    state.speech = { systemStt: false, systemTts: false, serverStt: true, serverTts: true };
+    state.settings.speech_mode = "system";
+    assert.equal(effectiveModeFor("stt"), "server");
+
+    state.settings.speech_mode = "server";
+    state.speech = { systemStt: false, systemTts: false, serverStt: false, serverTts: false };
+    assert.equal(effectiveModeFor("stt"), "none");
+    assert.equal(effectiveModeFor("tts"), "none");
+
+    state.settings.speech_mode = "none";
+    state.speech = { systemStt: true, systemTts: true, serverStt: true, serverTts: true };
+    assert.equal(effectiveModeFor("stt"), "none");
+  } finally {
+    state.settings.speech_mode = saved.mode;
+    state.speech = saved.speech;
+  }
 });
 
 test("SPEECH_MODES enthaelt genau system/server/none", () => {
