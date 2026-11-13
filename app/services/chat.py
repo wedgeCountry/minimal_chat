@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 import ipaddress
 import json
-import logging
 import socket
 from typing import Any, AsyncIterator, Callable
 from urllib.parse import urlparse
