@@ -879,6 +879,13 @@ def test_edit_last_user_message(page, base_url, llm_expect, server_data_dir):
     assert "Zweite Frage" in last_user.locator('[data-testid="bubble-body"]').inner_text()
     assert page.locator(T["chat_input"]).input_value() == ""
 
+    # Abbrechen ueber den X-Button oben rechts am Textfeld
+    last_user.locator('[data-testid="bubble-edit-btn"]').click()
+    last_user.locator('[data-testid="bubble-edit-cancel-btn"]').wait_for()
+    last_user.locator('[data-testid="bubble-edit-cancel-btn"]').click()
+    page.wait_for_selector('[data-testid="bubble-edit-input"]', state="detached")
+    assert "Zweite Frage" in last_user.locator('[data-testid="bubble-body"]').inner_text()
+
     # Erneut oeffnen, Text aendern und mit Enter absenden (kein Speichern-Button)
     last_user.locator('[data-testid="bubble-edit-btn"]').click()
     edit_input = last_user.locator('[data-testid="bubble-edit-input"]')

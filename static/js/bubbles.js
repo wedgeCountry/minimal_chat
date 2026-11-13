@@ -99,8 +99,8 @@ export function enterBubbleEdit(b, text) {
   b.dataset.editing = "true";
   body.classList.remove("clamped");
   body.innerHTML = `
-    <textarea class="editInput" data-testid="bubble-edit-input" rows="2"></textarea>
-    <div class="editActions">
+    <div class="editWrap">
+      <textarea class="editInput" data-testid="bubble-edit-input" rows="2"></textarea>
       <button class="iconBtn editCancelBtn" data-testid="bubble-edit-cancel-btn" title="Abbrechen">${ICONS.x}</button>
     </div>`;
   const textarea = body.querySelector(".editInput");
