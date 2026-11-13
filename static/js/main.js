@@ -3,7 +3,7 @@ import { state, activeSession, normalizeMessages } from "./state.js";
 import { $, } from "./util.js";
 import { goToLogin } from "./auth.js";
 import { loadSessions, renderSessions, newSession } from "./sessions.js";
-import { abortStream, cancelEdit, pollOnce, renderChat, renderHeader, send } from "./chat.js";
+import { abortStream, pollOnce, renderChat, renderHeader, send } from "./chat.js";
 import { addAttachments } from "./attachments.js";
 import { initSettings, loadSettings, openSettings } from "./settings.js";
 import { initConfirm } from "./confirm.js";
@@ -163,10 +163,6 @@ function initEvents() {
   const input = $("input");
   const mobile = isMobileInput();
   input.addEventListener("keydown", (e) => {
-    if (e.key === "Escape") {
-      cancelEdit();
-      return;
-    }
     if (e.key === "Enter" && !e.shiftKey && !mobile) {
       e.preventDefault();
       send();

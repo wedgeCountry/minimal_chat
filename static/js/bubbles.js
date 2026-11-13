@@ -92,6 +92,35 @@ function renderBubbleBody(b) {
   body.classList.toggle("clamped", isClamped(full, mode));
 }
 
+// Inline-Edit: der Bubble-Body wird durch ein Textarea + Speichern/Abbrechen ersetzt.
+export function enterBubbleEdit(b, text) {
+  const body = b.querySelector(".bubbleBody");
+  if (!body || b.dataset.editing === "true") return null;
+  b.dataset.editing = "true";
+  body.classList.remove("clamped");
+  body.innerHTML = `
+    <textarea class="editInput" data-testid="bubble-edit-input" rows="2"></textarea>
+    <div class="editActions">
+      <button class="iconBtn editSaveBtn" data-testid="bubble-edit-save-btn" title="Speichern & erneut senden">${ICONS.send}</button>
+      <button class="iconBtn editCancelBtn" data-testid="bubble-edit-cancel-btn" title="Abbrechen">${ICONS.x}</button>
+    </div>`;
+  const textarea = body.querySelector(".editInput");
+  textarea.value = text ?? b._fullText ?? "";
+  const grow = () => {
+    textarea.style.height = "auto";
+    textarea.style.height = Math.min(textarea.scrollHeight, 180) + "px";
+  };
+  textarea.addEventListener("input", grow);
+  grow();
+  return { textarea, saveBtn: body.querySelector(".editSaveBtn"), cancelBtn: body.querySelector(".editCancelBtn") };
+}
+
+export function exitBubbleEdit(b) {
+  if (b.dataset.editing !== "true") return;
+  delete b.dataset.editing;
+  renderBubbleBody(b);
+}
+
 export function bubbleEl(m, handlers = {}, opts = {}) {
   const b = document.createElement("div");
   b._msg = m; // aktuelle Nachricht; renderChat aktualisiert sie bei wiederverwendeten Bubbles
@@ -168,7 +197,7 @@ export function bubbleEl(m, handlers = {}, opts = {}) {
   const resendBtn = b.querySelector(".resendBtn");
   if (resendBtn) resendBtn.onclick = () => handlers.onResend?.(b._msg);
   const editBtn = b.querySelector(".editBtn");
-  if (editBtn) editBtn.onclick = () => handlers.onEdit?.(b._msg);
+  if (editBtn) editBtn.onclick = () => handlers.onEdit?.(b._msg, b);
   _applySavedWidth(b, m);
   _makeResizable(b, m);
   const tts = b.querySelector(".ttsBtn");

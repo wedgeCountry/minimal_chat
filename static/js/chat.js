@@ -2,7 +2,7 @@ import { api } from "./api.js";
 import { activeSession, normalizeMessages, state } from "./state.js";
 import { $ } from "./util.js";
 import { ICONS } from "./icons.js";
-import { bubbleEl, setBubbleText } from "./bubbles.js";
+import { bubbleEl, setBubbleText, enterBubbleEdit, exitBubbleEdit } from "./bubbles.js";
 import { buildChatPayload } from "./payload.js";
 import { loadSessions, newSession, changed } from "./sessions.js";
 import { uploadPendingAttachments } from "./attachments.js";
@@ -62,7 +62,8 @@ function bubbleKey(m) {
 function updateBubble(b, m, showResend, showEdit) {
   b._msg = m;
   const text = m.text || "";
-  if (b._fullText !== text) setBubbleText(b, text);
+  // im Inline-Edit-Modus das Textarea nicht ueberschreiben
+  if (b.dataset.editing !== "true" && b._fullText !== text) setBubbleText(b, text);
   const inCtx = m.inContext !== false;
   const chk = b.querySelector(".chk");
   if (chk) chk.checked = inCtx;
@@ -126,39 +127,97 @@ export function renderChat(messages) {
   chat.scrollTop = chat.scrollHeight;
 }
 
-// Edit-Modus: id der Nutzernachricht, die gerade im Composer bearbeitet wird
+// Edit-Modus: id der Nutzernachricht, die gerade inline in ihrer Bubble bearbeitet wird
 let editingMessageId = null;
-
-function setEditUI(on) {
-  $("composerWrap").classList.toggle("editing", on);
-  const input = $("input");
-  input.placeholder = on ? "Nachricht bearbeiten…" : "Nachricht schreiben…";
-  $("sendBtn").title = on ? "Bearbeiten & erneut senden" : "Senden";
-}
-
-export function startEdit(m) {
-  if (state.streaming || !m || m.id == null) return;
-  editingMessageId = m.id;
-  setEditUI(true);
-  const input = $("input");
-  input.value = m.text || "";
-  input.dispatchEvent(new Event("input"));
-  input.focus();
-  input.setSelectionRange(input.value.length, input.value.length);
-}
 
 export function cancelEdit() {
   if (editingMessageId == null) return;
+  const mid = editingMessageId;
   editingMessageId = null;
-  setEditUI(false);
-  const input = $("input");
-  input.value = "";
-  input.style.height = "auto";
-  input.style.overflowY = "hidden";
+  const b = document.querySelector(`.bubble[data-msg-id="${mid}"]`);
+  if (b) exitBubbleEdit(b);
+}
+
+// Gemeinsamer Kern von Bearbeiten (inline) und Erneut-senden: Nachricht patchen,
+// alle Nachrichten danach loeschen. Liefert false, wenn der Nutzer abbricht.
+async function resubmitMessage(s, mid, text, attachments, mode) {
+  if (hasMessagesAfter(lastMessages, mid)) {
+    const ok = await confirmModal({
+      title: mode === "edit" ? "Nachricht bearbeiten" : "Erneut senden",
+      text:
+        "Alle Nachrichten nach dieser Nachricht (inkl. Antworten des Assistenten) werden gelöscht. " +
+        (mode === "edit" ? "Bearbeiten und erneut senden?" : "Erneut senden?"),
+      okLabel: mode === "edit" ? "Bearbeiten & senden" : "Erneut senden",
+    });
+    if (!ok) return false;
+  }
+  await api.patch(`/sessions/${s.id}/messages/${mid}`, { text, attachments });
+  await api.del(`/sessions/${s.id}/messages/after/${mid}`).catch(() => {});
+  return true;
+}
+
+// Generierung nach dem Senden/Bearbeiten anstossen (serverseitige Hintergrund-Task).
+async function triggerGeneration(s) {
+  const detail = await api.get(`/sessions/${s.id}`);
+  const payload = buildChatPayload({ model: state.settings.model, messages: normalizeMessages(detail.messages) });
+  try {
+    await api.post("/chat", { session_id: s.id, ...payload });
+  } catch (err) {
+    const em = { role: "system", type: "message", text: "Fehler: " + err.message, in_context: false };
+    await api.post(`/sessions/${s.id}/messages`, em).catch(() => {});
+    await loadSessions();
+    changed();
+    return;
+  }
+  setStreamingUI(true);
+  await pollOnce();
+  ensurePolling();
+}
+
+// Speichern aus dem Inline-Edit der Bubble (Save-Button oder Enter)
+async function submitEdit(mid, rawText) {
+  const s = activeSession();
+  if (!s || state.streaming || editingMessageId !== mid) return;
+  const text = (rawText || "").trim();
+  if (!text) {
+    cancelEdit();
+    return;
+  }
+  const detail = await api.get(`/sessions/${s.id}`);
+  const old = normalizeMessages(detail.messages).find((x) => x.id === mid);
+  const ok = await resubmitMessage(s, mid, text, old?.attachments || [], "edit");
+  if (!ok) return; // Edit-Modus bleibt aktiv
+  cancelEdit();
+  await loadSessions();
+  changed();
+  await triggerGeneration(s);
 }
 
 const handlers = {
-  onEdit: (m) => startEdit(m),
+  onEdit: (m, b) => {
+    if (state.streaming || !m || m.id == null || editingMessageId === m.id) return;
+    cancelEdit();
+    editingMessageId = m.id;
+    const ui = enterBubbleEdit(b, m.text || "");
+    if (!ui) {
+      editingMessageId = null;
+      return;
+    }
+    ui.saveBtn.onclick = () => submitEdit(m.id, ui.textarea.value);
+    ui.cancelBtn.onclick = () => cancelEdit();
+    ui.textarea.addEventListener("keydown", (e) => {
+      e.stopPropagation();
+      if (e.key === "Escape") {
+        e.preventDefault();
+        cancelEdit();
+      } else if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        submitEdit(m.id, ui.textarea.value);
+      }
+    });
+    ui.textarea.focus();
+    ui.textarea.setSelectionRange(ui.textarea.value.length, ui.textarea.value.length);
+  },
   onToggleContext: (m) => {
     const s = activeSession();
     if (m.id != null && s)
@@ -176,6 +235,7 @@ const handlers = {
     // Edit-Button (Nachricht patchen, alles danach loeschen, neu generieren).
     if (state.streaming || m.id == null) return;
     const prev = editingMessageId;
+    if (prev !== m.id) cancelEdit();
     editingMessageId = m.id;
     await send(m.text, m.attachments || []);
     if (editingMessageId === m.id) editingMessageId = prev; // abgebrochen -> vorheriger Zustand
@@ -236,29 +296,16 @@ export async function send(textOverride, attachmentsOverride) {
     await newSession(true);
     s = activeSession();
   }
-  if (editingMessageId != null) {
-    // Bearbeiten/Erneut-senden der letzten Nutzernachricht: Text uebernehmen,
-    // alles danach loeschen (Assistenten-Antworten) und anschliessend neu generieren.
+  if (!composerSubmit && editingMessageId != null) {
+    // Erneut-senden der letzten Nutzernachricht (Refresh-Button, Text unveraendert):
+    // patchen, alles danach loeschen, neu generieren.
     const mid = editingMessageId;
-    if (hasMessagesAfter(lastMessages, mid)) {
-      const ok = await confirmModal({
-        title: composerSubmit ? "Nachricht bearbeiten" : "Erneut senden",
-        text:
-          "Alle Nachrichten nach dieser Nachricht (inkl. Antworten des Assistenten) werden gelöscht. " +
-          (composerSubmit ? "Bearbeiten und erneut senden?" : "Erneut senden?"),
-        okLabel: composerSubmit ? "Bearbeiten & senden" : "Erneut senden",
-      });
-      if (!ok) return; // Edit-Modus bleibt aktiv
-    }
     const detail = await api.get(`/sessions/${s.id}`);
     const old = normalizeMessages(detail.messages).find((x) => x.id === mid);
-    let attachments = Array.isArray(attachmentsOverride) ? attachmentsOverride : old?.attachments || [];
-    if (composerSubmit && !Array.isArray(attachmentsOverride))
-      attachments = [...attachments, ...(await uploadPendingAttachments(s.id))];
-    await api.patch(`/sessions/${s.id}/messages/${mid}`, { text, attachments });
-    await api.del(`/sessions/${s.id}/messages/after/${mid}`).catch(() => {});
-    editingMessageId = null;
-    setEditUI(false);
+    const attachments = Array.isArray(attachmentsOverride) ? attachmentsOverride : old?.attachments || [];
+    const ok = await resubmitMessage(s, mid, text, attachments, "resend");
+    if (!ok) return; // Edit-Modus bleibt aktiv
+    cancelEdit();
   } else {
     const attachments = Array.isArray(attachmentsOverride) ? attachmentsOverride : await uploadPendingAttachments(s.id);
     await api.post(`/sessions/${s.id}/messages`, {
@@ -276,21 +323,7 @@ export async function send(textOverride, attachmentsOverride) {
     input.style.overflowY = "hidden";
   }
   changed();
-
-  const detail = await api.get(`/sessions/${s.id}`);
-  const payload = buildChatPayload({ model: state.settings.model, messages: normalizeMessages(detail.messages) });
-  try {
-    await api.post("/chat", { session_id: s.id, ...payload });
-  } catch (err) {
-    const em = { role: "system", type: "message", text: "Fehler: " + err.message, in_context: false };
-    await api.post(`/sessions/${s.id}/messages`, em).catch(() => {});
-    await loadSessions();
-    changed();
-    return;
-  }
-  setStreamingUI(true);
-  await pollOnce();
-  ensurePolling();
+  await triggerGeneration(s);
 }
 
 export function renderHeader() {

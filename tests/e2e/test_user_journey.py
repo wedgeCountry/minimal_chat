@@ -847,8 +847,9 @@ def test_resend_last_user_message(page, base_url, llm_expect, server_data_dir):
 
 
 def test_edit_last_user_message(page, base_url, llm_expect, server_data_dir):
-    """Edit-Button nur auf der letzten User-Bubble: Text aendern und erneut senden -
-    Nachrichten danach (Assistenten-Antworten) werden gelöscht und neu generiert."""
+    """Edit-Button nur auf der letzten User-Bubble: Inline-Edit direkt in der Bubble
+    (Textarea + Speichern/Abbrechen, Esc bricht ab) - beim Speichern wird die Nachricht
+    gepatcht, alle Nachrichten danach (Assistenten-Antworten) gelöscht und neu generiert."""
     email = "edit-user@example.com"
     api_client = _register_client(base_url, email, "Geheim-123")
     _login(page, base_url, email, "Geheim-123")
@@ -864,17 +865,26 @@ def test_edit_last_user_message(page, base_url, llm_expect, server_data_dir):
     assert page.locator(_bubble("user")).last.locator('[data-testid="bubble-edit-btn"]:visible').count() == 1
     assert page.locator(_bubble("user")).first.locator('[data-testid="bubble-edit-btn"]:visible').count() == 0
 
-    # Klick fuellt den Composer mit dem bisherigen Text; Escape bricht ab
-    page.locator(_bubble("user")).last.locator('[data-testid="bubble-edit-btn"]').click()
-    assert page.locator(T["chat_input"]).input_value() == "Zweite Frage"
-    page.locator(T["chat_input"]).press("Escape")
+    # Klick oeffnet den Inline-Edit direkt in der Bubble; der Composer bleibt leer
+    last_user = page.locator(_bubble("user")).last
+    last_user.locator('[data-testid="bubble-edit-btn"]').click()
+    edit_input = last_user.locator('[data-testid="bubble-edit-input"]')
+    edit_input.wait_for()
+    assert edit_input.input_value() == "Zweite Frage"
     assert page.locator(T["chat_input"]).input_value() == ""
 
-    # Erneut oeffnen, Text aendern und absenden
-    page.locator(_bubble("user")).last.locator('[data-testid="bubble-edit-btn"]').click()
-    assert page.locator(T["chat_input"]).input_value() == "Zweite Frage"
-    page.fill(T["chat_input"], "Zweite Frage (bearbeitet)")
-    page.click(T["send_btn"])
+    # Escape bricht ab: Textarea verschwindet, Bubble zeigt wieder den Originaltext
+    edit_input.press("Escape")
+    page.wait_for_selector('[data-testid="bubble-edit-input"]', state="detached")
+    assert "Zweite Frage" in last_user.locator('[data-testid="bubble-body"]').inner_text()
+    assert page.locator(T["chat_input"]).input_value() == ""
+
+    # Erneut oeffnen, Text aendern und per Speichern-Button absenden
+    last_user.locator('[data-testid="bubble-edit-btn"]').click()
+    edit_input = last_user.locator('[data-testid="bubble-edit-input"]')
+    edit_input.wait_for()
+    edit_input.fill("Zweite Frage (bearbeitet)")
+    last_user.locator('[data-testid="bubble-edit-save-btn"]').click()
 
     # Assistenten-Antwort folgt auf die Nachricht -> Bestaetigungs-Modal -> OK
     _confirm_delete(page)
@@ -890,12 +900,13 @@ def test_edit_last_user_message(page, base_url, llm_expect, server_data_dir):
         " && !document.querySelector('[data-testid=\\\"send-btn\\\"]').classList.contains('abort')",
         timeout=llm_expect["timeout_ms"],
     )
-    # User-Bubbles bleiben 2, die letzte traegt den bearbeiteten Text
+    # User-Bubbles bleiben 2, die letzte traegt den bearbeiteten Text (Inline-Edit beendet)
     page.wait_for_function(
         f"() => [...document.querySelectorAll('{T['chat']} .bubble[data-role=\\\"user\\\"]')]"
         " .some(b => b.querySelector('[data-testid=\\\"bubble-body\\\"]').textContent.includes('Zweite Frage (bearbeitet)'))",
         timeout=llm_expect["timeout_ms"],
     )
+    page.wait_for_selector('[data-testid="bubble-edit-input"]', state="detached")
     assert page.locator(_bubble("user")).count() == 2
     assert "Erste Frage" in page.locator(_bubble("user")).first.locator('[data-testid="bubble-body"]').inner_text()
 

@@ -113,6 +113,11 @@
 .bubbleBody{font-size:var(--bubble-body-size);line-height:1.5;white-space:pre-wrap;word-break:break-word;min-height:21px}
 .bubbleBody.clamped{cursor:pointer}
 .chev{padding:2px}
+
+/* Inline-Edit innerhalb der Bubble */
+.bubble .editInput{width:100%;resize:none;border:1px solid var(--accent);border-radius:8px;background:var(--bg);color:inherit;padding:6px 8px;font:inherit;line-height:1.45;max-height:180px;outline:none}
+.bubble .editActions{display:flex;justify-content:flex-end;gap:6px;margin-top:4px}
+.bubble .editActions .iconBtn svg{width:16px;height:16px}
 .chev svg{width:12px;height:12px}
 .bubble.collapsed .chev svg{transform:rotate(-90deg)}
 .bubble.full .chev svg{transform:rotate(180deg)}
