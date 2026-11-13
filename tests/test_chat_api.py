@@ -306,6 +306,59 @@ def test_chat_upstream_error_persisted_as_system_message(client, auth_headers, m
     assert all("boom" not in e for e in errors)
 
 
+def test_chat_upstream_422_persisted_with_hint_and_without_body_leak(client, auth_headers, monkeypatch):
+    """422 vom LLM (z. B. zu großer Request-Body): persistierter Fehler mit Hinweis auf die
+    Kontext-Checkbox; der Upstream-Body darf nicht durchgereicht werden."""
+    def handler(request):
+        return httpx.Response(422, content=b'{"detail":[{"loc":["body","messages"],"msg":"internal-secret-canary"}]}')
+
+    def factory(**kwargs):
+        kwargs.pop("timeout", None)
+        return RealAsyncClient(transport=httpx.MockTransport(handler))
+
+    monkeypatch.setattr("app.services.llm.httpx.AsyncClient", factory)
+    sid = _new_session(client, auth_headers)
+    _post_user_message(client, auth_headers, sid)
+    assert _start_chat(client, auth_headers, sid).status_code == 202
+    detail = _wait_generation(client, auth_headers, sid)
+    errors = [m["text"] for m in detail["messages"] if m["role"] == "system"]
+    assert any("HTTP 422" in e and "Kontext-Checkbox" in e for e in errors)
+    assert all("internal-secret-canary" not in e for e in errors)
+
+
+def test_context_checkbox_on_toolcall_excludes_tool_pair_from_llm_request(client, auth_headers, monkeypatch):
+    """Kontext-Checkbox auch auf Tool-Call-/Tool-Result-Bubbles: abwaehlen des Tool-Calls
+    spart das Paar aus dem naechsten LLM-Request aus (kein ungueltiges orphan tool)."""
+    seen = _mock_llm(monkeypatch)
+    sid = _new_session(client, auth_headers)
+    _post_user_message(client, auth_headers, sid, "Wetter in Berlin?")
+    r_tc = client.post(
+        f"/api/sessions/{sid}/messages",
+        json={"role": "assistant", "type": "toolcall", "text": 'get_weather({"city":"Berlin"})', "in_context": True},
+        headers=auth_headers,
+    )
+    r_tr = client.post(
+        f"/api/sessions/{sid}/messages",
+        json={"role": "assistant", "type": "toolresult", "text": "get_weather: 21C", "in_context": True},
+        headers=auth_headers,
+    )
+    assert r_tc.status_code == 201 and r_tr.status_code == 201
+    tc_id = r_tc.json()["id"]
+    _post_user_message(client, auth_headers, sid, "Und morgen?")
+
+    res = client.patch(f"/api/sessions/{sid}/messages/{tc_id}", json={"in_context": False}, headers=auth_headers)
+    assert res.status_code == 200
+    assert res.json()["in_context"] is False
+
+    assert _start_chat(client, auth_headers, sid).status_code == 202
+    _wait_generation(client, auth_headers, sid)
+    msgs = seen["body"]["messages"]
+    assert not any(m.get("tool_calls") for m in msgs)
+    assert not any(m["role"] == "tool" for m in msgs)
+    assert msgs[0] == {"role": "user", "content": "Wetter in Berlin?"}
+    assert msgs[-1] == {"role": "user", "content": "Und morgen?"}
+
+
 def test_chat_rejects_too_many_messages(client, auth_headers):
     sid = _new_session(client, auth_headers)
     res = client.post(

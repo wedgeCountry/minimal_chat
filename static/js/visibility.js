@@ -15,6 +15,11 @@ export function isBubbleCheckable(s) {
   return s.bubbles_checkable !== false;
 }
 
+export function isBubbleContextToggleable(m, s) {
+  // Reasoning wird nie an das LLM gesendet -> dort keine Kontext-Checkbox
+  return m.type !== "reasoning" && isBubbleCheckable(s);
+}
+
 export function isBubbleSpeaker(s) {
   return s.bubbles_speaker !== false;
 }

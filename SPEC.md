@@ -65,7 +65,7 @@ Eigenschaften je Bubble:
 | Bearbeiten | Stift-Symbol nur auf der letzten Nutzernachricht: Inline-Edit direkt in der Bubble (Textarea in den Bubble-Farben mit X-Button rechts daneben, Enter sendet, Esc bricht ab); beim Senden wird die Nachricht per `PATCH` aktualisiert, alle Nachrichten danach per `DELETE /api/sessions/{id}/messages/after/{mid}` gelöscht und die Antwort neu generiert |
 | Erneut senden | Refresh-Symbol nur auf der letzten Nutzernachricht: dasselbe wie **Bearbeiten ohne Textänderung** – die Nachricht wird per `PATCH` unverändert übernommen, alle Nachrichten danach gelöscht und die Antwort neu generiert |
 | Vorlesen | Audio-Symbol: Vorlesen per `speechSynthesis`/Voice Companion, erneuter Klick stoppt die Wiedergabe (ohne Fehlermeldung); Wiedergabe stoppt eine laufende Aufnahme und unterdrückt den Aufnahme-Start |
-| Kontext-Checkbox | Rechts oben; legt fest, ob die Nachricht beim nächsten Request im `messages`-Array mitgesendet wird |
+| Kontext-Checkbox | Rechts oben auf allen Bubble-Typen außer `reasoning` (also auch `toolcall`/`toolresult`); legt fest, ob die Nachricht beim nächsten Request im `messages`-Array mitgesendet wird |
 | Löschen | Mülleimer-Symbol entfernt die Nachricht aus der Session |
 
 Darstellung nach Typ:
@@ -109,7 +109,7 @@ Speicherung: serverseitig in der verschlüsselten per-user SQLite (`user_setting
 - FastAPI-Backend (`app/`) + statisches Frontend (`static/`, ES-Module ohne Build-Tools)
 - Datei-Uploads per Multipart (`POST /api/sessions/{id}/attachments`), serverseitige Verarbeitung
 - OpenAI-kompatibles Protokoll: `POST {baseURL}/chat/completions`, `Authorization: Bearer {key}`
-- Fehlerbehandlung: Netzwerk-/Auth-Fehler als System-Bubble im Chat
+- Fehlerbehandlung: Netzwerk-/Auth-Fehler als System-Bubble im Chat; antwortet das LLM mit HTTP 422 (z. B. zu großer Request-Body), wird ein System-Bubble mit Hinweis auf die Kontext-Checkbox persistiert (ältere Nachrichten abwählbar, `in_context=false`); ein `toolresult` ohne passenden `toolcall` wird serverseitig verworfen, damit der Request gültig bleibt
 - App-Zustand serverseitig in der verschlüsselten per-user DB persistiert
 - SSRF-Schutz: LLM-Ziel-URLs werden serverseitig validiert (nur http/https ohne Credentials; private/Loopback-/reservierte Ziele nur bei Loopback-Server oder explizitem Opt-in `LEANCHAT_ALLOW_PRIVATE_LLM`); Upstream-Fehler-Bodies werden nicht an den Client weitergegeben
 - DoS-Limits: Upload-Größe (gestreamtes Lesen), per-user Attachment-Kontingent und `/api/*`-Request-Größe sind serverseitig begrenzt (HTTP 413)

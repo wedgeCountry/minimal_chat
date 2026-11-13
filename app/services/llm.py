@@ -142,7 +142,10 @@ class LlmClient:
             try:
                 if res.status_code >= 400:
                     # Upstream-Body nicht an den Client reichen (Info-Leak bei internen Zielen)
-                    yield f"data: {json.dumps({'error': f'HTTP {res.status_code}'})}\n\n"
+                    detail = f"HTTP {res.status_code}"
+                    if res.status_code == 422:
+                        detail += " (Anfrage vom LLM-Server abgelehnt – evtl. zu großer Kontext; alte Nachrichten per Kontext-Checkbox abwählen)"
+                    yield f"data: {json.dumps({'error': detail})}\n\n"
                     yield "data: [DONE]\n\n"
                     return
                 raw = aiter_until_abort(res.aiter_bytes(), abort)
