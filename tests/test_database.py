@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import time
 from pathlib import Path
 
 import pytest
@@ -17,6 +18,7 @@ from app.db.database import (
     q_set_generating,
     q_set_user_setting,
     q_try_start_generating,
+    q_update_message,
 )
 
 
@@ -79,12 +81,26 @@ def test_messages_sorted_by_timestamp_with_system_first(db):
         m2 = q_add_message(con, s["id"], {"role": "assistant", "text": "zweite"})
         m3 = q_add_message(con, s["id"], {"role": "system", "text": "system-prompt"})
         m4 = q_add_message(con, s["id"], {"role": "user", "text": "dritte"})
-        # Zeitstempel explizit setzen (created_at hat nur Sekundenaufloesung):
+        # Zeitstempel explizit setzen (created_at hat ms-Aufloesung):
         # id-Reihenfolge != Zeitstempel-Reihenfolge, System-Prompt zuletzt angelegt.
         for mid, ts in ((m1["id"], 300), (m2["id"], 100), (m3["id"], 50), (m4["id"], 200)):
             con.execute("UPDATE messages SET created_at = ? WHERE id = ?", (ts, mid))
         ordered = [m["text"] for m in q_get_messages(con, s["id"])]
         assert ordered == ["system-prompt", "zweite", "dritte", "erste"]
+
+
+def test_add_message_stores_ms_created_at_and_update_can_patch_it(db):
+    """created_at ist ms seit Epoch (Basis fuer die chronologische Bubble-Sortierung)."""
+    user = _make_user()
+    with db.user_db(user) as con:
+        s = q_create_session(con, "Ts")
+        before = int(time.time() * 1000)
+        m = q_add_message(con, s["id"], {"role": "user", "text": "hallo"})
+        after = int(time.time() * 1000)
+        assert before <= m["ts"] <= after, f"created_at muss ms-Aufloesung haben: {m['ts']}"
+        patched = q_update_message(con, m["id"], {"text": "hi", "created_at": m["ts"] + 5})
+        assert patched["ts"] == m["ts"] + 5
+        assert patched["text"] == "hi"
 
 
 def test_wrong_key_cannot_decrypt(db):

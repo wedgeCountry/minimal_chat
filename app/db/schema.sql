@@ -15,7 +15,7 @@ CREATE TABLE IF NOT EXISTS messages (
     text        TEXT NOT NULL DEFAULT '',
     in_context  INTEGER NOT NULL DEFAULT 1,
     attachments TEXT NOT NULL DEFAULT '[]',
-    created_at  INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
+    created_at  INTEGER NOT NULL DEFAULT (CAST(strftime('%s', 'now') AS INTEGER) * 1000)
 );
 
 CREATE INDEX IF NOT EXISTS idx_messages_session ON messages (session_id, id);

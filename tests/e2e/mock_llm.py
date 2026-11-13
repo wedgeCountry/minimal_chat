@@ -1,8 +1,11 @@
 """Minimaler Mock eines OpenAI-kompatiblen Endpunkts fuer die GUI-Tests.
 
 Start: ``uvicorn mock_llm:app --port <port>`` (aus diesem Verzeichnis).
-Antwortet auf ``POST /v1/chat/completions`` mit einem SSE-Stream, der
-reasoning_content, content und einen tool_call enthaelt.
+Antwortet auf ``POST /v1/chat/completions`` mit einem SSE-Stream. Standard-Antwort
+(in agentenueblicher Reihenfolge): reasoning_content, tool_call, tool_result, content.
+Trigger im Text der letzten User-Message: "doppelzyklus" (zwei volle
+Reasoning/Toolcall/Toolresult/Message-Zyklen in einem Stream), "langsam" (Abbruch-Test),
+"lang" (lange Antwort), "oneline" (eine lange Zeile), Dateiinhalt -> Datei-Antwort.
 """
 
 from __future__ import annotations
@@ -70,12 +73,26 @@ async def app(scope, receive, send):
             chunks = [
                 {"choices": [{"delta": {"content": "Lorem ipsum dolor sit amet " * 40}}]},
             ]
+        elif "doppelzyklus" in str(content):
+            # Zwei volle Zyklen in einem Stream: Reasoning, Toolcall, Toolresult, Message,
+            # dann nochmals Reasoning, Toolcall, Toolresult, Message
+            chunks = [
+                {"choices": [{"delta": {"reasoning_content": "Denken eins... "}}]},
+                {"choices": [{"delta": {"tool_calls": [{"index": 0, "function": {"name": "get_weather", "arguments": '{"city":"Berlin"}'}}]}}]},
+                {"choices": [{"delta": {"tool_results": [{"index": 0, "name": "get_weather", "result": "21 Grad, sonnig"}]}}]},
+                {"choices": [{"delta": {"content": "Antwort eins"}}]},
+                {"choices": [{"delta": {"reasoning_content": "Denken zwei... "}}]},
+                {"choices": [{"delta": {"tool_calls": [{"index": 1, "function": {"name": "get_time", "arguments": '{"tz":"Europe/Berlin"}'}}]}}]},
+                {"choices": [{"delta": {"tool_results": [{"index": 1, "name": "get_time", "result": "12:00 Uhr"}]}}]},
+                {"choices": [{"delta": {"content": "Antwort zwei"}}]},
+            ]
         else:
             chunks = [
                 {"choices": [{"delta": {"reasoning_content": "Ich denke nach... "}}]},
+                {"choices": [{"delta": {"tool_calls": [{"index": 0, "function": {"name": "get_weather", "arguments": '{"city":"Berlin"}'}}]}}]},
+                {"choices": [{"delta": {"tool_results": [{"index": 0, "name": "get_weather", "result": "Z1\\nZ2\\nZ3"}]}}]},
                 {"choices": [{"delta": {"content": "Hallo"}}]},
                 {"choices": [{"delta": {"content": " Welt"}}]},
-                {"choices": [{"delta": {"tool_calls": [{"function": {"name": "get_weather", "arguments": '{"city":"Berlin"}'}}]}}]},
             ]
         slow = "langsam" in str(content)
         for chunk in chunks:
