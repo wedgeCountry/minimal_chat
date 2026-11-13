@@ -9,7 +9,7 @@ from ..db import database as dbq
 from ..db.database import Database
 from ..deps import get_config, get_current_user, get_db
 from ..models import ChatAbortRequest, ChatRequest
-from ..services.chat import validate_llm_base_url
+from ..services.ssrf import validate_llm_base_url
 from ..services.files import expand_attachment_parts
 from ..services.generation import request_abort, run_generation
 from ..services.settings import BOOL_SETTINGS, resolve_base_url, stored_bool
@@ -60,7 +60,8 @@ async def chat(
     _session, stored, attachments = ctx
     base_url = resolve_base_url(stored, config)
     try:
-        validate_llm_base_url(base_url, config.allow_private_llm)
+        # DNS-Lookup in validate_llm_base_url ist blockierend -> nicht auf dem Event-Loop
+        await asyncio.to_thread(validate_llm_base_url, base_url, config.allow_private_llm)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     # vor Task-Start atomar setzen, sonst TOCTOU-Race bei parallelen POSTs

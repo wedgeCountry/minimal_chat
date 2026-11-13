@@ -10,7 +10,7 @@ from fastapi.testclient import TestClient
 
 from app.config import AppConfig
 from app.main import create_app
-from app.services.chat import validate_llm_base_url
+from app.services.ssrf import validate_llm_base_url
 from tests.conftest import TEST_PASSWORD, login_client, register_user
 
 
