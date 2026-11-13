@@ -142,16 +142,6 @@ export function cancelEdit() {
 // alle Nachrichten danach loeschen. Liefert false, wenn der Nutzer abbricht.
 // Beim Bearbeiten gibt es keinen Bestaetigungsdialog mehr (direktes Speichern).
 async function resubmitMessage(s, mid, text, attachments, mode) {
-  if (mode !== "edit" && hasMessagesAfter(lastMessages, mid)) {
-    const ok = await confirmModal({
-      title: mode === "edit" ? "Nachricht bearbeiten" : "Erneut senden",
-      text:
-        "Alle Nachrichten nach dieser Nachricht (inkl. Antworten des Assistenten) werden gelöscht. " +
-        (mode === "edit" ? "Bearbeiten und erneut senden?" : "Erneut senden?"),
-      okLabel: mode === "edit" ? "Bearbeiten & senden" : "Erneut senden",
-    });
-    if (!ok) return false;
-  }
   await api.patch(`/sessions/${s.id}/messages/${mid}`, { text, attachments });
   await api.del(`/sessions/${s.id}/messages/after/${mid}`).catch(() => {});
   return true;
