@@ -124,6 +124,44 @@ def test_run_generation_persists_content_reasoning_and_toolcalls(db, user, sid, 
     assert is_running(user, sid) is False
 
 
+def test_run_generation_keeps_repeated_block_cycles_separate_with_switch_timestamps(db, user, sid, monkeypatch):
+    """Zwei volle Zyklen (reasoning, toolcall, toolresult, message) in einem Stream:
+    8 eigene Zeilen in Stream-Reihenfolge (keine Akkumulation), jeder Block mit seinem
+    Abschluss-Zeitstempel (ms) beim Typwechsel im Stream."""
+
+    async def fake_stream(*args, **kwargs):
+        yield _sse(
+            {"reasoning_content": "denke 1 "},
+            {"tool_calls": [{"index": 0, "function": {"name": "f", "arguments": "{}"}}]},
+            {"tool_results": [{"index": 0, "name": "f", "result": "42"}]},
+            {"content": "Antwort 1"},
+            {"reasoning_content": "denke 2 "},
+            {"tool_calls": [{"index": 1, "function": {"name": "g", "arguments": "{}"}}]},
+            {"tool_results": [{"index": 1, "name": "g", "result": "43"}]},
+            {"content": "Antwort 2"},
+        )
+
+    monkeypatch.setattr("app.services.generation.stream_completion", fake_stream)
+    asyncio.run(run_generation(db, user, sid, "http://llm.test/v1", "k", {"messages": []}))
+
+    with db.user_db(user) as con:
+        messages = dbq.q_get_messages(con, sid)
+    assistant = [m for m in messages if m["role"] == "assistant"]
+    assert [m["type"] for m in assistant] == ["reasoning", "toolcall", "toolresult", "message"] * 2
+    assert [m["text"] for m in assistant] == [
+        "denke 1 ",
+        "f({})",
+        "f: 42",
+        "Antwort 1",
+        "denke 2 ",
+        "g({})",
+        "g: 43",
+        "Antwort 2",
+    ]
+    ts = [m["ts"] for m in assistant]
+    assert all(a < b for a, b in zip(ts, ts[1:])), f"jeder Block braucht eigenen, steigenden Ts: {ts}"
+
+
 def test_abort_keeps_partial_output_and_clears_generating(db, user, sid, monkeypatch):
     """Regression: Abbruch mitten im Stream - Teilausgabe bleibt erhalten."""
 

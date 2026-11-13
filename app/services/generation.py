@@ -61,13 +61,54 @@ async def run_generation(
     if key in _abort_requested:
         _abort_requested.discard(key)
         ev.set()
-    ai_text = ""
-    think_text = ""
-    tools: dict[int, dict[str, str]] = {}
-    tool_results: dict[int, dict[str, str]] = {}
-    ids: dict[str, Any] = {"ai": None, "think": None, "tool": {}, "toolres": {}}
+    # Blöcke in Stream-Reihenfolge (reasoning/message/toolcall/toolresult): jeder Block
+    # wird zu einer eigenen Message-Zeile (keine Akkumulation ueber den ganzen Stream).
+    # Der Abschluss-Zeitstempel (ms) wird beim Typwechsel im Stream bzw. am Stream-Ende
+    # vergeben und als created_at persistiert.
+    blocks: list[dict[str, Any]] = []
+    tool_blocks: dict[tuple[str, int], dict[str, Any]] = {}
+    last_kind: tuple[str, int | None] | None = None
+    last_ts = 0
     error: str | None = None
     parser = SseParser()
+
+    def _next_ts() -> int:
+        nonlocal last_ts
+        last_ts = max(dbq._now_ms(), last_ts + 1)
+        return last_ts
+
+    def _touch(kind: str, idx: int | None = None) -> None:
+        # Typwechsel im Chunk-Stream: der bisher aktive Block ist abgeschlossen
+        nonlocal last_kind
+        if last_kind is not None and last_kind != (kind, idx):
+            for b in blocks:
+                if b["ts"] is None:
+                    b["ts"] = _next_ts()
+        last_kind = (kind, idx)
+
+    def _text_block(kind: str) -> dict[str, Any]:
+        if blocks and blocks[-1]["kind"] == kind and blocks[-1]["ts"] is None:
+            return blocks[-1]
+        b: dict[str, Any] = {"kind": kind, "ts": None, "id": None, "text": ""}
+        blocks.append(b)
+        return b
+
+    def _tool_block(kind: str, idx: int) -> dict[str, Any]:
+        b = tool_blocks.get((kind, idx))
+        if b is None:
+            b = {"kind": kind, "ts": None, "id": None, "name": "", "args": "", "result": ""}
+            tool_blocks[(kind, idx)] = b
+            blocks.append(b)
+        return b
+
+    def _block_text(b: dict[str, Any]) -> str:
+        if b["kind"] == "toolcall":
+            # Argumente sind JSON-String-Literale: literale "\n" als echte Umbrueche speichern
+            return f"{b['name'] or 'tool'}({b['args']})".replace("\\n", "\n")
+        if b["kind"] == "toolresult":
+            text = f"{b['name']}: {b['result']}" if b["name"] else b["result"]
+            return text.replace("\\n", "\n")
+        return b["text"]
 
     async def flush(final: bool = False) -> None:
         # DB-Zugriff (Dekodieren/Verschluesseln der per-user DB) ist blockierend
@@ -78,37 +119,35 @@ async def run_generation(
         await asyncio.to_thread(_flush)
 
     def _flush_into(con, final: bool) -> None:
-        if think_text:
-            if ids["think"] is None:
-                ids["think"] = dbq.q_add_message(
-                    con, sid, {"role": "assistant", "type": "reasoning", "text": think_text, "in_context": False}
+        if final:
+            # Stream-Ende: der letzte offene Block bekommt jetzt seinen Abschluss-Ts
+            for b in blocks:
+                if b["ts"] is None:
+                    b["ts"] = _next_ts()
+        for b in blocks:
+            text = _block_text(b)
+            if b["id"] is None:
+                if not text:
+                    continue
+                ts = b["ts"] if b["ts"] is not None else _next_ts()
+                b["id"] = dbq.q_add_message(
+                    con,
+                    sid,
+                    {
+                        "role": "assistant",
+                        "type": b["kind"],
+                        "text": text,
+                        "in_context": b["kind"] != "reasoning",
+                        "created_at": ts,
+                    },
                 )["id"]
+                b["ts_written"] = b["ts"] is not None
             else:
-                dbq.q_update_message(con, ids["think"], {"text": think_text})
-        if ai_text:
-            if ids["ai"] is None:
-                ids["ai"] = dbq.q_add_message(
-                    con, sid, {"role": "assistant", "type": "message", "text": ai_text, "in_context": True}
-                )["id"]
-            else:
-                dbq.q_update_message(con, ids["ai"], {"text": ai_text})
-        for idx, t in tools.items():
-            # Argumente sind JSON-String-Literale: literale "\n" als echte Umbrueche speichern
-            text = f"{t['name'] or 'tool'}({t['args']})".replace("\\n", "\n")
-            if idx in ids["tool"]:
-                dbq.q_update_message(con, ids["tool"][idx], {"text": text})
-            else:
-                ids["tool"][idx] = dbq.q_add_message(
-                    con, sid, {"role": "assistant", "type": "toolcall", "text": text, "in_context": True}
-                )["id"]
-        for idx, r in tool_results.items():
-            text = (f"{r['name']}: {r['result']}" if r["name"] else r["result"]).replace("\\n", "\n")
-            if idx in ids["toolres"]:
-                dbq.q_update_message(con, ids["toolres"][idx], {"text": text})
-            else:
-                ids["toolres"][idx] = dbq.q_add_message(
-                    con, sid, {"role": "assistant", "type": "toolresult", "text": text, "in_context": True}
-                )["id"]
+                patch: dict[str, Any] = {"text": text}
+                if b["ts"] is not None and not b.get("ts_written"):
+                    patch["created_at"] = b["ts"]
+                    b["ts_written"] = True
+                dbq.q_update_message(con, b["id"], patch)
         if final:
             if error:
                 dbq.q_add_message(
@@ -153,21 +192,29 @@ async def run_generation(
                     if reasoning is None:
                         reasoning = delta.get("reasoning")
                     if reasoning:
-                        think_text += reasoning
+                        _touch("reasoning")
+                        _text_block("reasoning")["text"] += reasoning
                     if delta.get("content"):
-                        ai_text += delta["content"]
+                        _touch("message")
+                        _text_block("message")["text"] += delta["content"]
                     for tc in delta.get("tool_calls") or []:
-                        idx = tc.get("index", len(tools))
-                        t = tools.setdefault(idx, {"name": "", "args": ""})
+                        idx = tc.get("index")
+                        if idx is None:
+                            idx = sum(1 for b in blocks if b["kind"] == "toolcall")
+                        _touch("toolcall", idx)
+                        b = _tool_block("toolcall", idx)
                         fn = tc.get("function") or {}
-                        t["name"] += fn.get("name") or ""
-                        t["args"] += fn.get("arguments") or ""
+                        b["name"] += fn.get("name") or ""
+                        b["args"] += fn.get("arguments") or ""
                     for tr in delta.get("tool_results") or []:
-                        idx = tr.get("index", len(tool_results))
-                        r = tool_results.setdefault(idx, {"name": "", "result": ""})
+                        idx = tr.get("index")
+                        if idx is None:
+                            idx = sum(1 for b in blocks if b["kind"] == "toolresult")
+                        _touch("toolresult", idx)
+                        b = _tool_block("toolresult", idx)
                         fn = tr.get("function") or {}
-                        r["name"] += tr.get("name") or fn.get("name") or ""
-                        r["result"] += (
+                        b["name"] += tr.get("name") or fn.get("name") or ""
+                        b["result"] += (
                             tr.get("result") or tr.get("content") or tr.get("output") or tr.get("text")
                             or fn.get("result") or fn.get("arguments") or ""
                         )

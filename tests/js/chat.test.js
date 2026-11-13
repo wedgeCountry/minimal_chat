@@ -105,6 +105,27 @@ test("sortMessagesForRender: gleicher ts, ein Turn mit Tools -> Frage, Thinking,
   );
 });
 
+test("sortMessagesForRender: eigene ms-Ts pro Stream-Block -> Stream-Reihenfolge innerhalb eines Turns", () => {
+  // Zwei Zyklen (reasoning, toolcall, toolresult, message) mit Abschluss-Ts je Block:
+  // die Sortierung bleibt rein chronologisch, es wird nicht nach Typ umsortiert.
+  const messages = [
+    { role: "user", type: "message", text: "Frage", ts: 1000, id: 1 },
+    { role: "assistant", type: "reasoning", text: "Denken 1", ts: 1001, id: 2 },
+    { role: "assistant", type: "toolcall", text: "f({})", ts: 1002, id: 3 },
+    { role: "assistant", type: "toolresult", text: "f: 42", ts: 1003, id: 4 },
+    { role: "assistant", type: "message", text: "Antwort 1", ts: 1004, id: 5 },
+    { role: "assistant", type: "reasoning", text: "Denken 2", ts: 1005, id: 6 },
+    { role: "assistant", type: "toolcall", text: "g({})", ts: 1006, id: 7 },
+    { role: "assistant", type: "toolresult", text: "g: 43", ts: 1007, id: 8 },
+    { role: "assistant", type: "message", text: "Antwort 2", ts: 1008, id: 9 },
+  ];
+  const sorted = sortMessagesForRender(messages);
+  assert.deepEqual(
+    sorted.map((m) => m.text),
+    ["Frage", "Denken 1", "f({})", "f: 42", "Antwort 1", "Denken 2", "g({})", "g: 43", "Antwort 2"]
+  );
+});
+
 test("sortMessagesForRender: handles empty array", () => {
   assert.equal(sortMessagesForRender([]).length, 0);
 });

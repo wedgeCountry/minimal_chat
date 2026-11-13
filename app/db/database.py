@@ -57,8 +57,8 @@ def _row_to_message(row: sqlite3.Row) -> dict:
         "text": row["text"],
         "in_context": bool(row["in_context"]),
         "attachments": json.loads(row["attachments"] or "[]"),
-        # created_at hat Sekundenaufloesung; als ms-Ts fuer die clientseitige Sortierung
-        "ts": row["created_at"] * 1000,
+        # created_at ist ms seit Epoch (pro Message; jeder Stream-Block traegt seinen Abschluss-Zeitstempel)
+        "ts": row["created_at"],
     }
 
 
@@ -162,7 +162,7 @@ class Database:
                             text        TEXT NOT NULL DEFAULT '',
                             in_context  INTEGER NOT NULL DEFAULT 1,
                             attachments TEXT NOT NULL DEFAULT '[]',
-                            created_at  INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
+                            created_at  INTEGER NOT NULL DEFAULT (CAST(strftime('%s', 'now') AS INTEGER) * 1000)
                         );
                         INSERT INTO messages_migrated
                             SELECT id, session_id, role, type, text, in_context, attachments, created_at FROM messages;
@@ -243,7 +243,7 @@ def q_get_message(con: sqlite3.Connection, mid: int) -> dict | None:
 
 def q_add_message(con: sqlite3.Connection, sid: str, msg: dict) -> dict:
     cur = con.execute(
-        "INSERT INTO messages (session_id, role, type, text, in_context, attachments) VALUES (?, ?, ?, ?, ?, ?)",
+        "INSERT INTO messages (session_id, role, type, text, in_context, attachments, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
         (
             sid,
             msg["role"],
@@ -251,6 +251,7 @@ def q_add_message(con: sqlite3.Connection, sid: str, msg: dict) -> dict:
             msg.get("text", ""),
             1 if msg.get("in_context", True) else 0,
             json.dumps(msg.get("attachments", [])),
+            msg.get("created_at") or _now_ms(),
         ),
     )
     con.execute("UPDATE sessions SET ts = ? WHERE id = ?", (_now_ms(), sid))
@@ -267,6 +268,8 @@ def q_update_message(con: sqlite3.Connection, mid: int, patch: dict) -> dict | N
         con.execute("UPDATE messages SET text = ? WHERE id = ?", (patch["text"], mid))
     if patch.get("attachments") is not None:
         con.execute("UPDATE messages SET attachments = ? WHERE id = ?", (json.dumps(patch["attachments"]), mid))
+    if patch.get("created_at") is not None:
+        con.execute("UPDATE messages SET created_at = ? WHERE id = ?", (patch["created_at"], mid))
     return q_get_message(con, mid)
 
 
