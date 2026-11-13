@@ -256,6 +256,18 @@ def test_chat_upstream_error_persisted_as_system_message(client, auth_headers, m
     detail = _wait_generation(client, auth_headers, sid)
     errors = [m["text"] for m in detail["messages"] if m["role"] == "system"]
     assert any("HTTP 500" in e for e in errors)
+    # Upstream-Response-Body darf nicht an den Client geleakt werden
+    assert all("boom" not in e for e in errors)
+
+
+def test_chat_rejects_too_many_messages(client, auth_headers):
+    sid = _new_session(client, auth_headers)
+    res = client.post(
+        "/api/chat",
+        json={"session_id": sid, "model": "m", "messages": [{"role": "user", "content": "x"}] * 501},
+        headers=auth_headers,
+    )
+    assert res.status_code == 422
 
 
 def test_chat_server_unreachable_persisted_as_system_message(client, auth_headers, monkeypatch):

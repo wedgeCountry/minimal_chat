@@ -13,6 +13,16 @@ ENV_EXAMPLE = REPO_ROOT / ".env.example"
 
 PATH_FIELDS = ("data_dir", "registry_path", "users_dir", "app_config_path")
 
+LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1"}
+
+DEFAULT_MAX_UPLOAD_BYTES = 20 * 1024 * 1024
+DEFAULT_MAX_USER_STORAGE_BYTES = 512 * 1024 * 1024
+DEFAULT_MAX_REQUEST_BYTES = 25 * 1024 * 1024
+
+
+def _env_bool(name: str) -> bool:
+    return os.environ.get(name, "").lower() in ("1", "true", "yes", "on")
+
 
 @dataclass
 class AppConfig:
@@ -38,6 +48,17 @@ class AppConfig:
     ssl_certfile: Path | None = None
     ssl_keyfile: Path | None = None
     app_config_path: Path | None = None
+    allow_private_llm: bool = False
+    max_upload_bytes: int = DEFAULT_MAX_UPLOAD_BYTES
+    max_user_storage_bytes: int = DEFAULT_MAX_USER_STORAGE_BYTES
+    max_request_bytes: int = DEFAULT_MAX_REQUEST_BYTES
+
+    def __post_init__(self) -> None:
+        # SSRF-Schutz: ein nur lokal erreichbarer Server (Loopback) darf private
+        # LLM-Ziele nutzen (Dev-Default 127.0.0.1:1234); ein oeffentlich erreichbarer
+        # Server blockiert sie, sofern nicht LEANCHAT_ALLOW_PRIVATE_LLM=1 gesetzt ist.
+        if self.host in LOOPBACK_HOSTS:
+            self.allow_private_llm = True
 
     def to_dict(self) -> dict:
         # secret und default_api_key werden bewusst NICHT persistiert:
@@ -56,6 +77,10 @@ class AppConfig:
             "ssl_certfile": str(self.ssl_certfile) if self.ssl_certfile else None,
             "ssl_keyfile": str(self.ssl_keyfile) if self.ssl_keyfile else None,
             "app_config_path": str(self.app_config_path) if self.app_config_path else None,
+            "allow_private_llm": self.allow_private_llm,
+            "max_upload_bytes": self.max_upload_bytes,
+            "max_user_storage_bytes": self.max_user_storage_bytes,
+            "max_request_bytes": self.max_request_bytes,
         }
 
     @classmethod
@@ -150,9 +175,13 @@ def load_config(
         ssl_certfile=Path(os.environ["LEANCHAT_SSL_CERTFILE"]) if os.environ.get("LEANCHAT_SSL_CERTFILE") else None,
         ssl_keyfile=Path(os.environ["LEANCHAT_SSL_KEYFILE"]) if os.environ.get("LEANCHAT_SSL_KEYFILE") else None,
         app_config_path=Path(os.environ["LEANCHAT_CONFIG_PATH"]) if os.environ.get("LEANCHAT_CONFIG_PATH") else None,
+        allow_private_llm=_env_bool("LEANCHAT_ALLOW_PRIVATE_LLM"),
+        max_upload_bytes=int(os.environ.get("LEANCHAT_MAX_UPLOAD_BYTES", str(DEFAULT_MAX_UPLOAD_BYTES))),
+        max_user_storage_bytes=int(os.environ.get("LEANCHAT_MAX_USER_STORAGE_BYTES", str(DEFAULT_MAX_USER_STORAGE_BYTES))),
+        max_request_bytes=int(os.environ.get("LEANCHAT_MAX_REQUEST_BYTES", str(DEFAULT_MAX_REQUEST_BYTES))),
     )
 
 
 def is_auto_login_enabled() -> bool:
     """Check if auto-login mode is enabled (for testing)."""
-    return os.environ.get("LEANCHAT_AUTO_LOGIN", "").lower() in ("1", "true", "yes", "on")
+    return _env_bool("LEANCHAT_AUTO_LOGIN")

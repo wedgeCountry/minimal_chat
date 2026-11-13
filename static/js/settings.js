@@ -2,6 +2,7 @@ import { api } from "./api.js";
 import { state } from "./state.js";
 import { $ } from "./util.js";
 import { applyTheme } from "./theme.js";
+import { BOOL_SETTING_KEYS } from "./settingsKeys.js";
 import { SPEECH_MODES, statusLabel, refreshSpeechAvailability } from "./ttsDetectionService.js";
 
 const CHECK_IDS = {
@@ -92,7 +93,7 @@ export function initSettings() {
       theme: $("setTheme").value,
       speech_mode: selectedSpeechMode(),
     };
-    for (const [key, id] of Object.entries(CHECK_IDS)) body[key] = $(id).checked;
+    for (const key of BOOL_SETTING_KEYS) body[key] = $(CHECK_IDS[key]).checked;
     if ($("setKey").value.trim()) body.api_key = $("setKey").value.trim();
     state.settings = { ...state.settings, ...(await api.put("/settings", body)) };
     $("setKey").value = "";
@@ -116,7 +117,7 @@ export function openSettings(tab = "general") {
   $("setModel").value = state.settings.model;
   $("setSystemPrompt").value = state.settings.system_prompt || "";
   $("setTheme").value = state.settings.theme;
-  for (const [key, id] of Object.entries(CHECK_IDS)) $(id).checked = state.settings[key] !== false;
+  for (const key of BOOL_SETTING_KEYS) $(CHECK_IDS[key]).checked = state.settings[key] !== false;
   const mode = SPEECH_MODES.includes(state.settings.speech_mode) ? state.settings.speech_mode : "server";
   document.querySelectorAll('input[name="speechMode"]').forEach((r) => {
     r.checked = r.value === mode;

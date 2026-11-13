@@ -49,3 +49,12 @@ test("normalizeMessages handles lists and null", () => {
   assert.equal(out[0].inContext, false);
   assert.equal(out[0].id, 1);
 });
+
+test("state.settings enthaelt alle BOOL_SETTING_KEYS mit ihren Defaults (Single Source of Truth)", async () => {
+  const { BOOL_SETTING_KEYS, BOOL_SETTING_DEFAULTS, defaultBoolSettings } = await import("../../static/js/settingsKeys.js");
+  assert.deepEqual(defaultBoolSettings(), BOOL_SETTING_DEFAULTS);
+  for (const k of BOOL_SETTING_KEYS) {
+    assert.ok(k in BOOL_SETTING_DEFAULTS, `Default fehlt fuer ${k}`);
+    assert.equal(state.settings[k], BOOL_SETTING_DEFAULTS[k]);
+  }
+});

@@ -8,7 +8,8 @@ Born as a minimalist alternative to OpenWebUI: only the features you actually ne
 
 ```
 app/                  FastAPI backend (uvicorn)
-  main.py             App-Factory, Router, StaticFiles
+  main.py             App-Factory, Router, StaticFiles + Middleware
+                      (Request-Size-Limit fuer /api/*, Security-Header/CSP, HSTS bei TLS)
   config.py           Konfiguration (Env: LEANCHAT_DATA_DIR, LEANCHAT_SECRET, LEANCHAT_API_KEY, LEANCHAT_LLM_HOST, LEANCHAT_LLM_PORT)
   auth.py             user_registry-Integration: Registry-DB, mount_auth (/auth-Seiten), Session-Cookies
   models.py           Pydantic-Schemas
@@ -19,6 +20,8 @@ app/                  FastAPI backend (uvicorn)
     database.py       Einziger Zugriff auf die lokalen SQLite-Datenbanken
   routers/            auth.py, sessions.py, settings.py, chat.py (serverseitige Generierung)
   services/chat.py    SSE-Client zum LLM-Endpunkt (stream_completion, SSE-Parsing/ -Filter)
+                      + validate_llm_base_url (SSRF-Schutz fuer user-gesteuerte LLM-URLs)
+  services/files.py   Upload-Verarbeitung (gestreamtes Lesen mit Byte-Cap, Kontingent, Expansion)
 static/               Frontend (statisch, ohne Build-Schritt)
   index.html          schlanke Shell mit Partial-Platzhaltern
   partials/           eigene HTML-Dateien: side-panel, chat-window,
@@ -57,6 +60,12 @@ tests/
 
 Beim ersten Programmstart wird automatisch eine **`.env`** aus der gecheckten **`.env.example`** erzeugt (die `.env` selbst ist gitignored). Dort liegen alle globalen Variablen: Data-Root (`LEANCHAT_DATA_DIR`), Datenbankpfade (`LEANCHAT_REGISTRY_PATH`, `LEANCHAT_USERS_DIR`), Server-Secret (`LEANCHAT_SECRET`), LLM-Endpunkt (`LEANCHAT_LLM_HOST`, `LEANCHAT_LLM_PORT`, `LEANCHAT_MODEL`, `LEANCHAT_API_KEY`) sowie Host/Port (`LEANCHAT_HOST`, `LEANCHAT_PORT`). Echte Systemumgebungsvariablen haben Vorrang vor der `.env`.
 
+**Sicherheit/Limits** (ebenfalls in der `.env`, siehe `.env.example`):
+
+- **SSRF-Schutz**: pro User einstellbare LLM-URLs werden serverseitig validiert (`validate_llm_base_url`): nur `http/https` ohne Credentials; private/Loopback-/Link-Local-/reservierte Ziele (z. B. Cloud-Metadata `169.254.169.254`) werden blockiert, sobald der Server nicht auf Loopback bindet — außer `LEANCHAT_ALLOW_PRIVATE_LLM=1`. Upstream-Fehlermeldungen enthalten nur den HTTP-Status, nie den Response-Body.
+- **DoS-Limits**: Uploads werden gestreamt mit Byte-Cap gelesen (`LEANCHAT_MAX_UPLOAD_BYTES`, 413 bei Ueberschreitung), pro User gilt ein Attachment-Kontingent (`LEANCHAT_MAX_USER_STORAGE_BYTES`), und `/api/*`-Requests werden per Content-Length gedeckelt (`LEANCHAT_MAX_REQUEST_BYTES`, 413).
+- **Header/Cookie**: jede Response traegt CSP, `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy`; bei TLS (`LEANCHAT_SSL_CERTFILE`) zusaetzlich HSTS und das Session-Cookie mit `Secure`-Flag. Die `/auth`-Seiten der user_registry bekommen wegen ihres Inline-CSRF-Scripts ein entspanntes CSP (`script-src 'self' 'unsafe-inline'`).
+
 ## Getting started
 
 ```bash
@@ -73,8 +82,9 @@ Dann `http://127.0.0.1:8000` im Browser öffnen, `.env` anpassen (z. B. `LEANCHA
 ## Tests
 
 ```bash
-python -m pytest                  # Python-Unit-Tests (API, DB, Krypto, Chat-Proxy)
+python -m pytest                  # Python-Unit-Tests (API, DB, Krypto, Chat-Proxy, Security)
 npm test                          # JS-Unit-Tests (node:test)
+python -m ruff check app tests    # Lint (CI-Job `lint`)
 python -m pytest -m e2e tests/e2e # GUI-Tests mit Playwright (braucht `playwright install chromium`)
 ```
 
