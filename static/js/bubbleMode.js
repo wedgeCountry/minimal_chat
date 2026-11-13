@@ -26,3 +26,8 @@ export function nextBubbleMode(mode) {
 export function bubbleModeTitle(mode) {
   return mode === "normal" ? "Alles anzeigen" : mode === "full" ? "Einklappen" : "Ausklappen";
 }
+
+// Invariante: jeder Nicht-Message-Typ (reasoning, toolcall, toolresult) startet eingeklappt.
+export function defaultBubbleMode(type) {
+  return type && type !== "message" ? "collapsed" : "normal";
+}

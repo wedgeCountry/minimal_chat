@@ -4,9 +4,9 @@ import { state } from "./state.js";
 import { isBubbleDeletable, isBubbleCheckable, isBubbleSpeaker } from "./visibility.js";
 import { controlsVisible, speak, isSpeaking, stopSpeech } from "./ttsDetectionService.js";
 import { showError } from "./confirm.js";
-import { BUBBLE_MODES, clampText, isClamped, nextBubbleMode, bubbleModeTitle } from "./bubbleMode.js";
+import { BUBBLE_MODES, clampText, isClamped, nextBubbleMode, bubbleModeTitle, defaultBubbleMode } from "./bubbleMode.js";
 
-const typeLabels = { message: "", toolcall: "Tool-Call", reasoning: "Thinking", system: "System" };
+const typeLabels = { message: "", toolcall: "Tool-Call", toolresult: "Tool-Result", reasoning: "Thinking", system: "System" };
 
 let tmpBubbleSeq = 0;
 
@@ -90,8 +90,12 @@ function renderBubbleBody(b) {
   if (!body) return;
   const mode = b.dataset.mode || "normal";
   const full = b._fullText ?? body.textContent;
-  body.textContent = clampText(full, mode);
-  body.classList.toggle("clamped", isClamped(full, mode));
+  // Tool-Argumente/-Ergebnisse kommen als JSON-String-Literale und behalten
+  // literale "\n" - fuer die Anzeige und Zeilen-Kuerzung als echte Umbrueche behandeln
+  const display =
+    b.dataset.type === "toolcall" || b.dataset.type === "toolresult" ? full.replace(/\\n/g, "\n") : full;
+  body.textContent = clampText(display, mode);
+  body.classList.toggle("clamped", isClamped(display, mode));
 }
 
 // Inline-Edit: der Bubble-Body wird durch ein Textarea + Speichern/Abbrechen ersetzt.
@@ -130,8 +134,7 @@ export function bubbleEl(m, handlers = {}, opts = {}) {
   b.dataset.type = m.type;
   if (m.id != null) b.dataset.msgId = String(m.id);
   b.className = `bubble ${m.role} ${m.type}`;
-  const collapsible = m.type === "reasoning" || m.type === "toolcall";
-  const mode = collapsible ? "collapsed" : "normal";
+  const mode = defaultBubbleMode(m.type);
   b.classList.add(mode);
   b.dataset.mode = mode;
   if (m.type === "message") b.classList.add(m.inContext !== false ? "selected" : "deselected");

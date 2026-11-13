@@ -146,6 +146,31 @@ class Database:
                 cols = {r[1] for r in con.execute("PRAGMA table_info(sessions)").fetchall()}
                 if "generating" not in cols:
                     con.execute("ALTER TABLE sessions ADD COLUMN generating INTEGER NOT NULL DEFAULT 0")
+                # Migration fuer bestehende DBs: messages.type um 'toolresult' erweitern
+                # (CHECK-Constraint ist in SQLite nicht aenderbar -> Tabellen-Rebuild)
+                msg_sql = con.execute(
+                    "SELECT sql FROM sqlite_master WHERE type='table' AND name='messages'"
+                ).fetchone()
+                if msg_sql and "'toolresult'" not in (msg_sql[0] or ""):
+                    con.executescript(
+                        """
+                        CREATE TABLE messages_migrated (
+                            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                            session_id  TEXT NOT NULL REFERENCES sessions (id) ON DELETE CASCADE,
+                            role        TEXT NOT NULL CHECK (role IN ('user', 'assistant', 'system')),
+                            type        TEXT NOT NULL DEFAULT 'message' CHECK (type IN ('message', 'toolcall', 'reasoning', 'toolresult')),
+                            text        TEXT NOT NULL DEFAULT '',
+                            in_context  INTEGER NOT NULL DEFAULT 1,
+                            attachments TEXT NOT NULL DEFAULT '[]',
+                            created_at  INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
+                        );
+                        INSERT INTO messages_migrated
+                            SELECT id, session_id, role, type, text, in_context, attachments, created_at FROM messages;
+                        DROP TABLE messages;
+                        ALTER TABLE messages_migrated RENAME TO messages;
+                        CREATE INDEX IF NOT EXISTS idx_messages_session ON messages (session_id, id);
+                        """
+                    )
                 changes_before = con.total_changes
                 yield con
                 if con.total_changes > changes_before:

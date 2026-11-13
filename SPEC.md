@@ -57,8 +57,9 @@ Eigenschaften je Bubble:
 | --- | --- |
 | Text | Nachrichteninhalt, bei Markdown einfache Formatierung optional |
 | Rolle | `user`, `assistant`, `system` |
-| Typ | `message`, `toolcall`, `reasoning` (Thinking) |
-| Dreistufig ausklappbar | Toggle in der Kopfzeile wechselt zyklisch: `normal` (max. 10 Zeilen, Rest hinter `[...]`), `full` (kompletter Text), `collapsed` (1 Zeile, Rest hinter `[...]`); Standard: `message`/`user`/`assistant` = normal, `reasoning`/`toolcall` = collapsed |
+| Typ | `message`, `toolcall`, `reasoning` (Thinking), `toolresult` (Tool-Ergebnis) |
+| Sortierung | chronologisch nach Zeitstempel; bei Gleichstand (Sekundenaufloesung) nach Turn (jede User-Message eroeffnet einen neuen Turn); innerhalb eines Turns: Reasoning/Toolcall/Toolresult vor der finalen Assistant-Message, Toolcall vor Toolresult, sonst Einfuegereihenfolge (id) |
+| Dreistufig ausklappbar | Toggle in der Kopfzeile wechselt zyklisch: `normal` (max. 10 Zeilen, Rest hinter `[...]`), `full` (kompletter Text), `collapsed` (1 Zeile, Rest hinter `[...]`); Standard: `message` = normal, alle anderen Typen (`reasoning`, `toolcall`, Tool-Ergebnisse) = collapsed |
 | Mindestzeilenanzahl | Bubbles behalten eine Mindesthöhe, damit kurze Nachrichten das Layout nicht springen lassen |
 | Kopieren | Kopier-Symbol kopiert den Inhalt in die Zwischenablage (`navigator.clipboard`, Fallback `execCommand`) |
 | Bearbeiten | Stift-Symbol nur auf der letzten Nutzernachricht: Inline-Edit direkt in der Bubble (Textarea in den Bubble-Farben mit X-Button rechts daneben, Enter sendet, Esc bricht ab); beim Senden wird die Nachricht per `PATCH` aktualisiert, alle Nachrichten danach per `DELETE /api/sessions/{id}/messages/after/{mid}` gelöscht und die Antwort neu generiert |
@@ -72,12 +73,14 @@ Darstellung nach Typ:
 - **message**: normale Bubble mit Text
 - **reasoning/thinking**: schlichter, gedämpfter Stil, Label „Thinking", mitkimmt optional ins `reasoning`-Feld bzw. wird nicht gesendet
 - **toolcall**: monospace, zeigt Werkzeugnamen und Argumente (falls vom Endpunkt geliefert)
+- **toolresult**: monospace, zeigt das Tool-Ergebnis (`name: result`, falls Name geliefert), startet eingeklappt
+- bei `toolcall`/`toolresult` werden literale `\n` (aus JSON-String-Literalen) als echte Zeilenumbrueche angezeigt und zaehlen bei der Kuerzung (`collapsed` = 1 Zeile + `[...]`)
 
 ## 4. Generierung und Fortschritt
 
 - Die Generierung läuft **serverseitig** in einer Hintergrund-Task (`POST /api/chat` → `202`, Task persistiert den LLM-SSE-Stream chunk-weise in die Session-DB); das Session-Feld `generating` signalisiert den laufenden Stand
 - Der Client hält **keinen** LLM-Stream mehr, sondern pollt `GET /api/sessions/{id}` und rendert die persistierten Nachrichten (live im Vordergrund, nach App-Wechsel/Re-Attach per `visibilitychange`/`pageshow` sofort)
-- `delta.content` landet in der Assistant-Message, `delta.reasoning_content` / `reasoning` in einer separaten Thinking-Bubble, `tool_calls` als Toolcall-Bubbles — serverseitig persistiert
+- `delta.content` landet in der Assistant-Message, `delta.reasoning_content` / `reasoning` in einer separaten Thinking-Bubble, `tool_calls` als Toolcall-Bubbles, `tool_results` als Toolresult-Bubbles — serverseitig persistiert
 - Während der Generierung: dezente **Progress-Anzeige** (Ladebalken), angesteuert über das serverseitige `generating`-Flag
 - Abbrechen per X-Symbol (Header/Side-Panel und Composer) via `POST /api/chat/abort`: das Abort-Event wird in der Generierungs-Task gegen den Upstream-Read geracet, die LLM-Verbindung wird sofort geschlossen (auch wenn keine Chunks mehr eintreffen); die bis dahin generierte Antwort bleibt in der Session erhalten
 

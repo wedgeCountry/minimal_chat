@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field
 
 class MessageIn(BaseModel):
     role: Literal["user", "assistant", "system"]
-    type: Literal["message", "toolcall", "reasoning"] = "message"
+    type: Literal["message", "toolcall", "reasoning", "toolresult"] = "message"
     text: str = ""
     in_context: bool = True
     attachments: list[dict[str, Any]] = Field(default_factory=list)

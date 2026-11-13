@@ -1,6 +1,6 @@
 /* ------------------------------------------------------------------
    Bubble-Styling-System: Auspraegung wird komplett ueber CSS-Variablen
-   gesteuert - pro Rolle (user/assistant/system/reasoning/toolcall) und
+   gesteuert - pro Rolle (user/assistant/system/reasoning/toolcall/toolresult) und
    pro Zustand (collapsed = 1 Zeile, normal = max. 10 Zeilen,
    full = ungekuerzt, compact = komprimiert, selected/deselected = (ab-)gewaehlt).
    ------------------------------------------------------------------ */
@@ -50,7 +50,7 @@
   --bubble-align:flex-end;
   border-bottom-right-radius:var(--bubble-corner);
 }
-.bubble.assistant,.bubble.toolcall{
+.bubble.assistant,.bubble.toolcall,.bubble.toolresult{
   border-bottom-left-radius:var(--bubble-corner);
 }
 .bubble.system{
@@ -66,7 +66,7 @@
   --bubble-border:1px dashed var(--border);
   --bubble-body-size:13px;
 }
-.bubble.toolcall .bubbleBody,.bubble.reasoning .bubbleBody{
+.bubble.toolcall .bubbleBody,.bubble.toolresult .bubbleBody,.bubble.reasoning .bubbleBody{
   font-family:ui-monospace,Menlo,Consolas,monospace;
   font-size:12.5px;
 }

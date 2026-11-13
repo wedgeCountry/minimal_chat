@@ -103,6 +103,18 @@ def test_sse_filter_strips_tool_calls_when_disabled():
     out = _collect(chunks, show_reasoning=True, show_tool_output=False)
     delta = _data_lines(out)[0]["choices"][0]["delta"]
     assert "tool_calls" not in delta
+
+
+def test_sse_filter_keeps_and_strips_tool_results_with_tool_output():
+    chunks = [_event({"content": "ok", "tool_results": [{"index": 0, "result": "42"}], "tool_result": "x"})]
+    out = _collect(chunks, show_reasoning=True, show_tool_output=True)
+    delta = _data_lines(out)[0]["choices"][0]["delta"]
+    assert delta["tool_results"] == [{"index": 0, "result": "42"}]
+    assert delta["tool_result"] == "x"
+    out = _collect(chunks, show_reasoning=True, show_tool_output=False)
+    delta = _data_lines(out)[0]["choices"][0]["delta"]
+    assert "tool_results" not in delta
+    assert "tool_result" not in delta
     assert delta["content"] == "ok"
 
 
