@@ -128,7 +128,7 @@ export function renderChat(messages) {
   const lastUser = findLastUserMessage(sortedMessages);
   const items = [];
   const sysPrompt = state.settings.system_prompt;
-  if (sysPrompt && state.settings.show_system_prompt !== false) {
+  if (sysPrompt && sysPrompt.trim() && state.settings.show_system_prompt !== false) {
     items.push({ m: { role: "system", type: "message", text: sysPrompt, in_context: true }, showResend: false, showEdit: false });
   }
   for (const m of sortedMessages.filter((m) => isBubbleVisible(m, state.settings))) {

@@ -16,7 +16,7 @@ test("alle Bubbles sichtbar bei Defaults", () => {
   assert.ok(isBubbleVisible({ role: "assistant", type: "reasoning" }, allOn));
   assert.ok(isBubbleVisible({ role: "assistant", type: "toolcall" }, allOn));
   assert.ok(isBubbleVisible({ role: "assistant", type: "toolresult" }, allOn));
-  assert.ok(isBubbleVisible({ role: "system", type: "message" }, allOn));
+  assert.ok(isBubbleVisible({ role: "system", type: "message", text: "Prompt" }, allOn));
 });
 
 test("show_reasoning=false blendet Reasoning-Bubbles aus", () => {
@@ -34,6 +34,12 @@ test("show_tool_output=false blendet Tool-Calls und Tool-Results aus", () => {
 test("show_system_prompt=false blendet System-Bubbles aus", () => {
   const s = { ...allOn, show_system_prompt: false };
   assert.equal(isBubbleVisible({ role: "system", type: "message" }, s), false);
+});
+
+test("leere System-Prompt-Bubble wird nie angezeigt", () => {
+  assert.equal(isBubbleVisible({ role: "system", type: "message", text: "" }, allOn), false);
+  assert.equal(isBubbleVisible({ role: "system", type: "message", text: "   " }, allOn), false);
+  assert.ok(isBubbleVisible({ role: "system", type: "message", text: "Prompt" }, allOn));
 });
 
 test("Checkable/Speaker Schalter", () => {

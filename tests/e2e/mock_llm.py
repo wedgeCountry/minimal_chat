@@ -65,6 +65,11 @@ async def app(scope, receive, send):
             chunks = [
                 {"choices": [{"delta": {"content": "\n".join(f"Zeile {i}" for i in range(1, 16))}}]},
             ]
+        elif "oneline" in str(content):
+            # Eine einzige sehr lange Zeile: collapsed darf nur eine GUI-Zeile zeigen
+            chunks = [
+                {"choices": [{"delta": {"content": "Lorem ipsum dolor sit amet " * 40}}]},
+            ]
         else:
             chunks = [
                 {"choices": [{"delta": {"reasoning_content": "Ich denke nach... "}}]},
