@@ -28,7 +28,7 @@ export async function refreshSpeechAvailability() {
   return state.speech;
 }
 
-// Single Source of Truth fuer die Verfuegbarkeit ist speechControlsVisible (visibility.js)
+// Verfuegbarkeit kommt nur aus speechControlsVisible (visibility.js)
 function modeAvailableFor(mode, kind) {
   return speechControlsVisible(mode, kind, state.speech);
 }

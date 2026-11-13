@@ -14,14 +14,8 @@ ClientFactory = Callable[..., httpx.AsyncClient]
 
 
 def validate_llm_base_url(base_url: str, allow_private: bool = False) -> str:
-    """SSRF-Schutz fuer user-gesteuerte LLM-URLs (Settings + Chat).
-
-    Erlaubt nur http/https ohne Credentials in der URL. Ohne ``allow_private``
-    wird der Host per DNS aufgeloest und jedes Ziel-IP in einem privaten,
-    Loopback-, Link-Local-, Multicast-, reservierten oder unbestimmten Netz
-    blockiert (z. B. 169.254.169.254 Cloud-Metadata). ``allow_private`` ist nur
-    aktiv bei Loopback-Server oder LEANCHAT_ALLOW_PRIVATE_LLM=1 (siehe AppConfig).
-    """
+    """SSRF-Vertrag fuer user-gesteuerte LLM-URLs: http/https ohne Credentials;
+    ohne allow_private werden per DNS private/reservierte Ziel-IPs abgelehnt."""
     url = (base_url or "").strip()
     parsed = urlparse(url)
     if parsed.scheme not in ("http", "https") or not parsed.hostname:
@@ -177,8 +171,7 @@ async def stream_completion(
         # (run_generation) als System-Message persistiert.
         async with client.stream("POST", url, headers=headers, json=payload) as res:
             if res.status_code >= 400:
-                # Upstream-Response-Body wird NICHT an den Client weitergereicht
-                # (Informationsabfluss bei internen Zielen).
+                # Upstream-Body nicht an den Client reichen (Info-Leak bei internen Zielen)
                 error = json.dumps({"error": f"HTTP {res.status_code}"})
                 yield f"data: {error}\n\n"
                 yield "data: [DONE]\n\n"

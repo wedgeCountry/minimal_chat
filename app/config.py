@@ -54,9 +54,7 @@ class AppConfig:
     max_request_bytes: int = DEFAULT_MAX_REQUEST_BYTES
 
     def __post_init__(self) -> None:
-        # SSRF-Schutz: ein nur lokal erreichbarer Server (Loopback) darf private
-        # LLM-Ziele nutzen (Dev-Default 127.0.0.1:1234); ein oeffentlich erreichbarer
-        # Server blockiert sie, sofern nicht LEANCHAT_ALLOW_PRIVATE_LLM=1 gesetzt ist.
+        # Loopback-Bind = nur lokal erreichbar, daher private LLM-Ziele ok
         if self.host in LOOPBACK_HOSTS:
             self.allow_private_llm = True
 

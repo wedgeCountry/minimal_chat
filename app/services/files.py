@@ -19,15 +19,11 @@ UPLOAD_READ_CHUNK = 64 * 1024
 
 
 class UploadTooLarge(ValueError):
-    """Upload ueberschreitet das Byte-Limit (413)."""
+    pass
 
 
 async def read_upload_capped(file, limit: int) -> bytes:
-    """Liest eine UploadFile gestreamt mit hartem Byte-Limit.
-
-    Verhindert, dass ein grosser Multipart-Body komplett in den RAM gelesen
-    wird, bevor die Groessenpruefung greift.
-    """
+    """Byte-Cap beim Streamen, damit ein grosser Body nicht komplett in den RAM geht."""
     raw = bytearray()
     while True:
         chunk = await file.read(UPLOAD_READ_CHUNK)
@@ -109,7 +105,7 @@ def expand_attachment_parts(messages: list[dict[str, Any]], attachments_by_id: d
             try:
                 aid_int = int(aid) if aid is not None else None
             except (TypeError, ValueError):
-                aid_int = None  # defekte Referenz wird nicht expandiert (kein 500)
+                aid_int = None
             if aid_int is not None and aid_int in attachments_by_id:
                 expanded.append(_attachment_part(attachments_by_id[aid_int]))
             else:

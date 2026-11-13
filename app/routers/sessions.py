@@ -117,8 +117,7 @@ async def add_attachment(
     config: AppConfig = Depends(get_config),
 ):
     """Laedt eine Datei per Multipart-Upload (Rohdaten, kein Base64-in-JSON) hoch;
-    das Lesen/Dekodieren passiert serverseitig. Gestreamtes Lesen mit Byte-Cap
-    (kein komplettes In-RAM-Lesen vor der Groessenpruefung) + per-user Kontingent."""
+    das Lesen/Dekodieren passiert serverseitig."""
     try:
         raw = await read_upload_capped(file, config.max_upload_bytes)
         processed = process_upload(file.filename or "datei", file.content_type or "", raw, max_bytes=config.max_upload_bytes)

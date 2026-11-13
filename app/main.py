@@ -19,8 +19,7 @@ bootstrap_env()
 
 logger = logging.getLogger("leanchat")
 
-# CSP fuer die App selbst (keine Inline-Skripte/-Styles noetig); die /auth-Seiten
-# der user_registry brauchen 'unsafe-inline' fuer den CSRF-Token im Inline-Script.
+# /auth-Seiten der user_registry brauchen 'unsafe-inline' (Inline-CSRF-Token)
 CSP_APP = (
     "default-src 'self'; script-src 'self'; style-src 'self'; "
     "img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self'; "
@@ -54,8 +53,6 @@ def create_app(
 
     @app.middleware("http")
     async def limit_request_size(request: Request, call_next):
-        """Globales Request-Size-Limit fuer /api/* (DoS-Schutz; Uploads selbst
-        werden zusaetzlich gestreamt mit Byte-Cap gelesen, siehe read_upload_capped)."""
         if request.url.path.startswith("/api/"):
             length = request.headers.get("content-length")
             if length:
@@ -75,7 +72,7 @@ def create_app(
         response.headers.setdefault("X-Content-Type-Options", "nosniff")
         response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
         response.headers.setdefault("X-Frame-Options", "DENY")
-        # Ueberschreibt die minimale CSP der user_registry (frame-ancestors 'none') bewusst:
+        # ueberschreibt die CSP der user_registry (frame-ancestors 'none') bewusst
         response.headers["Content-Security-Policy"] = CSP_AUTH if request.url.path.startswith("/auth") else CSP_APP
         if cfg.ssl_certfile:
             response.headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")

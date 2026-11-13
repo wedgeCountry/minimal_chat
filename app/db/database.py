@@ -30,11 +30,11 @@ from typing import Iterator
 from . import crypto
 
 SCHEMA_PATH = Path(__file__).with_name("schema.sql")
-_SCHEMA_SQL = SCHEMA_PATH.read_text(encoding="utf-8")  # einmal beim Start laden, nicht pro Zugriff
+_SCHEMA_SQL = SCHEMA_PATH.read_text(encoding="utf-8")
 
 
 class _UserLock:
-    """Wrapper um die Pro-User-Sperre, damit WeakValueDictionary sie bei Nichtgebrauch entfernt."""
+    """Weakref-faehiger Wrapper (RLock selbst ist es nicht)."""
 
     def __init__(self) -> None:
         self.lock = threading.RLock()
@@ -87,8 +87,7 @@ class Database:
         self._locks: weakref.WeakValueDictionary[str, _UserLock] = weakref.WeakValueDictionary()
 
     def _lock_for(self, user: dict) -> _UserLock:
-        """Pro-User-Sperre: gleichzeitige Zugriffe verschiedener User blockieren sich nicht.
-        WeakValueDictionary: Eintraege verschwinden, sobald kein Aufrufer die Sperre mehr haelt."""
+        """Pro-User-Sperre: gleichzeitige Zugriffe verschiedener User blockieren sich nicht."""
         key = str(self._db_path(user))
         with self._locks_guard:
             entry = self._locks.get(key)
@@ -116,7 +115,7 @@ class Database:
         tatsaechlich etwas geaendert hat (``total_changes``); reine
         Lesezugriffe erzeugen kein Datei-I/O.
         """
-        entry = self._lock_for(user)  # lokal gehalten: Eintrag bleibt bis zum Ende des Blocks bestehen
+        entry = self._lock_for(user)  # lokal halten, sonst faellt der WeakValue-Eintrag vor Block-Ende weg
         with entry.lock:
             path = self._db_path(user)
             con = sqlite3.connect(":memory:")
@@ -189,8 +188,7 @@ def q_set_generating(con: sqlite3.Connection, sid: str, on: bool) -> None:
 
 
 def q_try_start_generating(con: sqlite3.Connection, sid: str) -> str:
-    """Atomares Check-and-Set des generating-Flags (Race-freier Start einer Generierung):
-    'ok' (Flag wurde gesetzt) | 'busy' (Session laeuft bereits) | 'missing' (unbekannt)."""
+    """Atomares Check-and-Set von generating: 'ok' | 'busy' | 'missing'."""
     cur = con.execute("UPDATE sessions SET generating = 1 WHERE id = ? AND generating = 0", (sid,))
     if cur.rowcount:
         return "ok"
@@ -287,7 +285,6 @@ def q_get_session_attachments(con: sqlite3.Connection, sid: str) -> list[dict]:
 
 
 def q_total_attachment_bytes(con: sqlite3.Connection) -> int:
-    """Gesamtgroesse aller Anhaenge des Users (Speicherplatz-Kontingent)."""
     row = con.execute("SELECT COALESCE(SUM(size), 0) FROM attachments").fetchone()
     return int(row[0])
 

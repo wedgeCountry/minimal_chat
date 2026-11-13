@@ -38,7 +38,6 @@ def _session_exists(db: Database, user: dict, session_id: str) -> bool:
 
 
 def _try_start_generation(db: Database, user: dict, session_id: str) -> str:
-    """Atomares Check-and-Set von generating (race-frei, siehe q_try_start_generating)."""
     with db.user_db(user) as con:
         return dbq.q_try_start_generating(con, session_id)
 
@@ -60,13 +59,11 @@ async def chat(
         raise HTTPException(status_code=404, detail="Session nicht gefunden")
     _session, stored, attachments = ctx
     base_url = resolve_base_url(stored, config)
-    # SSRF-Schutz: user-gesteuerte LLM-URL vor dem ersten Upstream-Request pruefen
     try:
         validate_llm_base_url(base_url, config.allow_private_llm)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
-    # Atomar markieren, BEVOR die Hintergrund-Task startet: zwei parallele POSTs
-    # derselben Session duerfen nicht beide durchkommen (TOCTOU).
+    # vor Task-Start atomar setzen, sonst TOCTOU-Race bei parallelen POSTs
     status = await asyncio.to_thread(_try_start_generation, db, user, req.session_id)
     if status == "missing":
         raise HTTPException(status_code=404, detail="Session nicht gefunden")
