@@ -91,17 +91,35 @@ export function statusLabel(mode) {
 }
 
 let activeAudio = null;
+let systemSpeaking = false;
+
+// Hook fuer das Aufnahme-Modul (recorder.js): speak() stoppt eine laufende
+// Aufnahme, ohne dass die Module zyklisch importieren muessen.
+let recordingStopper = null;
+export function registerRecordingStopper(fn) {
+  recordingStopper = fn;
+}
+export function stopRecording(opts) {
+  if (recordingStopper) recordingStopper(opts);
+}
 
 export function isSpeaking() {
-  return !!activeAudio;
+  return !!activeAudio || systemSpeaking;
 }
 
 export function stopSpeech() {
   if (activeAudio) {
+    activeAudio.__stopped = true; // pause() unterbricht play() -> AbortError ist gewollt
     activeAudio.pause();
     activeAudio = null;
-    document.querySelectorAll(".ttsBtn.on").forEach((x) => x.classList.remove("on"));
   }
+  if (systemSpeaking) {
+    systemSpeaking = false;
+    try {
+      speechSynthesis.cancel();
+    } catch {}
+  }
+  document.querySelectorAll(".ttsBtn.on").forEach((x) => x.classList.remove("on"));
 }
 
 // TTS-Aktion inkl. Modus-Erkennung: system -> speechSynthesis, server -> Voice
@@ -116,19 +134,30 @@ export async function speak(text, btn, { onError } = {}) {
     await onError?.(mode === "system" ? SYSTEM_UNAVAILABLE_MSG : VOICE_UNAVAILABLE_MSG);
     return;
   }
+  // laufende Aufnahme stoppen und Puffer verwerfen (Wiedergabe gewinnt ueber STT)
+  stopRecording({ discard: true });
   if (mode === "system") {
     const u = new SpeechSynthesisUtterance(text || "");
     u.lang = "de-DE";
-    u.onend = () => btn?.classList.remove("on");
+    systemSpeaking = true;
+    const done = () => {
+      systemSpeaking = false;
+      btn?.classList.remove("on");
+    };
+    u.onend = done;
+    u.onerror = done;
     btn?.classList.add("on");
     speechSynthesis.speak(u);
     return;
   }
+  const audio = new Audio();
+  // sofort als aktiv markieren, damit ein schneller zweiter Klick stoppt
+  activeAudio = audio;
+  btn?.classList.add("on");
   try {
     const blob = await synthesizeSpeech(text || "");
-    const audio = new Audio(URL.createObjectURL(blob));
-    activeAudio = audio;
-    btn?.classList.add("on");
+    if (activeAudio !== audio) return; // inzwischen per stopSpeech() gestoppt
+    audio.src = URL.createObjectURL(blob);
     audio.onended = () => {
       btn?.classList.remove("on");
       if (activeAudio === audio) activeAudio = null;
@@ -136,8 +165,9 @@ export async function speak(text, btn, { onError } = {}) {
     audio.onerror = audio.onended;
     await audio.play();
   } catch (err) {
+    if (audio.__stopped) return; // durch stopSpeech() gewollt beendet -> kein Fehler
+    if (activeAudio === audio) activeAudio = null;
     btn?.classList.remove("on");
-    if (activeAudio) activeAudio = null;
     await onError?.(err.message || "Vorlesen fehlgeschlagen.");
   }
 }
