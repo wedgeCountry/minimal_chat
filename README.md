@@ -77,7 +77,7 @@ python -m app              # startet uvicorn (Host/Port aus der .env), .env wird
 # oder: uvicorn app.main:app --host 127.0.0.1 --port 8000
 ```
 
-Dann `http://127.0.0.1:8000` im Browser öffnen, `.env` anpassen (z. B. `LEANCHAT_API_KEY`), registrieren und chatten.
+Dann `http://127.0.0.1:8000` im Browser öffnen, `.env` anpassen (z. B. `LEANCHAT_API_KEY`), registrieren und chatten. Ohne gueltige Session leitet `/` serverseitig auf `/auth/login` um; nach dem Login geht es zurueck auf `/`.
 
 ## Tests
 

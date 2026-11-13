@@ -115,17 +115,18 @@ def test_chat_rejects_malformed_base_url(client, auth_headers):
 # --- Security-Header ---
 
 
-def test_security_headers_on_app_pages(client):
-    res = client.get("/")
-    assert res.status_code == 200
-    assert res.headers["X-Content-Type-Options"] == "nosniff"
-    assert res.headers["X-Frame-Options"] == "DENY"
-    assert res.headers["Referrer-Policy"] == "strict-origin-when-cross-origin"
-    csp = res.headers["Content-Security-Policy"]
-    assert "default-src 'self'" in csp
-    assert "script-src 'self'" in csp
-    assert "unsafe-inline" not in csp  # App braucht keine Inline-Skripte
-    assert "Strict-Transport-Security" not in res.headers  # ohne TLS kein HSTS
+def test_security_headers_on_app_pages(app):
+    with login_client(app) as client:
+        res = client.get("/")
+        assert res.status_code == 200
+        assert res.headers["X-Content-Type-Options"] == "nosniff"
+        assert res.headers["X-Frame-Options"] == "DENY"
+        assert res.headers["Referrer-Policy"] == "strict-origin-when-cross-origin"
+        csp = res.headers["Content-Security-Policy"]
+        assert "default-src 'self'" in csp
+        assert "script-src 'self'" in csp
+        assert "unsafe-inline" not in csp  # App braucht keine Inline-Skripte
+        assert "Strict-Transport-Security" not in res.headers  # ohne TLS kein HSTS
 
 
 def test_auth_pages_get_relaxed_csp_for_inline_csrf_script(client):
