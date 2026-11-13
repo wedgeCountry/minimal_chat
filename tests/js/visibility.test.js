@@ -15,6 +15,7 @@ test("alle Bubbles sichtbar bei Defaults", () => {
   assert.ok(isBubbleVisible({ role: "user", type: "message" }, allOn));
   assert.ok(isBubbleVisible({ role: "assistant", type: "reasoning" }, allOn));
   assert.ok(isBubbleVisible({ role: "assistant", type: "toolcall" }, allOn));
+  assert.ok(isBubbleVisible({ role: "assistant", type: "toolresult" }, allOn));
   assert.ok(isBubbleVisible({ role: "system", type: "message" }, allOn));
 });
 
@@ -24,9 +25,10 @@ test("show_reasoning=false blendet Reasoning-Bubbles aus", () => {
   assert.ok(isBubbleVisible({ role: "assistant", type: "message" }, s));
 });
 
-test("show_tool_output=false blendet Tool-Calls aus", () => {
+test("show_tool_output=false blendet Tool-Calls und Tool-Results aus", () => {
   const s = { ...allOn, show_tool_output: false };
   assert.equal(isBubbleVisible({ role: "assistant", type: "toolcall" }, s), false);
+  assert.equal(isBubbleVisible({ role: "assistant", type: "toolresult" }, s), false);
 });
 
 test("show_system_prompt=false blendet System-Bubbles aus", () => {

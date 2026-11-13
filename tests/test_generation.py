@@ -105,7 +105,8 @@ def test_abort_key_is_scoped_per_user(user):
 def test_run_generation_persists_content_reasoning_and_toolcalls(db, user, sid, monkeypatch):
     async def fake_stream(*args, **kwargs):
         yield _sse({"reasoning_content": "denke"}, {"content": "Hallo "}, {"content": "Welt"},
-                   {"tool_calls": [{"index": 0, "function": {"name": "f", "arguments": "{}"}}]})
+                   {"tool_calls": [{"index": 0, "function": {"name": "f", "arguments": "{}"}}]},
+                   {"tool_results": [{"index": 0, "name": "f", "result": "42"}]})
 
     monkeypatch.setattr("app.services.generation.stream_completion", fake_stream)
     asyncio.run(run_generation(db, user, sid, "http://llm.test/v1", "k", {"messages": []}))
@@ -118,6 +119,7 @@ def test_run_generation_persists_content_reasoning_and_toolcalls(db, user, sid, 
     assert texts[("assistant", "reasoning")] == "denke"
     assert texts[("assistant", "message")] == "Hallo Welt"
     assert texts[("assistant", "toolcall")] == "f({})"
+    assert texts[("assistant", "toolresult")] == "f: 42"
     assert is_running(user, sid) is False
 
 

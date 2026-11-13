@@ -11,7 +11,7 @@ CREATE TABLE IF NOT EXISTS messages (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     session_id  TEXT NOT NULL REFERENCES sessions (id) ON DELETE CASCADE,
     role        TEXT NOT NULL CHECK (role IN ('user', 'assistant', 'system')),
-    type        TEXT NOT NULL DEFAULT 'message' CHECK (type IN ('message', 'toolcall', 'reasoning')),
+    type        TEXT NOT NULL DEFAULT 'message' CHECK (type IN ('message', 'toolcall', 'reasoning', 'toolresult')),
     text        TEXT NOT NULL DEFAULT '',
     in_context  INTEGER NOT NULL DEFAULT 1,
     attachments TEXT NOT NULL DEFAULT '[]',

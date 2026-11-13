@@ -97,6 +97,8 @@ def _filter_sse_data(data: str, show_reasoning: bool, show_tool_output: bool) ->
                 delta.pop("reasoning", None)
             if not show_tool_output:
                 delta.pop("tool_calls", None)
+                delta.pop("tool_results", None)
+                delta.pop("tool_result", None)
     return json.dumps(event, separators=(",", ":"))
 
 

@@ -6,7 +6,7 @@ import { controlsVisible, speak, isSpeaking, stopSpeech } from "./ttsDetectionSe
 import { showError } from "./confirm.js";
 import { BUBBLE_MODES, clampText, isClamped, nextBubbleMode, bubbleModeTitle, defaultBubbleMode } from "./bubbleMode.js";
 
-const typeLabels = { message: "", toolcall: "Tool-Call", reasoning: "Thinking", system: "System" };
+const typeLabels = { message: "", toolcall: "Tool-Call", toolresult: "Tool-Result", reasoning: "Thinking", system: "System" };
 
 let tmpBubbleSeq = 0;
 

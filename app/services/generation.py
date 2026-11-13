@@ -56,7 +56,8 @@ async def run_generation(
     ai_text = ""
     think_text = ""
     tools: dict[int, dict[str, str]] = {}
-    ids: dict[str, Any] = {"ai": None, "think": None, "tool": {}}
+    tool_results: dict[int, dict[str, str]] = {}
+    ids: dict[str, Any] = {"ai": None, "think": None, "tool": {}, "toolres": {}}
     error: str | None = None
     buf = ""
 
@@ -90,6 +91,14 @@ async def run_generation(
             else:
                 ids["tool"][idx] = dbq.q_add_message(
                     con, sid, {"role": "assistant", "type": "toolcall", "text": text, "in_context": False}
+                )["id"]
+        for idx, r in tool_results.items():
+            text = f"{r['name']}: {r['result']}" if r["name"] else r["result"]
+            if idx in ids["toolres"]:
+                dbq.q_update_message(con, ids["toolres"][idx], {"text": text})
+            else:
+                ids["toolres"][idx] = dbq.q_add_message(
+                    con, sid, {"role": "assistant", "type": "toolresult", "text": text, "in_context": False}
                 )["id"]
         if final:
             if error:
@@ -146,6 +155,15 @@ async def run_generation(
                         fn = tc.get("function") or {}
                         t["name"] += fn.get("name") or ""
                         t["args"] += fn.get("arguments") or ""
+                    for tr in delta.get("tool_results") or []:
+                        idx = tr.get("index", len(tool_results))
+                        r = tool_results.setdefault(idx, {"name": "", "result": ""})
+                        fn = tr.get("function") or {}
+                        r["name"] += tr.get("name") or fn.get("name") or ""
+                        r["result"] += (
+                            tr.get("result") or tr.get("content") or tr.get("output") or tr.get("text")
+                            or fn.get("result") or fn.get("arguments") or ""
+                        )
         finally:
             stop_flush.set()
             flusher.cancel()

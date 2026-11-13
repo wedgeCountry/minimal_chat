@@ -129,6 +129,45 @@ def test_user_db_migrates_legacy_key_on_write(db):
     assert b"dark" in plain
 
 
+def test_user_db_migrates_messages_type_check_for_toolresult(db):
+    """Bestehende DBs (alter CHECK ohne 'toolresult') werden per Tabellen-Rebuild migriert."""
+    import sqlite3
+
+    user = _make_user()
+    old_schema = """
+        CREATE TABLE sessions (
+            id TEXT PRIMARY KEY, name TEXT NOT NULL, ts INTEGER NOT NULL
+        );
+        CREATE TABLE messages (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            session_id TEXT NOT NULL REFERENCES sessions (id) ON DELETE CASCADE,
+            role TEXT NOT NULL CHECK (role IN ('user', 'assistant', 'system')),
+            type TEXT NOT NULL DEFAULT 'message' CHECK (type IN ('message', 'toolcall', 'reasoning')),
+            text TEXT NOT NULL DEFAULT '',
+            in_context INTEGER NOT NULL DEFAULT 1,
+            attachments TEXT NOT NULL DEFAULT '[]',
+            created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
+        );
+    """
+    con = sqlite3.connect(":memory:")
+    con.executescript(old_schema)
+    con.execute("INSERT INTO sessions (id, name, ts) VALUES ('s1', 'Alt', 1)")
+    con.execute("INSERT INTO messages (session_id, role, type, text) VALUES ('s1', 'user', 'message', 'hallo')")
+    con.commit()
+    token = crypto.encrypt(crypto.normalize_key(user["key"]), con.serialize())
+    con.close()
+    db.users_dir.mkdir(parents=True, exist_ok=True)
+    (db.users_dir / f"{user['uid']}.db.enc").write_bytes(token)
+
+    with db.user_db(user) as con:
+        msgs = q_get_messages(con, "s1")
+        assert [m["text"] for m in msgs] == ["hallo"]
+        q_add_message(con, "s1", {"role": "assistant", "type": "toolresult", "text": "f: 42", "in_context": False})
+    with db.user_db(user) as con:
+        types = [m["type"] for m in q_get_messages(con, "s1")]
+        assert types == ["message", "toolresult"]
+
+
 def test_user_settings_table_roundtrip(db):
     user = _make_user()
     with db.user_db(user) as con:

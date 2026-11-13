@@ -24,14 +24,26 @@ export function abortStream() {
   if (s) api.post("/chat/abort", { session_id: s.id }).catch(() => {});
 }
 
+// Bei gleichem Zeitstempel (Sekundenaufloesung): die finale Assistant-Message
+// landet hinter ihren Sondertypen, Toolcall vor Toolresult; sonst Einfuegereihenfolge (id).
+const _TYPE_TIE_RANK = { reasoning: 0, toolcall: 1, toolresult: 2 };
+
+function _tieBreak(a, b) {
+  const fa = a.type === "message" && a.role === "assistant" ? 1 : 0;
+  const fb = b.type === "message" && b.role === "assistant" ? 1 : 0;
+  if (fa !== fb) return fa - fb;
+  const ra = _TYPE_TIE_RANK[a.type] ?? 0;
+  const rb = _TYPE_TIE_RANK[b.type] ?? 0;
+  if (ra !== rb) return ra - rb;
+  return (a.id ?? 0) - (b.id ?? 0);
+}
+
 export function sortMessagesForRender(messages) {
-  // Chronologisch nach Zeitstempel, bei Gleichstand (Sekundenaufloesung)
-  // nach id (Einfuegereihenfolge) - so landet der Reasoning-Bubble direkt
-  // vor seiner Antwort, weil er vor ihr persistiert wird.
+  // Chronologisch nach Zeitstempel, bei Gleichstand (Sekundenaufloesung) nach _tieBreak
   return [...messages].sort((a, b) => {
     const d = (a.ts ?? 0) - (b.ts ?? 0);
     if (d !== 0) return d;
-    return (a.id ?? 0) - (b.id ?? 0);
+    return _tieBreak(a, b);
   });
 }
 
