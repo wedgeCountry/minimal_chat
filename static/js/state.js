@@ -1,7 +1,6 @@
 const _ss = typeof sessionStorage !== "undefined" ? sessionStorage : null;
 
 export const state = {
-  username: null,
   appName: "LeanChat",
   sessions: [],
   activeId: _ss?.getItem("leanchat.active") || null,

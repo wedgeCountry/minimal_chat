@@ -1,12 +1,13 @@
 import { state } from "./state.js";
 
-async function request(path, { method = "GET", body, raw = false, signal } = {}) {
+async function request(path, { method = "GET", body, signal } = {}) {
   const headers = {};
-  if (body !== undefined) headers["Content-Type"] = "application/json";
+  const isForm = typeof FormData !== "undefined" && body instanceof FormData;
+  if (body !== undefined && !isForm) headers["Content-Type"] = "application/json";
   const res = await fetch("/api" + path, {
     method,
     headers,
-    body: body !== undefined ? JSON.stringify(body) : undefined,
+    body: body !== undefined ? (isForm ? body : JSON.stringify(body)) : undefined,
     signal,
   });
   if (res.status === 401) {
@@ -23,12 +24,13 @@ async function request(path, { method = "GET", body, raw = false, signal } = {})
     throw new Error(msg);
   }
   if (res.status === 204) return null;
-  return raw ? res : res.json();
+  return res.json();
 }
 
 export const api = {
   get: (path) => request(path),
   post: (path, body, opts) => request(path, { method: "POST", body, ...opts }),
+  postForm: (path, form) => request(path, { method: "POST", body: form }),
   patch: (path, body) => request(path, { method: "PATCH", body }),
   put: (path, body) => request(path, { method: "PUT", body }),
   del: (path) => request(path, { method: "DELETE" }),

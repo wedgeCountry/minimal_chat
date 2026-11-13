@@ -6,7 +6,8 @@ Usage (from the repository root):
     python scripts/run_test.py --mockdata  # use mockdata directory with test databases
 
 - Starts LeanChat on localhost (127.0.0.1:8000)
-- Configures the app to use a real LLM endpoint at http://100.100.180.90:1234/v1
+- Configures the app to use an LLM endpoint (default: http://127.0.0.1:1234/v1,
+  override via --llm-base or LEANCHAT_E2E_LLM_BASE)
 - Uses model: openai/google/gemma-4-e4b
 - Enables auto-login (no login required, uses default test user)
 - Uses the persistent data-test/ directory by default (data survives reruns),
@@ -83,8 +84,8 @@ def main() -> None:
     )
     parser.add_argument(
         "--llm-base",
-        default="http://100.100.180.90:1234/v1",
-        help="Base URI for the LLM endpoint (default: http://100.100.180.90:1234/v1)",
+        default=os.environ.get("LEANCHAT_E2E_LLM_BASE", "http://127.0.0.1:1234/v1"),
+        help="Base URI for the LLM endpoint (default: LEANCHAT_E2E_LLM_BASE or http://127.0.0.1:1234/v1)",
     )
     parser.add_argument(
         "--llm-model",

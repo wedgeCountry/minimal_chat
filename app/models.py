@@ -19,6 +19,7 @@ class MessageOut(MessageIn):
 class MessagePatch(BaseModel):
     in_context: bool | None = None
     text: str | None = None
+    attachments: list[dict[str, Any]] | None = None
 
 
 class SessionIn(BaseModel):
@@ -74,12 +75,6 @@ class SettingsOut(BaseModel):
     show_reasoning: bool = True
     show_file_button: bool = False
     show_image_button: bool = False
-
-
-class AttachmentIn(BaseModel):
-    name: str
-    type: str = ""
-    data: str  # Base64-kodierte Rohdatei
 
 
 class AttachmentOut(BaseModel):

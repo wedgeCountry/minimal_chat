@@ -30,8 +30,6 @@ from . import crypto
 
 SCHEMA_PATH = Path(__file__).with_name("schema.sql")
 
-_lock = threading.RLock()
-
 
 def _now_ms() -> int:
     return int(time.time() * 1000)
@@ -44,6 +42,7 @@ def _new_uid() -> str:
 def _row_to_message(row: sqlite3.Row) -> dict:
     return {
         "id": row["id"],
+        "session_id": row["session_id"],
         "role": row["role"],
         "type": row["type"],
         "text": row["text"],
@@ -75,6 +74,18 @@ class Database:
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self.users_dir = Path(users_dir) if users_dir else self.data_dir / "users"
         self.users_dir.mkdir(parents=True, exist_ok=True)
+        self._locks_guard = threading.Lock()
+        self._locks: dict[str, threading.RLock] = {}
+
+    def _lock_for(self, user: dict) -> threading.RLock:
+        """Pro-User-Sperre: gleichzeitige Zugriffe verschiedener User blockieren sich nicht."""
+        key = str(self._db_path(user))
+        with self._locks_guard:
+            lock = self._locks.get(key)
+            if lock is None:
+                lock = threading.RLock()
+                self._locks[key] = lock
+            return lock
 
     def _db_path(self, user: dict) -> Path:
         return self.users_dir / f"{user['uid']}.db.enc"
@@ -89,24 +100,47 @@ class Database:
 
     @contextmanager
     def user_db(self, user: dict) -> Iterator[sqlite3.Connection]:
-        """Entschluesselte In-Memory-Sicht auf die SQLite-Datei eines Users."""
-        with _lock:
-            key = crypto.normalize_key(user["key"])
+        """Entschluesselte In-Memory-Sicht auf die SQLite-Datei eines Users.
+
+        Zurueckgeschrieben (verschluesselt persistiert) wird nur, wenn sich
+        tatsaechlich etwas geaendert hat (``total_changes``); reine
+        Lesezugriffe erzeugen kein Datei-I/O.
+        """
+        with self._lock_for(user):
             path = self._db_path(user)
             con = sqlite3.connect(":memory:")
             con.row_factory = sqlite3.Row
             con.execute("PRAGMA foreign_keys = ON")
             try:
                 if path.exists():
-                    con.deserialize(crypto.decrypt(key, path.read_bytes()))
+                    token = path.read_bytes()
+                    plain = None
+                    last_error: ValueError | None = None
+                    # Primaeren (Argon2id-)Schluessel versuchen, bei Bedarf den
+                    # Legacy-Schluessel (alte SHA-256-Ableitung): erfolgreiche
+                    # Migration wird beim naechsten Schreibzugriff mit dem
+                    # neuen Schluessel persistiert.
+                    for key_b64 in (user.get("key"), user.get("legacy_key")):
+                        if not key_b64:
+                            continue
+                        try:
+                            plain = crypto.decrypt(crypto.normalize_key(key_b64), token)
+                            break
+                        except ValueError as exc:
+                            last_error = exc
+                    if plain is None:
+                        raise last_error or ValueError("Entschluesselung fehlgeschlagen")
+                    con.deserialize(plain)
                 con.executescript(SCHEMA_PATH.read_text(encoding="utf-8"))
                 # Migration fuer bestehende DBs: generating-Spalte nachziehen
                 cols = {r[1] for r in con.execute("PRAGMA table_info(sessions)").fetchall()}
                 if "generating" not in cols:
                     con.execute("ALTER TABLE sessions ADD COLUMN generating INTEGER NOT NULL DEFAULT 0")
+                changes_before = con.total_changes
                 yield con
-                con.commit()
-                self._write_encrypted(user, con.serialize())
+                if con.total_changes > changes_before:
+                    con.commit()
+                    self._write_encrypted(user, con.serialize())
             finally:
                 con.close()
 
@@ -186,11 +220,19 @@ def q_update_message(con: sqlite3.Connection, mid: int, patch: dict) -> dict | N
         con.execute("UPDATE messages SET in_context = ? WHERE id = ?", (1 if patch["in_context"] else 0, mid))
     if patch.get("text") is not None:
         con.execute("UPDATE messages SET text = ? WHERE id = ?", (patch["text"], mid))
+    if patch.get("attachments") is not None:
+        con.execute("UPDATE messages SET attachments = ? WHERE id = ?", (json.dumps(patch["attachments"]), mid))
     return q_get_message(con, mid)
 
 
 def q_delete_message(con: sqlite3.Connection, mid: int) -> None:
     con.execute("DELETE FROM messages WHERE id = ?", (mid,))
+
+
+def q_delete_messages_after(con: sqlite3.Connection, sid: str, mid: int) -> int:
+    # ids sind autoincrement -> id > mid ist die chronologische Reihenfolge der Session
+    cur = con.execute("DELETE FROM messages WHERE session_id = ? AND id > ?", (sid, mid))
+    return cur.rowcount
 
 
 # --- Attachments ---
@@ -215,11 +257,6 @@ def q_add_attachment(con: sqlite3.Connection, sid: str, att: dict) -> dict:
     )
     row = con.execute("SELECT * FROM attachments WHERE id = ?", (cur.lastrowid,)).fetchone()
     return _row_to_attachment(row)
-
-
-def q_get_attachment(con: sqlite3.Connection, aid: int) -> dict | None:
-    row = con.execute("SELECT * FROM attachments WHERE id = ?", (aid,)).fetchone()
-    return _row_to_attachment(row) if row else None
 
 
 def q_get_session_attachments(con: sqlite3.Connection, sid: str) -> list[dict]:

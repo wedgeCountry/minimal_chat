@@ -6,8 +6,8 @@ Eine schlanke, eigenständige Chat-Oberfläche für OpenAI-kompatible Endpunkte.
 
 **Ziele**
 
-- Eine einzige, self-contained HTML-Datei (HTML + CSS + JavaScript, keine externen Abhängigkeiten)
-- Streaming von OpenAI-kompatiblen Endpunkten (`/v1/chat/completions`, SSE)
+- Schlankes Chat-Frontend (statische ES-Module ohne Build-Schritt) mit FastAPI-Backend und verschlüsselten per-user SQLite-Dateien (siehe README.md)
+- Serverseitige Generierung von OpenAI-kompatiblen Endpunkten (`/v1/chat/completions`, SSE); der Client pollt den persistierten Stand
 - Elegantes, minimalistisches Design mit hellem und dunklem Theme (Standard: hell)
 - Sessions mit klaren, minimalen Interaktionsmöglichkeiten
 
@@ -60,6 +60,8 @@ Eigenschaften je Bubble:
 | Dreistufig ausklappbar | Toggle in der Kopfzeile wechselt zyklisch: `normal` (max. 10 Zeilen, Rest hinter `[...]`), `full` (kompletter Text), `collapsed` (1 Zeile, Rest hinter `[...]`); Standard: `message`/`user`/`assistant` = normal, `reasoning`/`toolcall` = collapsed |
 | Mindestzeilenanzahl | Bubbles behalten eine Mindesthöhe, damit kurze Nachrichten das Layout nicht springen lassen |
 | Kopieren | Kopier-Symbol kopiert den Inhalt in die Zwischenablage (`navigator.clipboard`, Fallback `execCommand`) |
+| Bearbeiten | Stift-Symbol nur auf der letzten Nutzernachricht: Inline-Edit direkt in der Bubble (Textarea in den Bubble-Farben mit X-Button rechts daneben, Enter sendet, Esc bricht ab); beim Senden wird die Nachricht per `PATCH` aktualisiert, alle Nachrichten danach per `DELETE /api/sessions/{id}/messages/after/{mid}` gelöscht und die Antwort neu generiert |
+| Erneut senden | Refresh-Symbol nur auf der letzten Nutzernachricht: dasselbe wie **Bearbeiten ohne Textänderung** – die Nachricht wird per `PATCH` unverändert übernommen, alle Nachrichten danach gelöscht und die Antwort neu generiert |
 | Vorlesen | Audio-Symbol: Vorlesen per `speechSynthesis`, erneuter Klick stoppt |
 | Kontext-Checkbox | Rechts oben; legt fest, ob die Nachricht beim nächsten Request im `messages`-Array mitgesendet wird |
 | Löschen | Mülleimer-Symbol entfernt die Nachricht aus der Session |
@@ -87,7 +89,7 @@ Dialog (Modal) mit Feldern:
 - **Modell** (freie Texteingabe oder Auswahl aus `/v1/models`, wenn erreichbar)
 - **Theme**: hell / dunkel (Standard hell), umgeschaltet per CSS-Klasse und `prefers-color-scheme` als Initial-Fallback
 
-Speicherung: `localStorage` für Einstellungen und Sessions (Key `leanchat.*`).
+Speicherung: serverseitig in der verschlüsselten per-user SQLite (`user_settings`); nur UI-Zustand (aktives Panel, Bubble-Breiten) liegt im `localStorage`/`sessionStorage` (Key `leanchat.*`).
 
 ## 6. Design
 
@@ -98,8 +100,8 @@ Speicherung: `localStorage` für Einstellungen und Sessions (Key `leanchat.*`).
 
 ## 7. Technische Rahmenbedingungen
 
-- Single-File: `index.html` mit inline `<style>` und `<script>`
-- Keine externen Ressourcen, keine Build-Tools
+- FastAPI-Backend (`app/`) + statisches Frontend (`static/`, ES-Module ohne Build-Tools)
+- Datei-Uploads per Multipart (`POST /api/sessions/{id}/attachments`), serverseitige Verarbeitung
 - OpenAI-kompatibles Protokoll: `POST {baseURL}/chat/completions`, `Authorization: Bearer {key}`
 - Fehlerbehandlung: Netzwerk-/Auth-Fehler als System-Bubble im Chat
-- Alle Zustandsmutationen sofort in `localStorage` persistiert
+- App-Zustand serverseitig in der verschlüsselten per-user DB persistiert

@@ -8,12 +8,11 @@ Hintergrund) die Verbindung verliert; der Client pollt einfach den Session-Stand
 from __future__ import annotations
 
 import asyncio
-import json
 from typing import Any
 
 from ..db import database as dbq
 from ..db.database import Database
-from .chat import stream_completion
+from .chat import parse_sse_buffer, stream_completion
 
 FLUSH_INTERVAL_S = 0.25
 
@@ -35,24 +34,6 @@ def request_abort(user: dict, sid: str) -> bool:
 
 def is_running(user: dict, sid: str) -> bool:
     return _key(user, sid) in _running
-
-
-def _parse_events(buf: str) -> tuple[list[dict], str]:
-    events: list[dict] = []
-    lines = buf.split("\n")
-    buf = lines.pop()
-    for line in lines:
-        t = line.strip()
-        if not t.startswith("data:"):
-            continue
-        data = t[len("data:"):].strip()
-        if data == "[DONE]":
-            continue
-        try:
-            events.append(json.loads(data))
-        except json.JSONDecodeError:
-            continue
-    return events, buf
 
 
 async def run_generation(
@@ -79,42 +60,54 @@ async def run_generation(
     error: str | None = None
     buf = ""
 
-    def flush(final: bool = False) -> None:
-        with db.user_db(user) as con:
-            if think_text:
-                if ids["think"] is None:
-                    ids["think"] = dbq.q_add_message(
-                        con, sid, {"role": "assistant", "type": "reasoning", "text": think_text, "in_context": False}
-                    )["id"]
-                else:
-                    dbq.q_update_message(con, ids["think"], {"text": think_text})
-            if ai_text:
-                if ids["ai"] is None:
-                    ids["ai"] = dbq.q_add_message(
-                        con, sid, {"role": "assistant", "type": "message", "text": ai_text, "in_context": True}
-                    )["id"]
-                else:
-                    dbq.q_update_message(con, ids["ai"], {"text": ai_text})
-            for idx, t in tools.items():
-                text = f"{t['name'] or 'tool'}({t['args']})"
-                if idx in ids["tool"]:
-                    dbq.q_update_message(con, ids["tool"][idx], {"text": text})
-                else:
-                    ids["tool"][idx] = dbq.q_add_message(
-                        con, sid, {"role": "assistant", "type": "toolcall", "text": text, "in_context": False}
-                    )["id"]
-            if final:
-                if error:
-                    dbq.q_add_message(
-                        con, sid, {"role": "system", "type": "message", "text": "Fehler: " + error, "in_context": False}
-                    )
-                dbq.q_set_generating(con, sid, False)
+    async def flush(final: bool = False) -> None:
+        # DB-Zugriff (Dekodieren/Verschluesseln der per-user DB) ist blockierend
+        # und darf nicht direkt auf dem Event-Loop laufen.
+        def _flush() -> None:
+            with db.user_db(user) as con:
+                _flush_into(con, final)
+        await asyncio.to_thread(_flush)
 
-    try:
+    def _flush_into(con, final: bool) -> None:
+        if think_text:
+            if ids["think"] is None:
+                ids["think"] = dbq.q_add_message(
+                    con, sid, {"role": "assistant", "type": "reasoning", "text": think_text, "in_context": False}
+                )["id"]
+            else:
+                dbq.q_update_message(con, ids["think"], {"text": think_text})
+        if ai_text:
+            if ids["ai"] is None:
+                ids["ai"] = dbq.q_add_message(
+                    con, sid, {"role": "assistant", "type": "message", "text": ai_text, "in_context": True}
+                )["id"]
+            else:
+                dbq.q_update_message(con, ids["ai"], {"text": ai_text})
+        for idx, t in tools.items():
+            text = f"{t['name'] or 'tool'}({t['args']})"
+            if idx in ids["tool"]:
+                dbq.q_update_message(con, ids["tool"][idx], {"text": text})
+            else:
+                ids["tool"][idx] = dbq.q_add_message(
+                    con, sid, {"role": "assistant", "type": "toolcall", "text": text, "in_context": False}
+                )["id"]
+        if final:
+            if error:
+                dbq.q_add_message(
+                    con, sid, {"role": "system", "type": "message", "text": "Fehler: " + error, "in_context": False}
+                )
+            dbq.q_set_generating(con, sid, False)
+
+    def _mark_generating() -> bool:
         with db.user_db(user) as con:
             if not dbq.q_get_session(con, sid):
-                return
+                return False
             dbq.q_set_generating(con, sid, True)
+            return True
+
+    try:
+        if not await asyncio.to_thread(_mark_generating):
+            return
         # Periodisches Flushen: Teilausgabe landet auch ohne neuen Chunk
         # nach spaetestens FLUSH_INTERVAL_S in der DB (nicht nur bei Chunk-Eingang).
         stop_flush = asyncio.Event()
@@ -125,7 +118,7 @@ async def run_generation(
                     await asyncio.wait_for(stop_flush.wait(), FLUSH_INTERVAL_S)
                     return
                 except asyncio.TimeoutError:
-                    flush()
+                    await flush()
 
         flusher = asyncio.create_task(_periodic_flush())
         try:
@@ -133,7 +126,7 @@ async def run_generation(
                 if ev.is_set():
                     break
                 buf += chunk
-                events, buf = _parse_events(buf)
+                events, buf = parse_sse_buffer(buf)
                 for j in events:
                     if j.get("error"):
                         error = str(j["error"])
@@ -165,6 +158,6 @@ async def run_generation(
     except Exception as exc:  # noqa: BLE001 - Fehler wird als System-Message persistiert
         error = error or str(exc)
     finally:
-        flush(final=True)
+        await flush(final=True)
         _abort_events.pop(key, None)
         _running.discard(key)

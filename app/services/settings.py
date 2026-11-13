@@ -13,18 +13,9 @@ BOOL_SETTINGS: dict[str, bool] = {
     "show_image_button": False,
 }
 
-# Fruehere Schluessel (vor dem Umbenennen ohne User-Bezug)
-LEGACY_KEYS = {
-    "bubbles_checkable": "bubbles_user_checkable",
-    "bubbles_deletable": "bubbles_user_deletable",
-}
-
-
 def stored_bool(stored: dict[str, str], key: str) -> bool:
     default = "1" if BOOL_SETTINGS[key] else "0"
-    value = stored.get(key)
-    if value is None:
-        value = stored.get(LEGACY_KEYS.get(key, ""), default)
+    value = stored.get(key, default)
     return value not in ("0", "false", "")
 
 

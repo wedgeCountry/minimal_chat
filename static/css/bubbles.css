@@ -113,6 +113,13 @@
 .bubbleBody{font-size:var(--bubble-body-size);line-height:1.5;white-space:pre-wrap;word-break:break-word;min-height:21px}
 .bubbleBody.clamped{cursor:pointer}
 .chev{padding:2px}
+
+/* Inline-Edit innerhalb der Bubble: gleiche Farben wie die Bubble selbst,
+   Abbrechen-Button als schlanke Spalte rechts neben dem Textfeld */
+.bubble .editRow{display:flex;align-items:flex-start;gap:6px}
+.bubble .editInput{flex:1;min-width:0;resize:none;border:none;background:var(--bubble-bg);color:var(--bubble-color);padding:0;font:inherit;font-size:var(--bubble-body-size);line-height:1.5;max-height:180px;outline:none}
+.bubble .editCancelBtn{flex:none;padding:2px;color:var(--bubble-color)}
+.bubble .editCancelBtn svg{width:12px;height:12px}
 .chev svg{width:12px;height:12px}
 .bubble.collapsed .chev svg{transform:rotate(-90deg)}
 .bubble.full .chev svg{transform:rotate(180deg)}

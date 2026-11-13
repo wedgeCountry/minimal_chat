@@ -52,8 +52,8 @@ def test_chat_message_requires_role_and_content(client, auth_headers):
     assert res.status_code == 422
 
 
-def test_client_log_rejects_message_over_4000_chars(client):
-    res = client.post("/api/log", json={"level": "error", "message": "x" * 4001})
+def test_client_log_rejects_message_over_4000_chars(client, auth_headers):
+    res = client.post("/api/log", json={"level": "error", "message": "x" * 4001}, headers=auth_headers)
     assert res.status_code == 422
-    res = client.post("/api/log", json={"level": "fatal", "message": "x"})
+    res = client.post("/api/log", json={"level": "fatal", "message": "x"}, headers=auth_headers)
     assert res.status_code == 422

@@ -2,24 +2,18 @@ import { api } from "./api.js";
 import { state, activeSession, normalizeMessages } from "./state.js";
 import { $, } from "./util.js";
 import { goToLogin } from "./auth.js";
-import { loadSessions, renderSessions, newSession, changed } from "./sessions.js";
+import { loadSessions, renderSessions, newSession } from "./sessions.js";
 import { abortStream, pollOnce, renderChat, renderHeader, send } from "./chat.js";
-import { addAttachments, renderAttachments } from "./attachments.js";
+import { addAttachments } from "./attachments.js";
 import { initSettings, loadSettings, openSettings } from "./settings.js";
 import { initConfirm } from "./confirm.js";
-import { applyTheme } from "./theme.js";
 import { initPartials } from "./html.js";
 import { initGlobalErrorHandling } from "./errors.js";
 
 let currentMessages = [];
 
-const SIDE_HIDDEN_KEY = "leanchat.sideHidden";
-
 function setSideHidden(hidden) {
   $("side").classList.toggle("hidden", hidden);
-  try {
-    localStorage.setItem(SIDE_HIDDEN_KEY, hidden ? "1" : "0");
-  } catch {}
 }
 
 export function isMobileInput() {
@@ -74,8 +68,7 @@ async function bootstrap() {
   }
   
   try {
-    const me = await api.get("/auth/me");
-    state.username = me.email;
+    await api.get("/auth/me");
   } catch (err) {
     // Only redirect to the auth page if auto-login is not enabled
     if (!autoLoginEnabled) {

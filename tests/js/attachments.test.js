@@ -40,21 +40,26 @@ test("renderAttachments clears the box when nothing is pending", () => {
   assert.equal(attBox.children.length, 0);
 });
 
-test("uploadPendingAttachments uploads file attachments and returns refs", async () => {
+test("uploadPendingAttachments uploads file attachments as multipart FormData and returns refs", async () => {
   const calls = [];
   globalThis.fetch = async (url, opts) => {
-    calls.push({ url, body: JSON.parse(opts.body) });
+    calls.push({ url, opts });
     return { ok: true, status: 201, json: async () => ({ id: 7, name: "a.txt", mime: "text/plain", kind: "text", size: 2 }), text: async () => "" };
   };
+  const file = new File(["hi"], "a.txt", { type: "text/plain" });
   state.pendingAttachments = [
-    { name: "a.txt", type: "text/plain", file: { arrayBuffer: async () => new TextEncoder().encode("hi").buffer } },
+    { name: "a.txt", type: "text/plain", file },
     { name: "shot.png", data: "data:image/png;base64,AAAA" },
   ];
   const refs = await uploadPendingAttachments("sid-1");
   assert.equal(calls.length, 1);
   assert.equal(calls[0].url, "/api/sessions/sid-1/attachments");
-  assert.equal(calls[0].body.name, "a.txt");
-  assert.equal(atob(calls[0].body.data), "hi");
+  assert.equal(calls[0].opts.method, "POST");
+  assert.ok(calls[0].opts.body instanceof FormData);
+  assert.equal(calls[0].opts.headers["Content-Type"], undefined); // Browser setzt multipart-Boundary
+  const sent = calls[0].opts.body.get("file");
+  assert.equal(sent.name, "a.txt");
+  assert.equal(await sent.text(), "hi");
   assert.deepEqual(refs, [
     { id: 7, name: "a.txt", type: "text/plain" },
     { name: "shot.png", data: "data:image/png;base64,AAAA" },

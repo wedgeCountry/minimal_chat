@@ -47,6 +47,28 @@ def test_user_db_persists_across_reopen(db):
         assert q_get_messages(con, s["id"])[0]["text"] == "Hallo"
 
 
+def test_user_db_read_only_access_does_not_write_file(db):
+    """Reine Lesezugriffe duerfen die verschluesselte Datei nicht neu schreiben."""
+    user = _make_user()
+    with db.user_db(user) as con:
+        q_create_session(con, "Session A")
+    path = db.users_dir / f"{user['uid']}.db.enc"
+    content_after_write = path.read_bytes()
+    with db.user_db(user) as con:
+        q_get_session(con, "egal")
+        q_get_messages(con, "egal")
+        q_get_user_settings(con)
+    assert path.read_bytes() == content_after_write
+
+
+def test_user_db_read_on_missing_file_creates_no_file(db):
+    """Lesezugriff auf eine nicht existente User-DB legt keine Datei an."""
+    user = _make_user()
+    with db.user_db(user) as con:
+        assert q_get_user_settings(con) == {}
+    assert not (db.users_dir / f"{user['uid']}.db.enc").exists()
+
+
 def test_messages_sorted_by_timestamp_with_system_first(db):
     user = _make_user()
     with db.user_db(user) as con:
@@ -79,11 +101,30 @@ def test_user_identity_is_derived_from_secret_and_email():
     a = user_identity("secret-1", "Alice@Example.com")
     b = user_identity("secret-1", "alice@example.com")
     c = user_identity("secret-2", "alice@example.com")
-    assert a == b  # E-Mail case-insensitive
+    assert a["uid"] == b["uid"] and a["key"] == b["key"]  # E-Mail case-insensitive, Ableitung deterministisch
     assert a["uid"] == c["uid"] and a["key"] != c["key"]  # uid aus E-Mail, Schluessel aus Secret + E-Mail
     assert a["email"] == "alice@example.com"
     assert a["username"] == "alice"
     assert len(__import__("base64").urlsafe_b64decode(a["key"])) == 32
+
+
+def test_user_db_migrates_legacy_key_on_write(db):
+    """Mit der alten SHA-256-Ableitung verschluesselte DBs werden per Legacy-Fallback
+    gelesen und beim naechsten Schreibzugriff mit dem neuen Argon2id-Schluessel persistiert."""
+    from app.auth import legacy_key, user_identity
+
+    secret = "migrations-secret"
+    email = "migrate@example.com"
+    identity = user_identity(secret, email)
+    legacy_user = {"uid": identity["uid"], "email": email, "username": email, "key": legacy_key(secret, email)}
+    with db.user_db(legacy_user) as con:
+        s = q_create_session(con, "Alt")
+    with db.user_db(identity) as con:
+        assert q_get_session(con, s["id"])["name"] == "Alt"
+        q_set_user_setting(con, "theme", "dark")
+    token = (db.users_dir / f"{identity['uid']}.db.enc").read_bytes()
+    plain = crypto.decrypt(crypto.normalize_key(identity["key"]), token)
+    assert b"dark" in plain
 
 
 def test_user_settings_table_roundtrip(db):

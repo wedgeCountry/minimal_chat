@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import base64
 import time
 
 from app.auth import user_identity
@@ -126,7 +125,7 @@ def test_delete_session_cascades_messages_and_attachments(client, auth_headers, 
     )
     res = client.post(
         f"/api/sessions/{s['id']}/attachments",
-        json={"name": "a.txt", "type": "text/plain", "data": base64.b64encode(b"hi").decode()},
+        files={"file": ("a.txt", b"hi", "text/plain")},
         headers=auth_headers,
     )
     assert res.status_code == 201, res.text
@@ -138,6 +137,58 @@ def test_delete_session_cascades_messages_and_attachments(client, auth_headers, 
         assert dbq.q_get_session(con, s["id"]) is None
         assert con.execute("SELECT COUNT(*) FROM messages").fetchone()[0] == 0
         assert con.execute("SELECT COUNT(*) FROM attachments").fetchone()[0] == 0
+
+
+def test_message_patch_text_and_attachments(client, auth_headers):
+    s = _create_session(client, auth_headers)
+    m = client.post(
+        f"/api/sessions/{s['id']}/messages",
+        json={"role": "user", "text": "Original"},
+        headers=auth_headers,
+    ).json()
+    patched = client.patch(
+        f"/api/sessions/{s['id']}/messages/{m['id']}",
+        json={"text": "Bearbeitet", "attachments": [{"id": 1, "name": "a.txt", "type": "text/plain"}]},
+        headers=auth_headers,
+    )
+    assert patched.status_code == 200
+    assert patched.json()["text"] == "Bearbeitet"
+    assert patched.json()["attachments"] == [{"id": 1, "name": "a.txt", "type": "text/plain"}]
+
+
+def test_delete_messages_after(client, auth_headers):
+    s = _create_session(client, auth_headers)
+    m1 = client.post(f"/api/sessions/{s['id']}/messages", json={"role": "user", "text": "Frage"}, headers=auth_headers).json()
+    m2 = client.post(f"/api/sessions/{s['id']}/messages", json={"role": "assistant", "text": "Antwort"}, headers=auth_headers).json()
+    m3 = client.post(f"/api/sessions/{s['id']}/messages", json={"role": "assistant", "type": "reasoning", "text": "Denke"}, headers=auth_headers).json()
+
+    res = client.delete(f"/api/sessions/{s['id']}/messages/after/{m1['id']}", headers=auth_headers)
+    assert res.status_code == 204
+    remaining = client.get(f"/api/sessions/{s['id']}", headers=auth_headers).json()["messages"]
+    assert [m["id"] for m in remaining] == [m1["id"]]
+
+    # Loeschen ab der letzten Nachricht ist ein No-Op
+    res = client.delete(f"/api/sessions/{s['id']}/messages/after/{m1['id']}", headers=auth_headers)
+    assert res.status_code == 204
+    assert len(client.get(f"/api/sessions/{s['id']}", headers=auth_headers).json()["messages"]) == 1
+
+    # Unbekannte Session / Nachricht -> 404
+    assert client.delete("/api/sessions/unknown/messages/after/1", headers=auth_headers).status_code == 404
+    assert client.delete(f"/api/sessions/{s['id']}/messages/after/9999", headers=auth_headers).status_code == 404
+
+
+def test_delete_messages_after_rejects_message_of_other_session(client, auth_headers, app):
+    from tests.conftest import login_client
+
+    s1 = _create_session(client, auth_headers, "Eins")
+    s2 = _create_session(client, auth_headers, "Zwei")
+    foreign = client.post(f"/api/sessions/{s2['id']}/messages", json={"role": "user", "text": "fremd"}, headers=auth_headers).json()
+    m1 = client.post(f"/api/sessions/{s1['id']}/messages", json={"role": "user", "text": "Frage"}, headers=auth_headers).json()
+    # Nachricht aus einer anderen Session darf nicht als Anker dienen
+    assert client.delete(f"/api/sessions/{s1['id']}/messages/after/{foreign['id']}", headers=auth_headers).status_code == 404
+    # Fremder User darf nicht loeschen
+    bob = login_client(app, "bob@example.com")
+    assert bob.delete(f"/api/sessions/{s1['id']}/messages/after/{m1['id']}").status_code == 404
 
 
 def test_messages_are_isolated_per_user(client, auth_headers, app):

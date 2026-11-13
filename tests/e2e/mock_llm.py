@@ -14,19 +14,7 @@ import json
 async def app(scope, receive, send):
     if scope["type"] != "http":
         return
-    
-    # Handle HEAD requests for connectivity check
-    if scope["method"] == "HEAD":
-        await send(
-            {
-                "type": "http.response.start",
-                "status": 200,
-                "headers": [(b"content-type", b"application/json")],
-            }
-        )
-        await send({"type": "http.response.body", "body": b"", "more_body": False})
-        return
-    
+
     body = b""
     while True:
         message = await receive()

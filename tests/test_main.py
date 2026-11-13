@@ -2,6 +2,26 @@
 
 from __future__ import annotations
 
+import pytest
+
+
+def test_auto_login_refused_on_non_loopback_host(tmp_path, monkeypatch):
+    """Auto-Login (Testmodus) darf nicht auf einem oeffentlich erreichbaren Host starten."""
+    from app.config import AppConfig
+    from app.main import create_app
+
+    monkeypatch.setenv("LEANCHAT_AUTO_LOGIN", "1")
+    cfg = AppConfig(
+        data_dir=tmp_path / "data",
+        secret="s",
+        registry_path=tmp_path / "data" / "user_registry.db",
+        users_dir=tmp_path / "data" / "users",
+        host="0.0.0.0",
+        port=8000,
+    )
+    with pytest.raises(RuntimeError, match="AUTO_LOGIN"):
+        create_app(config=cfg)
+
 
 def test_root_serves_index_html(client):
     res = client.get("/")

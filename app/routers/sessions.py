@@ -1,27 +1,18 @@
 from __future__ import annotations
 
-import base64
-import binascii
+import asyncio
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 
 from ..db import database as dbq
 from ..db.database import Database
 from ..deps import get_current_user, get_db
-from ..models import AttachmentIn, AttachmentOut, MessageIn, MessageOut, MessagePatch, SessionDetail, SessionIn, SessionOut, SessionRename
+from ..models import AttachmentOut, MessageIn, MessageOut, MessagePatch, SessionDetail, SessionIn, SessionOut, SessionRename
 from ..services.files import process_upload
 
 router = APIRouter(prefix="/api/sessions", tags=["sessions"])
 
 DEFAULT_SESSION_NAME = "Neue Session"
-
-
-def _get_or_404(db: Database, user: dict, sid: str):
-    with db.user_db(user) as con:
-        session = dbq.q_get_session(con, sid)
-    if not session:
-        raise HTTPException(status_code=404, detail="Session nicht gefunden")
-    return session
 
 
 @router.get("", response_model=list[SessionOut])
@@ -101,19 +92,40 @@ def delete_message(sid: str, mid: int, user: dict = Depends(get_current_user), d
         dbq.q_delete_message(con, mid)
 
 
-@router.post("/{sid}/attachments", response_model=AttachmentOut, status_code=201)
-def add_attachment(sid: str, body: AttachmentIn, user: dict = Depends(get_current_user), db: Database = Depends(get_db)):
-    """Laedt eine Datei-Rohform hoch; das Lesen/Dekodieren passiert serverseitig."""
-    try:
-        raw = base64.b64decode(body.data, validate=True)
-    except (binascii.Error, ValueError):
-        raise HTTPException(status_code=400, detail="Ungueltige Base64-Daten")
-    try:
-        processed = process_upload(body.name, body.type, raw)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+@router.delete("/{sid}/messages/after/{mid}", status_code=204)
+def delete_messages_after(sid: str, mid: int, user: dict = Depends(get_current_user), db: Database = Depends(get_db)):
+    """Loescht alle Nachrichten der Session, die nach der Nachricht ``mid`` liegen
+    (z. B. Antworten des Assistenten beim Bearbeiten einer Nutzernachricht)."""
     with db.user_db(user) as con:
         if not dbq.q_get_session(con, sid):
             raise HTTPException(status_code=404, detail="Session nicht gefunden")
-        stored = dbq.q_add_attachment(con, sid, processed)
+        msg = dbq.q_get_message(con, mid)
+        if not msg or msg["session_id"] != sid:
+            raise HTTPException(status_code=404, detail="Nachricht nicht gefunden")
+        dbq.q_delete_messages_after(con, sid, mid)
+
+
+@router.post("/{sid}/attachments", response_model=AttachmentOut, status_code=201)
+async def add_attachment(
+    sid: str,
+    file: UploadFile = File(...),
+    user: dict = Depends(get_current_user),
+    db: Database = Depends(get_db),
+):
+    """Laedt eine Datei per Multipart-Upload (Rohdaten, kein Base64-in-JSON) hoch;
+    das Lesen/Dekodieren passiert serverseitig."""
+    raw = await file.read()
+    try:
+        processed = process_upload(file.filename or "datei", file.content_type or "", raw)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    def _store() -> dict:
+        with db.user_db(user) as con:
+            if not dbq.q_get_session(con, sid):
+                raise HTTPException(status_code=404, detail="Session nicht gefunden")
+            return dbq.q_add_attachment(con, sid, processed)
+
+    # DB-Zugriff ist blockierend -> nicht auf dem Event-Loop ausfuehren
+    stored = await asyncio.to_thread(_store)
     return AttachmentOut(id=stored["id"], name=stored["name"], mime=stored["mime"], kind=stored["kind"], size=stored["size"])

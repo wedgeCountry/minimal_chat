@@ -11,26 +11,16 @@ export function addAttachments(files) {
   renderAttachments();
 }
 
-async function fileToBase64(file) {
-  const bytes = new Uint8Array(await file.arrayBuffer());
-  let bin = "";
-  for (let i = 0; i < bytes.length; i += 0x8000) {
-    bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
-  }
-  return btoa(bin);
-}
-
-// Laedt die angehaengten Rohdateien zur Session hoch; das Lesen/Dekodieren
-// passiert serverseitig (POST /api/sessions/{sid}/attachments). Liefert References.
+// Laedt die angehaengten Rohdateien zur Session hoch (Multipart, ohne Base64-Overhead);
+// das Lesen/Dekodieren passiert serverseitig (POST /api/sessions/{sid}/attachments).
+// Liefert References.
 export async function uploadPendingAttachments(sid) {
   const refs = [];
   for (const a of state.pendingAttachments.splice(0)) {
     if (a.file) {
-      const res = await api.post(`/sessions/${sid}/attachments`, {
-        name: a.name,
-        type: a.type,
-        data: await fileToBase64(a.file),
-      });
+      const form = new FormData();
+      form.append("file", a.file, a.name);
+      const res = await api.postForm(`/sessions/${sid}/attachments`, form);
       refs.push({ id: res.id, name: res.name, type: res.mime });
     } else {
       refs.push(a);
