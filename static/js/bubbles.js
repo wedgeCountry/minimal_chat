@@ -138,7 +138,7 @@ export function bubbleEl(m, handlers = {}, opts = {}) {
   const label = m.type === "message" ? m.role : typeLabels[m.type] || m.role;
   const showChk = m.type === "message" && isBubbleCheckable(state.settings);
   const showDel = isBubbleDeletable(state.settings);
-  const showTts = isBubbleSpeaker(state.settings) && controlsVisible("tts");
+  const showTts = bubbleShowTts();
   const showResend = m.role === "user" && m.type === "message" && opts.showResend === true;
   const showEdit = m.role === "user" && m.type === "message" && opts.showEdit === true;
   const attach = (m.attachments || [])
@@ -201,13 +201,39 @@ export function bubbleEl(m, handlers = {}, opts = {}) {
   _applySavedWidth(b, m);
   _makeResizable(b, m);
   const tts = b.querySelector(".ttsBtn");
-  if (tts)
+  if (tts) wireTtsButton(b, tts);
+  return b;
+}
+
+export function bubbleShowTts() {
+  return isBubbleSpeaker(state.settings) && controlsVisible("tts");
+}
+
+function wireTtsButton(b, tts) {
   tts.onclick = async () => {
     if (isSpeaking()) {
       stopSpeech();
       return;
     }
-    await speak(m.text || "", tts, { onError: showError });
+    await speak(b._msg?.text || "", tts, { onError: showError });
   };
-  return b;
+}
+
+export function syncBubbleTts(b) {
+  const show = bubbleShowTts();
+  let tts = b.querySelector(".ttsBtn");
+  if (show && !tts) {
+    tts = document.createElement("button");
+    tts.className = "iconBtn ttsBtn";
+    tts.dataset.testid = "bubble-tts-btn";
+    tts.title = "Vorlesen";
+    tts.innerHTML = ICONS.tts;
+    wireTtsButton(b, tts);
+    const head = b.querySelector(".bubbleHead");
+    if (head) head.insertBefore(tts, b.querySelector(".copyBtn"));
+  } else if (!show && tts) {
+    tts.remove();
+    tts = null;
+  }
+  return tts;
 }

@@ -96,6 +96,7 @@ export function initSettings() {
     if ($("setKey").value.trim()) body.api_key = $("setKey").value.trim();
     state.settings = { ...state.settings, ...(await api.put("/settings", body)) };
     $("setKey").value = "";
+    await refreshSpeechAvailability();
     applyTheme();
     $("overlay").classList.remove("open");
     document.dispatchEvent(new CustomEvent("leanchat:changed"));

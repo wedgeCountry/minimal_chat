@@ -24,7 +24,8 @@ function fakeBubble() {
   };
 }
 
-const { setBubbleMode, setBubbleText } = await import("../../static/js/bubbles.js");
+const { setBubbleMode, setBubbleText, syncBubbleTts } = await import("../../static/js/bubbles.js");
+const { state } = await import("../../static/js/state.js");
 
 const LONG = Array.from({ length: 12 }, (_, i) => `Zeile ${i + 1}`).join("\n");
 
@@ -68,4 +69,58 @@ test("setBubbleText with short text is not clamped", () => {
   setBubbleText(b, "kurz");
   assert.equal(b._body.textContent, "kurz");
   assert.equal(b._body.classList.contains("clamped"), false);
+});
+
+function fakeTtsBubble() {
+  let tts = null;
+  return {
+    _msg: { text: "Hallo" },
+    _tts: () => tts,
+    _clear: () => { tts = null; },
+    querySelector(sel) {
+      if (sel === ".ttsBtn") return tts;
+      if (sel === ".bubbleHead") return { insertBefore: (el) => { tts = el; } };
+      return null;
+    },
+  };
+}
+
+test("syncBubbleTts: Speaker-Button folgt Settings/Availability auch bei wiederverwendeten Bubbles", () => {
+  const savedDoc = globalThis.document;
+  const savedSettings = state.settings;
+  const savedSpeech = state.speech;
+  const b = fakeTtsBubble();
+  globalThis.document = {
+    createElement: () => ({
+      className: "", dataset: {}, title: "", innerHTML: "", onclick: null, removed: false,
+      remove() { this.removed = true; b._clear(); },
+    }),
+  };
+  try {
+    state.settings = { ...state.settings, bubbles_speaker: true, speech_mode: "server" };
+    state.speech = { systemStt: false, systemTts: false, serverStt: true, serverTts: true };
+    const added = syncBubbleTts(b);
+    assert.ok(added, "wird eingefuegt wenn der gewaehlte Modus verfuegbar ist");
+    assert.equal(b._tts(), added);
+    assert.equal(typeof added.onclick, "function", "Handler ist verdrahtet");
+
+    state.speech = { systemStt: true, systemTts: true, serverStt: false, serverTts: false };
+    assert.equal(syncBubbleTts(b), null, "wird entfernt wenn der gewaehlte Modus nicht verfuegbar ist");
+    assert.ok(added.removed);
+    assert.equal(b._tts(), null);
+
+    state.speech = { systemStt: true, systemTts: true, serverStt: true, serverTts: true };
+    assert.ok(syncBubbleTts(b), "wird wieder eingefuegt");
+    state.settings = { ...state.settings, speech_mode: "none" };
+    assert.equal(syncBubbleTts(b), null, "Modus none -> entfernt");
+
+    state.settings = { ...state.settings, speech_mode: "server", bubbles_speaker: false };
+    state.speech = { systemStt: false, systemTts: false, serverStt: true, serverTts: true };
+    assert.equal(syncBubbleTts(b), null, "bubbles_speaker=false -> entfernt");
+  } finally {
+    state.settings = savedSettings;
+    state.speech = savedSpeech;
+    if (savedDoc === undefined) delete globalThis.document;
+    else globalThis.document = savedDoc;
+  }
 });
