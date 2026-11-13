@@ -41,6 +41,20 @@ export async function selectedModeAvailable(kind) {
   return false;
 }
 
+// Verarbeitet nur die neuen Results ab resultIndex (verarbeitete Ergebnisse
+// werden nicht erneut gezaehlt -> keine Duplikate) und liefert final+interim.
+export function mergeTranscript(finalSoFar, results, resultIndex) {
+  let final = finalSoFar || "";
+  let interim = "";
+  for (let i = resultIndex; i < results.length; i++) {
+    const r = results[i];
+    const t = r?.[0]?.transcript || "";
+    if (r?.isFinal) final += t;
+    else interim += t;
+  }
+  return { final, text: final + interim };
+}
+
 export function speechStatusLabel(mode, speech) {
   if (mode === "none") return { text: "Deaktiviert", cls: "" };
   const ok =

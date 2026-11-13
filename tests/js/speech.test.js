@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { speechControlsVisible } from "../../static/js/visibility.js";
-import { speechStatusLabel, SPEECH_MODES } from "../../static/js/speech.js";
+import { speechStatusLabel, SPEECH_MODES, mergeTranscript } from "../../static/js/speech.js";
 
 const avail = { systemStt: true, systemTts: true, serverStt: true, serverTts: true };
 const availOff = { systemStt: false, systemTts: false, serverStt: false, serverTts: false };
@@ -44,4 +44,30 @@ test("speechStatusLabel: none = deaktiviert, sonst gruen/rot", () => {
 
 test("SPEECH_MODES enthaelt genau system/server/none", () => {
   assert.deepEqual(SPEECH_MODES, ["system", "server", "none"]);
+});
+
+test("mergeTranscript verarbeitet jedes Result nur einmal (keine Duplikate)", () => {
+  // Event 1: ein interim Result
+  let res = [{ 0: { transcript: "Hal" }, isFinal: false }];
+  let m = mergeTranscript("", res, 0);
+  assert.deepEqual(m, { final: "", text: "Hal" });
+  // Event 2: gleiches interim + neues final -> nur das neue wird gezaehlt
+  res = [
+    { 0: { transcript: "Hallo" }, isFinal: true },
+    { 0: { transcript: " Welt" }, isFinal: false },
+  ];
+  m = mergeTranscript("", res, 0);
+  assert.deepEqual(m, { final: "Hallo", text: "Hallo Welt" });
+  // Event 3: resultIndex=1 -> nur das Interim, Final nicht erneut addiert
+  m = mergeTranscript("Hallo", res, 1);
+  assert.deepEqual(m, { final: "Hallo", text: "Hallo Welt" });
+  // Event 4: finales Segment -> angehängt, vorheriges Final nicht wiederholt
+  res.push({ 0: { transcript: "!" }, isFinal: true });
+  m = mergeTranscript("Hallo", res, 2);
+  assert.deepEqual(m, { final: "Hallo!", text: "Hallo!" });
+});
+
+test("mergeTranscript mit leerem/defektem Input", () => {
+  assert.deepEqual(mergeTranscript("", [], 0), { final: "", text: "" });
+  assert.deepEqual(mergeTranscript(null, [{ isFinal: true }], 0), { final: "", text: "" });
 });

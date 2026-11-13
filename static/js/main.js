@@ -8,7 +8,7 @@ import { addAttachments } from "./attachments.js";
 import { initSettings, loadSettings, openSettings } from "./settings.js";
 import { initConfirm, showError } from "./confirm.js";
 import { transcribeAudio, encodeWav, VOICE_UNAVAILABLE_MSG } from "./voice.js";
-import { speechMode, controlsVisible, selectedModeAvailable, refreshSpeechAvailability, SYSTEM_UNAVAILABLE_MSG } from "./speech.js";
+import { speechMode, controlsVisible, selectedModeAvailable, refreshSpeechAvailability, mergeTranscript, SYSTEM_UNAVAILABLE_MSG } from "./speech.js";
 import { initPartials } from "./html.js";
 import { initGlobalErrorHandling } from "./errors.js";
 
@@ -76,18 +76,23 @@ function startSystemRecognition(input) {
   const cursor = input.selectionStart ?? base.length;
   let final = "";
   rec.onresult = (e) => {
-    let interim = "";
-    for (const r of e.results) {
-      if (r.isFinal) final += r[0].transcript;
-      else interim += r[0].transcript;
-    }
-    const r2 = spliceAtCursor(base, cursor, cursor, final + interim);
+    // nur neue Results ab e.resultIndex verarbeiten (Buffer leeren, keine Duplikate)
+    const m = mergeTranscript(final, e.results, e.resultIndex);
+    final = m.final;
+    const r2 = spliceAtCursor(base, cursor, cursor, m.text);
     input.value = r2.value;
     input.dispatchEvent(new Event("input"));
   };
   rec.onend = () => {
     sysRecRef.current = null;
     $("micBtn").classList.remove("on");
+    // Interim-Puffer verwerfen, nur finalen Text an Cursor-Position uebernehmen
+    if (final) {
+      const r2 = spliceAtCursor(base, cursor, cursor, final);
+      input.value = r2.value;
+      input.setSelectionRange(r2.cursor, r2.cursor);
+      input.dispatchEvent(new Event("input"));
+    }
     input.focus();
   };
   rec.onerror = () => {
