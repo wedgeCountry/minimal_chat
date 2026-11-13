@@ -98,16 +98,15 @@ export function enterBubbleEdit(b, text) {
   if (!body || b.dataset.editing === "true") return null;
   b.dataset.editing = "true";
   body.classList.remove("clamped");
-  body.innerHTML = `
-    <div class="editRow">
-      <textarea class="editInput" data-testid="bubble-edit-input" rows="2"></textarea>
-      <button class="iconBtn editCancelBtn" data-testid="bubble-edit-cancel-btn" title="Abbrechen">${ICONS.x}</button>
-    </div>`;
+  // Hoehe des Bodys merken, damit die Bubble im Edit-Modus nicht springt
+  const bodyH = body.getBoundingClientRect().height;
+  // kein Whitespace zwischen den Tags: .bubbleBody hat white-space:pre-wrap
+  body.innerHTML = `<div class="editRow"><textarea class="editInput" data-testid="bubble-edit-input" rows="1"></textarea><button class="iconBtn editCancelBtn" data-testid="bubble-edit-cancel-btn" title="Abbrechen">${ICONS.x}</button></div>`;
   const textarea = body.querySelector(".editInput");
   textarea.value = text ?? b._fullText ?? "";
   const grow = () => {
     textarea.style.height = "auto";
-    textarea.style.height = Math.min(textarea.scrollHeight, 180) + "px";
+    textarea.style.height = Math.min(Math.max(textarea.scrollHeight, bodyH), 180) + "px";
   };
   textarea.addEventListener("input", grow);
   grow();

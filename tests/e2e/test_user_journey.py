@@ -867,9 +867,12 @@ def test_edit_last_user_message(page, base_url, llm_expect, server_data_dir):
 
     # Klick oeffnet den Inline-Edit direkt in der Bubble; der Composer bleibt leer
     last_user = page.locator(_bubble("user")).last
+    h_before = last_user.bounding_box()["height"]
     last_user.locator('[data-testid="bubble-edit-btn"]').click()
     edit_input = last_user.locator('[data-testid="bubble-edit-input"]')
     edit_input.wait_for()
+    h_edit = last_user.bounding_box()["height"]
+    assert abs(h_edit - h_before) <= 1, "Edit-Modus darf die Hoehe der Bubble nicht aendern"
     assert edit_input.input_value() == "Zweite Frage"
     assert page.locator(T["chat_input"]).input_value() == ""
 
