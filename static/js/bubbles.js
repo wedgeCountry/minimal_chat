@@ -95,7 +95,10 @@ function renderBubbleBody(b) {
   const display =
     b.dataset.type === "toolcall" || b.dataset.type === "toolresult" ? full.replace(/\\n/g, "\n") : full;
   body.textContent = clampText(display, mode);
-  body.classList.toggle("clamped", isClamped(display, mode));
+  // GUI-basiert gekuerzt, wenn der gerenderte Inhalt die Zeilenkappe
+  // (CSS line-clamp) ueberschreitet - unabhaengig von Textzeilenumbruechen
+  const clipped = body.scrollHeight > body.clientHeight + 1;
+  body.classList.toggle("clamped", clipped || isClamped(display, mode));
 }
 
 // Inline-Edit: der Bubble-Body wird durch ein Textarea + Speichern/Abbrechen ersetzt.

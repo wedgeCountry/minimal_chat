@@ -112,6 +112,11 @@
 .resizeHandle::after{content:"";position:absolute;right:3px;bottom:3px;width:8px;height:8px;border-right:2px solid currentColor;border-bottom:2px solid currentColor}
 .bubbleBody{font-size:var(--bubble-body-size);line-height:1.5;white-space:pre-wrap;word-break:break-word;min-height:21px}
 .bubbleBody.clamped{cursor:pointer}
+/* Zeilenlimit bezieht sich auf die gerenderten GUI-Zeilen (CSS line-clamp),
+   nicht auf Textzeilen: auch eine einzige lange (umgebrochene) Zeile wird
+   in collapsed auf genau eine sichtbare Zeile begrenzt. */
+.bubble.normal .bubbleBody{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:10;overflow:hidden}
+.bubble.collapsed .bubbleBody{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:1;overflow:hidden}
 .chev{padding:2px}
 
 /* Inline-Edit innerhalb der Bubble: gleiche Farben wie die Bubble selbst,

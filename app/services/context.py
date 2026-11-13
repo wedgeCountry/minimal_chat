@@ -68,6 +68,9 @@ def build_llm_context(
         elif mtype == "reasoning":
             continue  # Thinking wird nicht an das Modell gesendet
         else:
+            # leere System-Nachricht nicht an das LLM senden (sonst 422) und nie anzeigen
+            if role == "system" and not text.strip():
+                continue
             content: Any = text
             atts = m.get("attachments") or []
             if atts:

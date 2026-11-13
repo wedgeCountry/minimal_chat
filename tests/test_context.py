@@ -136,6 +136,16 @@ def test_db_rows_malformed_tool_text_do_not_crash():
     assert wire[-1] == {"role": "user", "content": ""}
 
 
+def test_empty_system_message_is_never_sent_to_llm():
+    rows = [
+        _db_row(1, "system", "message", ""),
+        _db_row(2, "system", "message", "   "),
+        _db_row(3, "user", "message", "Hallo"),
+    ]
+    wire = build_llm_context(rows).compile()
+    assert wire == [{"role": "user", "content": "Hallo"}]
+
+
 def test_db_session_messages_roundtrip_through_api(client, auth_headers, monkeypatch):
     """End-to-end: Toolcall/Toolresult landen in der DB und werden beim naechsten
     Request als gueltige tool_calls-/tool-Messages an das LLM geschickt."""

@@ -1,6 +1,7 @@
 // Reine Logik der dreistufigen Bubble-Ansicht (unit-testbar):
-// normal = max. 10 Zeilen, Rest hinter [...]; full = kompletter Text;
-// collapsed = 1 Zeile, Rest hinter [...].
+// normal/collapsed begrenzen zusaetzlich per CSS line-clamp die *gerenderten*
+// GUI-Zeilen (normal 10, collapsed 1) - unabhaengig von Textzeilenumbruechen;
+// clampText liefert nur den textbasierten [...]-Marker.
 // Klick-Reihenfolge: normal -> full -> collapsed -> normal.
 export const BUBBLE_MODES = ["normal", "full", "collapsed"];
 export const NORMAL_MAX_LINES = 10;

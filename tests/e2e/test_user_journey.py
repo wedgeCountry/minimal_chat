@@ -1055,3 +1055,39 @@ def test_long_message_bubble_clamp_cycle(page, base_url, llm_expect):
     page.wait_for_function(
         f"() => document.querySelector('{_bubble('assistant', 'message')}').getAttribute('data-mode') === 'normal'"
     )
+
+
+def test_collapsed_bubble_caps_single_long_line_at_one_rendered_row(page, base_url, llm_expect):
+    """Eine einzige sehr lange (umbrechende) Zeile: im collapsed-Modus genau eine gerenderte GUI-Zeile."""
+    if llm_expect["default"] is None:
+        pytest.skip("braucht den Mock-LLM (lange Einzeiler-Antwort)")
+    email = "oneline-user@example.com"
+    api_client = _register_client(base_url, email, "Geheim-123")
+    _login(page, base_url, email, "Geheim-123")
+    _new_named_session(page, api_client)
+
+    page.fill(T["chat_input"], "oneline")
+    page.click(T["send_btn"])
+    page.wait_for_function(
+        "() => document.querySelectorAll('[data-testid=\"chat\"] .bubble[data-role=\"assistant\"][data-type=\"message\"]').length === 1"
+        " && !document.querySelector('[data-testid=\"send-btn\"]').classList.contains('abort')",
+        timeout=llm_expect["timeout_ms"],
+    )
+
+    bubble = page.locator(_bubble("assistant", "message")).first
+    toggle = bubble.locator('[data-testid="bubble-toggle-btn"]')
+    toggle.click()  # normal -> full
+    toggle.click()  # full -> collapsed
+    page.wait_for_function(
+        f"() => document.querySelector('{_bubble('assistant', 'message')}').getAttribute('data-mode') === 'collapsed'",
+        timeout=llm_expect["timeout_ms"],
+    )
+    # gerenderte Hoehe des Bodys <= eine line-height (CSS line-clamp: 1)
+    one_row = page.evaluate(
+        """() => {
+             const b = document.querySelector('[data-testid="chat"] .bubble[data-role="assistant"][data-type="message"] .bubbleBody');
+             const cs = getComputedStyle(b);
+             return b.getBoundingClientRect().height <= parseFloat(cs.lineHeight) + 2;
+           }"""
+    )
+    assert one_row, "collapsed darf auch bei einer langen Einzeiler nur eine GUI-Zeile zeigen"
