@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { speechControlsVisible } from "../../static/js/visibility.js";
-import { speechStatusLabel, SPEECH_MODES, mergeTranscript, effectiveModeFor, controlsVisible } from "../../static/js/ttsDetectionService.js";
+import { speechStatusLabel, SPEECH_MODES, mergeTranscript, effectiveModeFor, controlsVisible, refreshSpeechAvailability } from "../../static/js/ttsDetectionService.js";
 import { state } from "../../static/js/state.js";
 
 const avail = { systemStt: true, systemTts: true, serverStt: true, serverTts: true };
@@ -107,6 +107,47 @@ test("controlsVisible: gewaehlter Modus entscheidet ohne Fallback (none/unverfue
 
 test("SPEECH_MODES enthaelt genau system/server/none", () => {
   assert.deepEqual(SPEECH_MODES, ["system", "server", "none"]);
+});
+
+test("refreshSpeechAvailability aktualisiert state.speech und feuert leanchat:speech-availability", async () => {
+  const saved = {
+    speech: state.speech,
+    mode: state.settings.speech_mode,
+    win: globalThis.window,
+    doc: globalThis.document,
+    fetch: globalThis.fetch,
+  };
+  const fired = [];
+  globalThis.window = {}; // kein SpeechRecognition/speechSynthesis
+  globalThis.document = { dispatchEvent: (e) => { fired.push(e.type); return true; } };
+  globalThis.fetch = async (url) => ({
+    ok: true,
+    status: 200,
+    json: async () => (String(url).includes("/voice/status") ? { available: true, stt: true, tts: false } : {}),
+  });
+  try {
+    state.settings.speech_mode = "server";
+    const s = await refreshSpeechAvailability();
+    assert.deepEqual(s, { systemStt: false, systemTts: false, serverStt: true, serverTts: false });
+    assert.deepEqual(fired, ["leanchat:speech-availability"]);
+    assert.equal(controlsVisible("stt"), true, "Mic sichtbar wenn Server-STT verfuegbar");
+    assert.equal(controlsVisible("tts"), false, "Speaker versteckt wenn Server-TTS fehlt");
+
+    globalThis.fetch = async () => ({ ok: true, status: 200, json: async () => ({ available: false, stt: false, tts: false }) });
+    await refreshSpeechAvailability();
+    assert.equal(controlsVisible("stt"), false, "Mic versteckt wenn kein Audio verfuegbar");
+    assert.equal(controlsVisible("tts"), false, "Speaker versteckt wenn kein Audio verfuegbar");
+    assert.equal(fired.length, 2);
+  } finally {
+    state.speech = saved.speech;
+    state.settings.speech_mode = saved.mode;
+    if (saved.win === undefined) delete globalThis.window;
+    else globalThis.window = saved.win;
+    if (saved.doc === undefined) delete globalThis.document;
+    else globalThis.document = saved.doc;
+    if (saved.fetch === undefined) delete globalThis.fetch;
+    else globalThis.fetch = saved.fetch;
+  }
 });
 
 test("mergeTranscript verarbeitet jedes Result nur einmal (keine Duplikate)", () => {

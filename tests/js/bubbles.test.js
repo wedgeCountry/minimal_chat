@@ -24,7 +24,7 @@ function fakeBubble() {
   };
 }
 
-const { setBubbleMode, setBubbleText, syncBubbleTts } = await import("../../static/js/bubbles.js");
+const { setBubbleMode, setBubbleText, syncBubbleTts, syncBubbleDelete } = await import("../../static/js/bubbles.js");
 const { state } = await import("../../static/js/state.js");
 
 const LONG = Array.from({ length: 12 }, (_, i) => `Zeile ${i + 1}`).join("\n");
@@ -142,6 +142,57 @@ test("syncBubbleTts: Speaker-Button folgt Settings/Availability auch bei wiederv
   } finally {
     state.settings = savedSettings;
     state.speech = savedSpeech;
+    if (savedDoc === undefined) delete globalThis.document;
+    else globalThis.document = savedDoc;
+  }
+});
+
+function fakeDelBubble() {
+  let del = null;
+  return {
+    _msg: { id: 1, text: "Hallo" },
+    _handlers: { onDelete: null },
+    _del: () => del,
+    _clear: () => { del = null; },
+    querySelector(sel) {
+      if (sel === ".delBtn") return del;
+      if (sel === ".bubbleHead") return { firstChild: null, insertBefore: (el) => { del = el; } };
+      return null;
+    },
+  };
+}
+
+test("syncBubbleDelete: Muelleimer-Button folgt dem Setting auch bei wiederverwendeten Bubbles", () => {
+  const savedDoc = globalThis.document;
+  const savedSettings = state.settings;
+  const b = fakeDelBubble();
+  let deletedWith = null;
+  b._handlers = { onDelete: (m) => { deletedWith = m; } };
+  globalThis.document = {
+    createElement: () => ({
+      className: "", dataset: {}, title: "", innerHTML: "", onclick: null, removed: false,
+      remove() { this.removed = true; b._clear(); },
+    }),
+  };
+  try {
+    state.settings = { ...state.settings, bubbles_deletable: true };
+    const added = syncBubbleDelete(b);
+    assert.ok(added, "wird eingefuegt wenn bubbles_deletable aktiv ist");
+    assert.equal(b._del(), added);
+    assert.ok(added.innerHTML.includes("polyline"), "Muelleimer-SVG (ICONS.trash) statt X");
+    assert.equal(added.dataset.testid, "bubble-delete-btn");
+    added.onclick();
+    assert.equal(deletedWith, b._msg, "onDelete-Handler ist verdrahtet");
+
+    state.settings = { ...state.settings, bubbles_deletable: false };
+    assert.equal(syncBubbleDelete(b), null, "wird entfernt wenn bubbles_deletable=false");
+    assert.ok(added.removed);
+    assert.equal(b._del(), null);
+
+    state.settings = { ...state.settings, bubbles_deletable: true };
+    assert.ok(syncBubbleDelete(b), "wird wieder eingefuegt");
+  } finally {
+    state.settings = savedSettings;
     if (savedDoc === undefined) delete globalThis.document;
     else globalThis.document = savedDoc;
   }

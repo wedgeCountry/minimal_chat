@@ -131,6 +131,7 @@ export function exitBubbleEdit(b) {
 export function bubbleEl(m, handlers = {}, opts = {}) {
   const b = document.createElement("div");
   b._msg = m; // aktuelle Nachricht; renderChat aktualisiert sie bei wiederverwendeten Bubbles
+  b._handlers = handlers;
   const uid = m.id != null ? `msg-${m.id}` : `tmp-${++tmpBubbleSeq}`;
   b.dataset.testid = `bubble-${uid}`;
   b.dataset.role = m.role;
@@ -152,7 +153,7 @@ export function bubbleEl(m, handlers = {}, opts = {}) {
     .join("");
   b.innerHTML = `
     <div class="bubbleHead" data-testid="bubble-head">
-      ${showDel ? `<button class="iconBtn delBtn" data-testid="bubble-delete-btn" title="Löschen">${ICONS.x}</button>` : ""}
+      ${showDel ? `<button class="iconBtn delBtn" data-testid="bubble-delete-btn" title="Löschen">${ICONS.trash}</button>` : ""}
       <span class="role" data-testid="bubble-role">${esc(label)}</span>
       <span class="grow"></span>
       ${showChk ? `<input type="checkbox" class="chk" data-testid="bubble-context-chk" ${m.inContext !== false ? "checked" : ""} title="Im Kontext senden" />` : ""}
@@ -195,7 +196,7 @@ export function bubbleEl(m, handlers = {}, opts = {}) {
       handlers.onToggleContext?.(b._msg);
     };
   const delBtn = b.querySelector(".delBtn");
-  if (delBtn) delBtn.onclick = () => handlers.onDelete?.(b._msg);
+  if (delBtn) wireDelButton(b, delBtn);
   const resendBtn = b.querySelector(".resendBtn");
   if (resendBtn) resendBtn.onclick = () => handlers.onResend?.(b._msg);
   const editBtn = b.querySelector(".editBtn");
@@ -205,6 +206,30 @@ export function bubbleEl(m, handlers = {}, opts = {}) {
   const tts = b.querySelector(".ttsBtn");
   if (tts) wireTtsButton(b, tts);
   return b;
+}
+
+function wireDelButton(b, del) {
+  del.onclick = () => b._handlers?.onDelete?.(b._msg);
+}
+
+// Loeschen-Button (Muelleimer) folgt dem Setting auch bei wiederverwendeten Bubbles
+export function syncBubbleDelete(b) {
+  const show = isBubbleDeletable(state.settings);
+  let del = b.querySelector(".delBtn");
+  if (show && !del) {
+    del = document.createElement("button");
+    del.className = "iconBtn delBtn";
+    del.dataset.testid = "bubble-delete-btn";
+    del.title = "Löschen";
+    del.innerHTML = ICONS.trash;
+    wireDelButton(b, del);
+    const head = b.querySelector(".bubbleHead");
+    if (head) head.insertBefore(del, head.firstChild);
+  } else if (!show && del) {
+    del.remove();
+    del = null;
+  }
+  return del;
 }
 
 export function bubbleShowTts() {

@@ -3,7 +3,7 @@ import { state, activeSession, normalizeMessages } from "./state.js";
 import { $ } from "./util.js";
 import { goToLogin } from "./auth.js";
 import { loadSessions, renderSessions, newSession } from "./sessions.js";
-import { abortStream, pollOnce, renderChat, renderHeader, send } from "./chat.js";
+import { abortStream, pollOnce, renderChat, renderHeader, send, syncAllBubbleTts } from "./chat.js";
 import { addAttachments } from "./attachments.js";
 import { initSettings, loadSettings, openSettings } from "./settings.js";
 import { initConfirm } from "./confirm.js";
@@ -186,13 +186,21 @@ function initEvents() {
   $("micBtn").onclick = () => onMicClick(input);
 
   document.addEventListener("leanchat:changed", renderAll);
+  // Speech-Verfuegbarkeit hat sich geaendert: Mikrofon-/Speaker-Symbole sofort aus-/einblenden
+  document.addEventListener("leanchat:speech-availability", () => {
+    applyComposerButtons();
+    syncAllBubbleTts();
+  });
   document.addEventListener("leanchat:session-selected", () => {
     if (isMobileInput()) $("side").classList.add("hidden");
   });
   document.addEventListener("leanchat:unauthorized", () => goToLogin());
   // Zurueck aus dem Hintergrund: Server-Stand sofort abrufen, damit eine
   // laufende Generierung (Progress-Bar, neue Bubbles) direkt sichtbar ist.
-  const resync = () => pollOnce();
+  const resync = () => {
+    pollOnce();
+    refreshSpeechAvailability(); // Voice-Companion evtl. inzwischen weg -> Symbole ausblenden
+  };
   document.addEventListener("visibilitychange", () => {
     if (!document.hidden) resync();
   });
