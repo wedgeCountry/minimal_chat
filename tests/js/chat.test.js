@@ -51,6 +51,60 @@ test("sortMessagesForRender: reasoning does not jump above earlier user messages
   );
 });
 
+test("sortMessagesForRender: gleicher ts -> finale Assistant-Message zuletzt, Toolcall vor Toolresult", () => {
+  // Persistiert wird ai vor den Tool-Bubbles (id 3 < 4 < 5) - gerendert darf die Antwort trotzdem zuletzt landen
+  const messages = [
+    { role: "user", type: "message", text: "Frage", ts: 1000, id: 1 },
+    { role: "assistant", type: "reasoning", text: "Thinking", ts: 1000, id: 2 },
+    { role: "assistant", type: "message", text: "Antwort", ts: 1000, id: 3 },
+    { role: "assistant", type: "toolcall", text: "f({})", ts: 1000, id: 4 },
+    { role: "assistant", type: "toolresult", text: "f: 42", ts: 1000, id: 5 },
+  ];
+  const sorted = sortMessagesForRender(messages);
+  assert.deepEqual(
+    sorted.map((m) => m.text),
+    ["Frage", "Thinking", "f({})", "f: 42", "Antwort"]
+  );
+});
+
+test("sortMessagesForRender: gleicher ts -> User-Message bleibt vor Assistant-Bubbles", () => {
+  const messages = [
+    { role: "assistant", type: "reasoning", text: "Thinking", ts: 1000, id: 2 },
+    { role: "user", type: "message", text: "Frage", ts: 1000, id: 1 },
+    { role: "assistant", type: "message", text: "Antwort", ts: 1000, id: 3 },
+  ];
+  const sorted = sortMessagesForRender(messages);
+  assert.deepEqual(sorted.map((m) => m.text), ["Frage", "Thinking", "Antwort"]);
+});
+
+test("sortMessagesForRender: zwei Turns in derselben Sekunde bleiben in Gespraechsreihenfolge", () => {
+  // Regression: die letzte User-Message darf nicht ueber die erste Antwort rutschen
+  const messages = [
+    { role: "user", type: "message", text: "Frage 1", ts: 1000, id: 1 },
+    { role: "assistant", type: "message", text: "Antwort 1", ts: 1000, id: 2 },
+    { role: "user", type: "message", text: "Frage 2", ts: 1000, id: 3 },
+    { role: "assistant", type: "message", text: "Antwort 2", ts: 1000, id: 4 },
+  ];
+  const sorted = sortMessagesForRender(messages);
+  assert.deepEqual(sorted.map((m) => m.text), ["Frage 1", "Antwort 1", "Frage 2", "Antwort 2"]);
+});
+
+test("sortMessagesForRender: gleicher ts, ein Turn mit Tools -> Frage, Thinking, Toolcall, Toolresult, Antwort; naechster Turn danach", () => {
+  const messages = [
+    { role: "user", type: "message", text: "Frage 1", ts: 1000, id: 1 },
+    { role: "assistant", type: "message", text: "Antwort 1", ts: 1000, id: 2 },
+    { role: "assistant", type: "toolcall", text: "f({})", ts: 1000, id: 3 },
+    { role: "assistant", type: "toolresult", text: "f: 42", ts: 1000, id: 4 },
+    { role: "user", type: "message", text: "Frage 2", ts: 1000, id: 5 },
+    { role: "assistant", type: "message", text: "Antwort 2", ts: 1000, id: 6 },
+  ];
+  const sorted = sortMessagesForRender(messages);
+  assert.deepEqual(
+    sorted.map((m) => m.text),
+    ["Frage 1", "f({})", "f: 42", "Antwort 1", "Frage 2", "Antwort 2"]
+  );
+});
+
 test("sortMessagesForRender: handles empty array", () => {
   assert.equal(sortMessagesForRender([]).length, 0);
 });

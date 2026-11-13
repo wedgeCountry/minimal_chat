@@ -421,6 +421,62 @@ def test_reasoning_bubbles_can_be_expanded(page, base_url, llm_expect):
     assert reasoning_bubble.get_attribute("data-mode") == "collapsed", "Nach dem dritten Klick sollte der Mode wieder 'collapsed' sein"
 
 
+def test_toolcall_and_toolresult_bubbles_are_collapsed_by_default(page, base_url, llm_expect):
+    """Toolcall- und Toolresult-Bubbles starten eingeklappt (collapsed), auch nach Reload;
+    Reihenfolge bei gleichem ts: Toolcall vor Toolresult vor der finalen Assistant-Message."""
+    email = "tool-bubble-user@example.com"
+    _register_client(base_url, email, "Geheim-123")
+    _login(page, base_url, email, "Geheim-123")
+    _open_panel(page)
+    page.click(T["new_session"])
+    page.wait_for_selector(f'{T["session_tile"]}.active')
+
+    # Mock-LLM antwortet u. a. mit einem tool_call
+    page.fill(T["chat_input"], "Wetter in Berlin?")
+    page.click(T["send_btn"])
+    page.wait_for_function(
+        '() => document.querySelectorAll(\'[data-testid="chat"] .bubble[data-type="toolcall"]\').length === 1',
+        timeout=llm_expect["timeout_ms"],
+    )
+    page.wait_for_function(
+        '() => !document.querySelector(\'[data-testid="send-btn"]\').classList.contains("abort")',
+        timeout=llm_expect["timeout_ms"],
+    )
+
+    # Toolresult serverseitig einfuegen (mehrzeilig, damit die Kuerzung sichtbar ist)
+    page.evaluate(
+        """async () => {
+          const sessions = await (await fetch('/api/sessions')).json();
+          const sid = sessions[0].id;
+          await fetch(`/api/sessions/${sid}/messages`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({role: 'assistant', type: 'toolresult', text: 'Z1\\\\nZ2\\\\nZ3', in_context: false}),
+          });
+        }"""
+    )
+    page.reload()
+    page.wait_for_selector(f'{T["session_tile"]}.active')
+    page.wait_for_function(
+        '() => document.querySelectorAll(\'[data-testid="chat"] .bubble[data-type="toolresult"]\').length === 1',
+        timeout=llm_expect["timeout_ms"],
+    )
+
+    for type_ in ("toolcall", "toolresult"):
+        b = page.locator(_bubble("assistant", type_)).first
+        assert "collapsed" in (b.get_attribute("class") or ""), f"{type_}-Bubble sollte eingeklappt starten"
+        assert b.get_attribute("data-mode") == "collapsed", f"{type_}-Bubble data-mode sollte 'collapsed' sein"
+
+    toolresult_body = page.locator(_bubble("assistant", "toolresult")).locator('[data-testid="bubble-body"]')
+    assert toolresult_body.inner_text() == "Z1 [...]", "mehrzeiliger Toolresult-Body muss auf 1 Zeile + [...] gekuerzt sein"
+
+    # Reihenfolge: Toolcall vor Toolresult vor der finalen Assistant-Message
+    order = page.evaluate(
+        """() => [...document.querySelectorAll('[data-testid="chat"] > .bubble')].map(b => b.dataset.role + ":" + b.dataset.type)"""
+    )
+    assert order == ["user:message", "assistant:reasoning", "assistant:toolcall", "assistant:toolresult", "assistant:message"], order
+
+
 def test_session_db_updated_immediately_when_user_message_sent(page, base_url, llm_expect, server_data_dir):
     """Session-Eintrag und User-Message muessen direkt nach dem Absenden in der
     per-user DB stehen (noch bevor die LLM-Antwort fertig ist)."""

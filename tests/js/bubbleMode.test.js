@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { BUBBLE_MODES, NORMAL_MAX_LINES, clampText, isClamped, nextBubbleMode, bubbleModeTitle } from "../../static/js/bubbleMode.js";
+import { BUBBLE_MODES, NORMAL_MAX_LINES, clampText, isClamped, nextBubbleMode, bubbleModeTitle, defaultBubbleMode } from "../../static/js/bubbleMode.js";
 
 const long = Array.from({ length: 15 }, (_, i) => `Zeile ${i + 1}`).join("\n");
 
@@ -54,4 +54,12 @@ test("bubbleModeTitle liefert deutsche Tooltips pro Zustand", () => {
   assert.equal(bubbleModeTitle("normal"), "Alles anzeigen");
   assert.equal(bubbleModeTitle("full"), "Einklappen");
   assert.equal(bubbleModeTitle("collapsed"), "Ausklappen");
+});
+
+test("defaultBubbleMode: nur message startet normal, reasoning/toolcall/toolresult eingeklappt", () => {
+  assert.equal(defaultBubbleMode("message"), "normal");
+  assert.equal(defaultBubbleMode("reasoning"), "collapsed");
+  assert.equal(defaultBubbleMode("toolcall"), "collapsed");
+  assert.equal(defaultBubbleMode("toolresult"), "collapsed");
+  assert.equal(defaultBubbleMode(undefined), "normal");
 });

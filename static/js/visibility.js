@@ -2,7 +2,7 @@
 export function isBubbleVisible(m, s) {
   if (m.role === "system" && s.show_system_prompt === false) return false;
   if (m.type === "reasoning" && s.show_reasoning === false) return false;
-  if (m.type === "toolcall" && s.show_tool_output === false) return false;
+  if ((m.type === "toolcall" || m.type === "toolresult") && s.show_tool_output === false) return false;
   return true;
 }
 
