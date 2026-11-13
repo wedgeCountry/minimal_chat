@@ -17,7 +17,8 @@ def get_db(request: Request) -> Database:
     return request.app.state.db
 
 
-def get_current_user(request: Request) -> dict:
+def get_session_email(request: Request) -> str | None:
+    """E-Mail der gueltigen Session (inkl. Auto-Login-Testmodus) oder None."""
     registry = request.app.state.registry
     email = read_session(request, request.app.state.auth_config, request.app.state.auth_serializer)
 
@@ -28,5 +29,12 @@ def get_current_user(request: Request) -> dict:
             registry.create_user(email, "Test-1234", display_name_from_email(email), TERMS_VERSION)
 
     if not email or not registry.user_exists(email):
+        return None
+    return email
+
+
+def get_current_user(request: Request) -> dict:
+    email = get_session_email(request)
+    if email is None:
         raise HTTPException(status_code=401, detail="Nicht authentifiziert")
     return user_identity(request.app.state.config.secret, email)

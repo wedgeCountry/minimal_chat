@@ -4,12 +4,14 @@ import logging
 import os
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request, Response
+from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 from .auth import init_auth
 from .config import AppConfig, bootstrap_env, is_auto_login_enabled, load_config
 from .db.database import Database
+from .deps import get_session_email
 from .routers import auth, chat, log, meta, sessions, settings, voice
 
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
@@ -47,6 +49,13 @@ def create_app(
     app.include_router(log.router)
     app.include_router(meta.router)
     app.include_router(voice.router)
+
+    @app.get("/", include_in_schema=False)
+    def root(request: Request) -> Response:
+        if get_session_email(request) is None:
+            return RedirectResponse("/auth/login", status_code=303)
+        return FileResponse(STATIC_DIR / "index.html")
+
     app.mount("/", StaticFiles(directory=STATIC_DIR, html=True), name="static")
     return app
 
