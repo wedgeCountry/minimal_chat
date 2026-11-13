@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import base64
 import hashlib
-from pathlib import Path
 
 from argon2.low_level import Type, hash_secret_raw
 from fastapi import FastAPI, Response
@@ -38,7 +37,7 @@ def init_auth(app: FastAPI, cfg: AppConfig) -> AuthConfig:
         terms={"version": TERMS_VERSION},
         imprint={"document": str(REPO_ROOT / "docs" / "impressum.html")},
         login_redirect="/",
-        cookie_secure=False,
+        cookie_secure=cfg.ssl_certfile is not None,
     )
     app.state.registry = registry
     app.state.auth_config = config

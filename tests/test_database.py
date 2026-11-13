@@ -14,7 +14,9 @@ from app.db.database import (
     q_get_messages,
     q_get_session,
     q_get_user_settings,
+    q_set_generating,
     q_set_user_setting,
+    q_try_start_generating,
 )
 
 
@@ -105,7 +107,7 @@ def test_user_identity_is_derived_from_secret_and_email():
     assert a["uid"] == c["uid"] and a["key"] != c["key"]  # uid aus E-Mail, Schluessel aus Secret + E-Mail
     assert a["email"] == "alice@example.com"
     assert a["username"] == "alice"
-    assert len(__import__("base64").urlsafe_b64decode(a["key"])) == 32
+    assert len(base64.urlsafe_b64decode(a["key"])) == 32
 
 
 def test_user_db_migrates_legacy_key_on_write(db):
@@ -134,6 +136,17 @@ def test_user_settings_table_roundtrip(db):
         q_set_user_setting(con, "api_key", "sk-xyz")
         stored = q_get_user_settings(con)
     assert stored == {"theme": "dark", "api_key": "sk-xyz"}
+
+
+def test_try_start_generating_is_atomic_check_and_set(db):
+    user = _make_user()
+    with db.user_db(user) as con:
+        s = q_create_session(con, "S")
+        assert q_try_start_generating(con, s["id"]) == "ok"
+        assert q_try_start_generating(con, s["id"]) == "busy"
+        assert q_try_start_generating(con, "unbekannt") == "missing"
+        q_set_generating(con, s["id"], False)
+        assert q_try_start_generating(con, s["id"]) == "ok"
 
 
 def test_schema_file_exists():

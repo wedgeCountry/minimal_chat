@@ -132,6 +132,21 @@ def test_voice_tts_upstream_error_forwarded(client, auth_headers, monkeypatch):
     assert res.status_code == 400
 
 
+def test_voice_tts_rejects_overlong_text(client, auth_headers):
+    res = client.post("/api/voice/tts", json={"text": "x" * 5001}, headers=auth_headers)
+    assert res.status_code == 422
+
+
+def test_voice_stt_rejects_oversize_upload_413(client, auth_headers, app):
+    app.state.config.max_upload_bytes = 4
+    res = client.post(
+        "/api/voice/stt",
+        files={"file": ("rec.wav", b"RIFF" + b"\x00" * 40, "audio/wav")},
+        headers=auth_headers,
+    )
+    assert res.status_code == 413
+
+
 def test_voice_endpoints_require_auth(client):
     assert client.get("/api/voice/status").status_code == 401
     res = client.post("/api/voice/tts", json={"text": "x"})

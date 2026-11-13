@@ -1,4 +1,4 @@
-import { api } from "./api.js";
+import { api, parseErrorResponse } from "./api.js";
 
 export const VOICE_UNAVAILABLE_MSG =
   "Sprachdienst nicht verfügbar – bitte Voice-Companion-Server prüfen.";
@@ -16,22 +16,13 @@ export async function voiceAvailable() {
   return !!s.available;
 }
 
-async function parseError(res, fallback) {
-  const text = await res.text().catch(() => "");
-  try {
-    const data = JSON.parse(text);
-    if (data && data.detail) return data.detail;
-  } catch {}
-  return text || res.statusText || fallback;
-}
-
 export async function transcribeAudio(blob, language) {
   const fd = new FormData();
   fd.append("file", blob, "recording.wav");
   const params = language ? `?language=${encodeURIComponent(language)}` : "";
   const res = await fetch("/api/voice/stt" + params, { method: "POST", body: fd });
   if (res.status === 503) throw new Error(VOICE_UNAVAILABLE_MSG);
-  if (!res.ok) throw new Error(await parseError(res, "Spracheingabe fehlgeschlagen."));
+  if (!res.ok) throw new Error(await parseErrorResponse(res, "Spracheingabe fehlgeschlagen."));
   const data = await res.json();
   return data.text || "";
 }
@@ -43,7 +34,7 @@ export async function synthesizeSpeech(text, language) {
     body: JSON.stringify(language ? { text, language } : { text }),
   });
   if (res.status === 503) throw new Error(VOICE_UNAVAILABLE_MSG);
-  if (!res.ok) throw new Error(await parseError(res, "Vorlesen fehlgeschlagen."));
+  if (!res.ok) throw new Error(await parseErrorResponse(res, "Vorlesen fehlgeschlagen."));
   return await res.blob();
 }
 

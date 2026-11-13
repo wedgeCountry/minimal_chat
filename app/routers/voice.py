@@ -6,6 +6,7 @@ from fastapi.responses import Response
 from ..config import AppConfig
 from ..deps import get_config, get_current_user
 from ..models import VoiceTTSRequest
+from ..services.files import UploadTooLarge, read_upload_capped
 from ..services.voice import (
     VoiceServiceUnavailable,
     VoiceUpstreamError,
@@ -36,7 +37,10 @@ async def voice_stt(
     user: dict = Depends(get_current_user),
     config: AppConfig = Depends(get_config),
 ) -> dict:
-    data = await file.read()
+    try:
+        data = await read_upload_capped(file, config.max_upload_bytes)
+    except UploadTooLarge as exc:
+        raise HTTPException(status_code=413, detail=str(exc))
     try:
         return await transcribe_speech(
             config.voice_base,

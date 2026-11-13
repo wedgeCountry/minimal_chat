@@ -9,6 +9,7 @@ from ..db import database as dbq
 from ..db.database import Database
 from ..deps import get_config, get_current_user, get_db
 from ..models import ChatAbortRequest, ChatRequest
+from ..services.chat import validate_llm_base_url
 from ..services.files import expand_attachment_parts
 from ..services.generation import request_abort, run_generation
 from ..services.settings import BOOL_SETTINGS, resolve_base_url, stored_bool
@@ -36,6 +37,11 @@ def _session_exists(db: Database, user: dict, session_id: str) -> bool:
         return dbq.q_get_session(con, session_id) is not None
 
 
+def _try_start_generation(db: Database, user: dict, session_id: str) -> str:
+    with db.user_db(user) as con:
+        return dbq.q_try_start_generating(con, session_id)
+
+
 @router.post("", status_code=202)
 async def chat(
     req: ChatRequest,
@@ -51,10 +57,18 @@ async def chat(
     ctx = await asyncio.to_thread(_load_chat_context, db, user, req.session_id)
     if ctx is None:
         raise HTTPException(status_code=404, detail="Session nicht gefunden")
-    session, stored, attachments = ctx
-    if session["generating"]:
-        raise HTTPException(status_code=409, detail="Es läuft bereits eine Generierung für diese Session")
+    _session, stored, attachments = ctx
     base_url = resolve_base_url(stored, config)
+    try:
+        validate_llm_base_url(base_url, config.allow_private_llm)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    # vor Task-Start atomar setzen, sonst TOCTOU-Race bei parallelen POSTs
+    status = await asyncio.to_thread(_try_start_generation, db, user, req.session_id)
+    if status == "missing":
+        raise HTTPException(status_code=404, detail="Session nicht gefunden")
+    if status == "busy":
+        raise HTTPException(status_code=409, detail="Es läuft bereits eine Generierung für diese Session")
     api_key = stored.get("api_key") or config.default_api_key
     flags = {key: stored_bool(stored, key) for key in BOOL_SETTINGS}
     messages = expand_attachment_parts([m.model_dump() for m in req.messages], attachments)

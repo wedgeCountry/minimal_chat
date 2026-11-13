@@ -28,10 +28,9 @@ export async function refreshSpeechAvailability() {
   return state.speech;
 }
 
+// Verfuegbarkeit kommt nur aus speechControlsVisible (visibility.js)
 function modeAvailableFor(mode, kind) {
-  if (mode === "system") return kind === "stt" ? !!state.speech.systemStt : !!state.speech.systemTts;
-  if (mode === "server") return kind === "stt" ? !!state.speech.serverStt : !!state.speech.serverTts;
-  return false;
+  return speechControlsVisible(mode, kind, state.speech);
 }
 
 // Effektiver Modus: gewaehlter Modus, Fallback auf den anderen Modus wenn der

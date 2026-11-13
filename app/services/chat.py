@@ -1,13 +1,53 @@
 from __future__ import annotations
 
+import ipaddress
 import json
+import socket
 from typing import Any, AsyncIterator, Callable
+from urllib.parse import urlparse
 
 import httpx
 
 DEFAULT_TIMEOUT = httpx.Timeout(connect=10.0, read=None, write=30.0, pool=10.0)
 
 ClientFactory = Callable[..., httpx.AsyncClient]
+
+
+def validate_llm_base_url(base_url: str, allow_private: bool = False) -> str:
+    """SSRF-Vertrag fuer user-gesteuerte LLM-URLs: http/https ohne Credentials;
+    ohne allow_private werden per DNS private/reservierte Ziel-IPs abgelehnt."""
+    url = (base_url or "").strip()
+    parsed = urlparse(url)
+    if parsed.scheme not in ("http", "https") or not parsed.hostname:
+        raise ValueError("Ungueltige LLM-Base-URL (nur http/https mit Host erlaubt)")
+    if parsed.username or parsed.password:
+        raise ValueError("Credentials in der LLM-URL sind nicht erlaubt")
+    try:
+        port = parsed.port
+    except ValueError as exc:
+        raise ValueError("Ungueltiger Port in der LLM-Base-URL") from exc
+    if not allow_private:
+        try:
+            infos = socket.getaddrinfo(parsed.hostname, port, proto=socket.IPPROTO_TCP)
+        except socket.gaierror as exc:
+            raise ValueError(f"LLM-Host nicht aufloesbar: {parsed.hostname}") from exc
+        shared_range = ipaddress.ip_network("100.64.0.0/10")  # CGNAT: is_private ist hier False
+        for info in infos:
+            ip = ipaddress.ip_address(info[4][0])
+            if (
+                ip.is_private
+                or ip.is_loopback
+                or ip.is_link_local
+                or ip.is_multicast
+                or ip.is_reserved
+                or ip.is_unspecified
+                or ip in shared_range
+            ):
+                raise ValueError(
+                    f"LLM-Ziel {ip} liegt in einem privaten/reservierten Netz und ist blockiert "
+                    "(LEANCHAT_ALLOW_PRIVATE_LLM=1 erlaubt private Ziele)"
+                )
+    return url
 
 
 def parse_sse_data(data: str) -> dict | None:
@@ -131,8 +171,8 @@ async def stream_completion(
         # (run_generation) als System-Message persistiert.
         async with client.stream("POST", url, headers=headers, json=payload) as res:
             if res.status_code >= 400:
-                body = (await res.aread()).decode("utf-8", errors="replace")[:300]
-                error = json.dumps({"error": f"HTTP {res.status_code}: {body}"})
+                # Upstream-Body nicht an den Client reichen (Info-Leak bei internen Zielen)
+                error = json.dumps({"error": f"HTTP {res.status_code}"})
                 yield f"data: {error}\n\n"
                 yield "data: [DONE]\n\n"
                 return

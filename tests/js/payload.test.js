@@ -42,7 +42,7 @@ test("baut Anhang-Referenz-Part mit attachment_id (serverseitige Aufbereitung)",
   ]);
 });
 
-test("baut Mehrfach-Content mit Anhaengen", () => {
+test("baut Mehrfach-Content mit Anhaengen (Server-Referenz + Text-Anhang)", () => {
   const payload = buildChatPayload({
     model: "m",
     messages: [
@@ -52,7 +52,7 @@ test("baut Mehrfach-Content mit Anhaengen", () => {
         text: "schau",
         inContext: true,
         attachments: [
-          { name: "bild.png", data: "data:image/png;base64,AAA" },
+          { id: 7, name: "bild.png", type: "image/png" },
           { name: "notiz.txt", text: "inhalt" },
         ],
       },
@@ -62,7 +62,7 @@ test("baut Mehrfach-Content mit Anhaengen", () => {
     {
       role: "user",
       content: [
-        { type: "image_url", image_url: { url: "data:image/png;base64,AAA" } },
+        { type: "text", text: "[Datei: bild.png]", attachment_id: 7 },
         { type: "text", text: "[Datei: notiz.txt]\ninhalt" },
         { type: "text", text: "schau" },
       ],

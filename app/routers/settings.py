@@ -1,13 +1,15 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends
+import asyncio
+
+from fastapi import APIRouter, Depends, HTTPException
 
 from ..config import AppConfig
 from ..db import database as dbq
 from ..db.database import Database
 from ..deps import get_config, get_current_user, get_db
 from ..models import SettingsIn, SettingsOut, SettingsTestIn
-from ..services.chat import check_llm_connection
+from ..services.chat import check_llm_connection, validate_llm_base_url
 from ..services.settings import BOOL_SETTINGS, resolve_base_url, stored_bool, stored_speech_mode, to_db
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
@@ -47,9 +49,17 @@ async def test_connection(
     db: Database = Depends(get_db),
     config: AppConfig = Depends(get_config),
 ) -> dict:
-    with db.user_db(user) as con:
-        stored = dbq.q_get_user_settings(con)
+    def _load_stored() -> dict[str, str]:
+        with db.user_db(user) as con:
+            return dbq.q_get_user_settings(con)
+
+    # DB-Zugriff ist blockierend -> nicht auf dem Event-Loop (Regel 1)
+    stored = await asyncio.to_thread(_load_stored)
     base = body.base or resolve_base_url(stored, config)
+    try:
+        validate_llm_base_url(base, config.allow_private_llm)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
     api_key = body.api_key or stored.get("api_key") or config.default_api_key
     ok, detail = await check_llm_connection(base, api_key)
     return {"ok": ok, "detail": detail}

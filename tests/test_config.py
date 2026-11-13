@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from pathlib import Path
-
 from app.config import AppConfig, ensure_env_file, load_config, load_env_file, parse_env_text
 from app.main import create_app
 
@@ -141,3 +139,41 @@ def test_load_config_reads_llm_host_port_from_env(tmp_path, monkeypatch):
     assert cfg.default_llm_port == "8443"
     assert cfg.to_dict()["default_llm_host"] == "llm.example.com"
     assert cfg.to_dict()["default_llm_port"] == "8443"
+
+
+def test_load_config_reads_security_limits_and_ssrf_flag(tmp_path, monkeypatch):
+    monkeypatch.setenv("LEANCHAT_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("LEANCHAT_SECRET", "s")
+    monkeypatch.setenv("LEANCHAT_HOST", "0.0.0.0")
+    monkeypatch.setenv("LEANCHAT_ALLOW_PRIVATE_LLM", "1")
+    monkeypatch.setenv("LEANCHAT_MAX_UPLOAD_BYTES", "1024")
+    monkeypatch.setenv("LEANCHAT_MAX_USER_STORAGE_BYTES", "2048")
+    monkeypatch.setenv("LEANCHAT_MAX_REQUEST_BYTES", "4096")
+    cfg = load_config()
+    assert cfg.allow_private_llm is True
+    assert cfg.max_upload_bytes == 1024
+    assert cfg.max_user_storage_bytes == 2048
+    assert cfg.max_request_bytes == 4096
+    assert cfg.to_dict()["max_upload_bytes"] == 1024  # Limits sind nicht geheim -> persistiert ok
+
+
+def test_loopback_host_auto_enables_private_llm(tmp_path, monkeypatch):
+    monkeypatch.setenv("LEANCHAT_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("LEANCHAT_SECRET", "s")
+    monkeypatch.setenv("LEANCHAT_HOST", "127.0.0.1")
+    monkeypatch.delenv("LEANCHAT_ALLOW_PRIVATE_LLM", raising=False)
+    assert load_config().allow_private_llm is True
+
+
+def test_public_host_blocks_private_llm_by_default_with_limit_defaults(tmp_path, monkeypatch):
+    monkeypatch.setenv("LEANCHAT_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("LEANCHAT_SECRET", "s")
+    monkeypatch.setenv("LEANCHAT_HOST", "0.0.0.0")
+    monkeypatch.delenv("LEANCHAT_ALLOW_PRIVATE_LLM", raising=False)
+    for var in ("LEANCHAT_MAX_UPLOAD_BYTES", "LEANCHAT_MAX_USER_STORAGE_BYTES", "LEANCHAT_MAX_REQUEST_BYTES"):
+        monkeypatch.delenv(var, raising=False)
+    cfg = load_config()
+    assert cfg.allow_private_llm is False
+    assert cfg.max_upload_bytes == 20 * 1024 * 1024
+    assert cfg.max_user_storage_bytes == 512 * 1024 * 1024
+    assert cfg.max_request_bytes == 25 * 1024 * 1024

@@ -15,6 +15,24 @@ from typing import Any
 MAX_TEXT_CHARS = 100_000
 MAX_UPLOAD_BYTES = 20 * 1024 * 1024
 
+UPLOAD_READ_CHUNK = 64 * 1024
+
+
+class UploadTooLarge(ValueError):
+    pass
+
+
+async def read_upload_capped(file, limit: int) -> bytes:
+    """Byte-Cap beim Streamen, damit ein grosser Body nicht komplett in den RAM geht."""
+    raw = bytearray()
+    while True:
+        chunk = await file.read(UPLOAD_READ_CHUNK)
+        if not chunk:
+            return bytes(raw)
+        raw += chunk
+        if len(raw) > limit:
+            raise UploadTooLarge(f"Upload zu gross (Limit {limit} Bytes)")
+
 TEXT_MIME_TYPES = {
     "application/json",
     "application/xml",
@@ -42,11 +60,11 @@ def is_text_file(name: str, mime: str) -> bool:
     return False
 
 
-def process_upload(name: str, mime: str, raw: bytes) -> dict:
+def process_upload(name: str, mime: str, raw: bytes, max_bytes: int = MAX_UPLOAD_BYTES) -> dict:
     """Bereitet eine hochgeladene Datei fuer die Speicherung und den LLM-Request auf."""
     mime = (mime or "").lower() or "application/octet-stream"
-    if len(raw) > MAX_UPLOAD_BYTES:
-        raise ValueError(f"Datei zu gross ({len(raw)} Bytes, Limit {MAX_UPLOAD_BYTES})")
+    if len(raw) > max_bytes:
+        raise UploadTooLarge(f"Datei zu gross ({len(raw)} Bytes, Limit {max_bytes})")
     if mime.startswith("image/"):
         data_url = "data:%s;base64,%s" % (mime, base64.b64encode(raw).decode("ascii"))
         return {"name": name, "mime": mime, "kind": "image", "size": len(raw), "content": data_url}
@@ -84,8 +102,12 @@ def expand_attachment_parts(messages: list[dict[str, Any]], attachments_by_id: d
         expanded = []
         for part in content:
             aid = part.get("attachment_id") if isinstance(part, dict) else None
-            if aid is not None and int(aid) in attachments_by_id:
-                expanded.append(_attachment_part(attachments_by_id[int(aid)]))
+            try:
+                aid_int = int(aid) if aid is not None else None
+            except (TypeError, ValueError):
+                aid_int = None
+            if aid_int is not None and aid_int in attachments_by_id:
+                expanded.append(_attachment_part(attachments_by_id[aid_int]))
             else:
                 expanded.append(part)
         if expanded and all(isinstance(p, dict) and p.get("type") == "text" for p in expanded):

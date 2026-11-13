@@ -22,6 +22,7 @@ import secrets
 import sqlite3
 import threading
 import time
+import weakref
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Iterator
@@ -29,6 +30,14 @@ from typing import Iterator
 from . import crypto
 
 SCHEMA_PATH = Path(__file__).with_name("schema.sql")
+_SCHEMA_SQL = SCHEMA_PATH.read_text(encoding="utf-8")
+
+
+class _UserLock:
+    """Weakref-faehiger Wrapper (RLock selbst ist es nicht)."""
+
+    def __init__(self) -> None:
+        self.lock = threading.RLock()
 
 
 def _now_ms() -> int:
@@ -75,17 +84,17 @@ class Database:
         self.users_dir = Path(users_dir) if users_dir else self.data_dir / "users"
         self.users_dir.mkdir(parents=True, exist_ok=True)
         self._locks_guard = threading.Lock()
-        self._locks: dict[str, threading.RLock] = {}
+        self._locks: weakref.WeakValueDictionary[str, _UserLock] = weakref.WeakValueDictionary()
 
-    def _lock_for(self, user: dict) -> threading.RLock:
+    def _lock_for(self, user: dict) -> _UserLock:
         """Pro-User-Sperre: gleichzeitige Zugriffe verschiedener User blockieren sich nicht."""
         key = str(self._db_path(user))
         with self._locks_guard:
-            lock = self._locks.get(key)
-            if lock is None:
-                lock = threading.RLock()
-                self._locks[key] = lock
-            return lock
+            entry = self._locks.get(key)
+            if entry is None:
+                entry = _UserLock()
+                self._locks[key] = entry
+            return entry
 
     def _db_path(self, user: dict) -> Path:
         return self.users_dir / f"{user['uid']}.db.enc"
@@ -106,7 +115,8 @@ class Database:
         tatsaechlich etwas geaendert hat (``total_changes``); reine
         Lesezugriffe erzeugen kein Datei-I/O.
         """
-        with self._lock_for(user):
+        entry = self._lock_for(user)  # lokal halten, sonst faellt der WeakValue-Eintrag vor Block-Ende weg
+        with entry.lock:
             path = self._db_path(user)
             con = sqlite3.connect(":memory:")
             con.row_factory = sqlite3.Row
@@ -131,7 +141,7 @@ class Database:
                     if plain is None:
                         raise last_error or ValueError("Entschluesselung fehlgeschlagen")
                     con.deserialize(plain)
-                con.executescript(SCHEMA_PATH.read_text(encoding="utf-8"))
+                con.executescript(_SCHEMA_SQL)
                 # Migration fuer bestehende DBs: generating-Spalte nachziehen
                 cols = {r[1] for r in con.execute("PRAGMA table_info(sessions)").fetchall()}
                 if "generating" not in cols:
@@ -175,6 +185,16 @@ def q_delete_session(con: sqlite3.Connection, sid: str) -> None:
 
 def q_set_generating(con: sqlite3.Connection, sid: str, on: bool) -> None:
     con.execute("UPDATE sessions SET generating = ? WHERE id = ?", (1 if on else 0, sid))
+
+
+def q_try_start_generating(con: sqlite3.Connection, sid: str) -> str:
+    """Atomares Check-and-Set von generating: 'ok' | 'busy' | 'missing'."""
+    cur = con.execute("UPDATE sessions SET generating = 1 WHERE id = ? AND generating = 0", (sid,))
+    if cur.rowcount:
+        return "ok"
+    if q_get_session(con, sid):
+        return "busy"
+    return "missing"
 
 
 # --- Messages ---
@@ -262,6 +282,11 @@ def q_add_attachment(con: sqlite3.Connection, sid: str, att: dict) -> dict:
 def q_get_session_attachments(con: sqlite3.Connection, sid: str) -> list[dict]:
     rows = con.execute("SELECT * FROM attachments WHERE session_id = ? ORDER BY id ASC", (sid,)).fetchall()
     return [_row_to_attachment(r) for r in rows]
+
+
+def q_total_attachment_bytes(con: sqlite3.Connection) -> int:
+    row = con.execute("SELECT COALESCE(SUM(size), 0) FROM attachments").fetchone()
+    return int(row[0])
 
 
 # --- User Settings ---

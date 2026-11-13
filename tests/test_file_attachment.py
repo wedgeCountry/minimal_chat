@@ -7,14 +7,16 @@ Nutzt eine echte Datei (tests/fixtures/lorem_ipsum.txt, 20 Zeilen Lorem ipsum).
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import json
 import time
 from pathlib import Path
 
 import httpx
+import pytest
 
-from app.services.files import is_text_file, process_upload
+from app.services.files import UploadTooLarge, expand_attachment_parts, is_text_file, process_upload, read_upload_capped
 
 RealAsyncClient = httpx.AsyncClient
 
@@ -101,6 +103,42 @@ def test_process_upload_binary_gets_explicit_note():
     assert "%PDF" not in att["content"]
 
 
+def test_process_upload_too_large_raises_upload_too_large():
+    with pytest.raises(UploadTooLarge):
+        process_upload("a.bin", "application/octet-stream", b"x" * 11, max_bytes=10)
+
+
+def test_read_upload_capped_streams_and_enforces_limit():
+    class FakeUpload:
+        def __init__(self, data: bytes):
+            self._d = data
+            self._i = 0
+
+        async def read(self, n: int) -> bytes:
+            if self._i >= len(self._d):
+                return b""
+            chunk = self._d[self._i : self._i + n]
+            self._i += n
+            return chunk
+
+    assert asyncio.run(read_upload_capped(FakeUpload(b"12345"), 10)) == b"12345"
+    with pytest.raises(UploadTooLarge):
+        asyncio.run(read_upload_capped(FakeUpload(b"12345"), 4))
+
+
+def test_expand_attachment_parts_tolerates_malformed_attachment_id():
+    messages = [{"role": "user", "content": [{"type": "text", "text": "hi", "attachment_id": "abc"}]}]
+    out = expand_attachment_parts(messages, {})
+    assert out[0]["content"] == "hi"  # rein textuelle Parts werden zu einem String verschmolzen
+
+
+def test_expand_attachment_parts_expands_known_attachment_id():
+    atts = {1: {"kind": "text", "name": "a.txt", "content": "INHALT"}}
+    messages = [{"role": "user", "content": [{"type": "text", "text": "hi", "attachment_id": 1}]}]
+    out = expand_attachment_parts(messages, atts)
+    assert out[0]["content"] == "[Datei: a.txt]\nINHALT"
+
+
 def test_upload_endpoint_stores_attachment(client, auth_headers):
     sid = _new_session(client, auth_headers)
     raw = FIXTURE.read_bytes()
@@ -120,7 +158,7 @@ def test_upload_endpoint_rejects_oversize_and_unknown_session(client, auth_heade
         files={"file": ("gross.bin", b"x" * (MAX_UPLOAD_BYTES + 1), "application/octet-stream")},
         headers=auth_headers,
     )
-    assert res.status_code == 400
+    assert res.status_code == 413  # Upload-Limit -> 413 (nicht 400)
     res = client.post(
         "/api/sessions/unknown/attachments",
         files={"file": ("x.txt", b"hi", "text/plain")},
