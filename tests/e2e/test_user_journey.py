@@ -807,9 +807,9 @@ def test_resend_last_user_message(page, base_url, llm_expect, server_data_dir):
     resend = user_bubbles.last.locator('[data-testid="bubble-resend-btn"]')
     assert resend.count() == 1
 
+    # Kein Bestaetigungs-Modal (wie beim Inline-Edit, siehe 54fc9b6): die
+    # Nachricht wird direkt gepatcht, Folgemessages geloescht, neu generiert.
     resend.click()
-    # Bereits beantwortet -> Bestaetigungs-Modal -> OK
-    _confirm_delete(page)
 
     # Generierung startet ...
     page.wait_for_function(
