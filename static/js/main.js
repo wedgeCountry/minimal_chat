@@ -168,15 +168,22 @@ function initEvents() {
       send();
     }
   });
+  const fieldSizingSupported = !!(window.CSS && CSS.supports && CSS.supports("field-sizing", "content"));
   const updateInputOverflow = () => {
     input.style.overflowY = input.scrollHeight > input.clientHeight + 1 ? "auto" : "hidden";
   };
-  input.addEventListener("input", () => {
+  const resizeInput = () => {
+    if (fieldSizingSupported) return;
     input.style.height = "auto";
     input.style.height = Math.min(input.scrollHeight, 180) + "px";
+  };
+  const syncInputSize = () => {
+    resizeInput();
     updateInputOverflow();
-  });
-  updateInputOverflow();
+  };
+  input.addEventListener("input", syncInputSize);
+  window.addEventListener("resize", syncInputSize);
+  syncInputSize();
   if (mobile) {
     $("composerWrap").addEventListener("pointerdown", () => $("side").classList.add("hidden"));
     $("chat").addEventListener("pointerdown", () => $("side").classList.add("hidden"));
@@ -205,6 +212,7 @@ function initEvents() {
           else interim += r[0].transcript;
         }
         input.value = final + interim;
+        syncInputSize();
       };
       rec.onend = () => {
         recOn = false;
