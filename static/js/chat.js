@@ -8,6 +8,7 @@ import { loadSessions, newSession, changed } from "./sessions.js";
 import { uploadPendingAttachments } from "./attachments.js";
 import { confirmModal } from "./confirm.js";
 import { isBubbleVisible } from "./visibility.js";
+import { stopRecording } from "./ttsDetectionService.js";
 
 export function setStreamingUI(on) {
   state.streaming = on;
@@ -278,6 +279,8 @@ export async function send() {
     abortStream();
     return;
   }
+  // laufende Aufnahme stoppen und Puffer verwerfen, bevor die Chat-Zeile geleert wird
+  stopRecording({ discard: true });
   const input = $("input");
   const text = input.value.trim();
   if (!text && !state.pendingAttachments.length) return;
