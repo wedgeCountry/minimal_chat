@@ -19,6 +19,7 @@ DEFAULTS = {
     "show_reasoning": True,
     "show_file_button": False,
     "show_image_button": False,
+    "speech_mode": "server",
 }
 
 
@@ -119,6 +120,22 @@ def test_system_prompt_roundtrip_and_clear(client, auth_headers):
     assert got["system_prompt"] == "Sei freundlich."
     client.put("/api/settings", json={"system_prompt": ""}, headers=auth_headers)
     assert client.get("/api/settings", headers=auth_headers).json()["system_prompt"] == ""
+
+
+def test_speech_mode_roundtrip(client, auth_headers):
+    for mode in ("system", "server", "none"):
+        res = client.put("/api/settings", json={"speech_mode": mode}, headers=auth_headers)
+        assert res.status_code == 200
+        assert res.json()["speech_mode"] == mode
+        got = client.get("/api/settings", headers=auth_headers).json()
+        assert got["speech_mode"] == mode
+
+
+def test_speech_mode_rejects_invalid_value(client, auth_headers):
+    res = client.put("/api/settings", json={"speech_mode": "telepathy"}, headers=auth_headers)
+    assert res.status_code == 422
+    got = client.get("/api/settings", headers=auth_headers).json()
+    assert got["speech_mode"] == "server"
 
 
 def test_settings_require_auth(client):

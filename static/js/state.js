@@ -19,9 +19,11 @@ export const state = {
     show_reasoning: true,
     show_file_button: false,
     show_image_button: false,
+    speech_mode: "server",
   },
   streaming: false,
   pendingAttachments: [],
+  speech: { systemStt: false, systemTts: false, serverStt: null, serverTts: null },
 };
 
 export const activeSession = () => state.sessions.find((s) => s.id === state.activeId) || null;

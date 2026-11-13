@@ -23,6 +23,16 @@ def to_db(value: bool) -> str:
     return "1" if value else "0"
 
 
+SPEECH_MODES = ("system", "server", "none")
+DEFAULT_SPEECH_MODE = "server"
+
+
+def stored_speech_mode(stored: dict[str, str]) -> str:
+    """Gueltiger Speech-Modus aus den gespeicherten Settings (Default: server)."""
+    value = stored.get("speech_mode")
+    return value if value in SPEECH_MODES else DEFAULT_SPEECH_MODE
+
+
 def base_from_host_port(host: str, port: str) -> str | None:
     """Berechnete Base-URL aus Host/Port: http://<host>[:<port>]/v1."""
     host = (host or "").strip()

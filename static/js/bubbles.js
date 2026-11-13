@@ -2,6 +2,8 @@ import { esc } from "./util.js";
 import { ICONS } from "./icons.js";
 import { state } from "./state.js";
 import { isBubbleDeletable, isBubbleCheckable, isBubbleSpeaker } from "./visibility.js";
+import { controlsVisible, speak, isSpeaking, stopSpeech } from "./ttsDetectionService.js";
+import { showError } from "./confirm.js";
 import { BUBBLE_MODES, clampText, isClamped, nextBubbleMode, bubbleModeTitle } from "./bubbleMode.js";
 
 const typeLabels = { message: "", toolcall: "Tool-Call", reasoning: "Thinking", system: "System" };
@@ -136,7 +138,7 @@ export function bubbleEl(m, handlers = {}, opts = {}) {
   const label = m.type === "message" ? m.role : typeLabels[m.type] || m.role;
   const showChk = m.type === "message" && isBubbleCheckable(state.settings);
   const showDel = isBubbleDeletable(state.settings);
-  const showTts = isBubbleSpeaker(state.settings);
+  const showTts = isBubbleSpeaker(state.settings) && controlsVisible("tts");
   const showResend = m.role === "user" && m.type === "message" && opts.showResend === true;
   const showEdit = m.role === "user" && m.type === "message" && opts.showEdit === true;
   const attach = (m.attachments || [])
@@ -200,18 +202,12 @@ export function bubbleEl(m, handlers = {}, opts = {}) {
   _makeResizable(b, m);
   const tts = b.querySelector(".ttsBtn");
   if (tts)
-  tts.onclick = () => {
-    if (!("speechSynthesis" in window)) return;
-    if (speechSynthesis.speaking) {
-      speechSynthesis.cancel();
-      document.querySelectorAll(".ttsBtn.on").forEach((x) => x.classList.remove("on"));
+  tts.onclick = async () => {
+    if (isSpeaking()) {
+      stopSpeech();
       return;
     }
-    const u = new SpeechSynthesisUtterance(b._msg?.text || "");
-    u.lang = "de-DE";
-    u.onend = () => tts.classList.remove("on");
-    tts.classList.add("on");
-    speechSynthesis.speak(u);
+    await speak(m.text || "", tts, { onError: showError });
   };
   return b;
 }

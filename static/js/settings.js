@@ -2,6 +2,7 @@ import { api } from "./api.js";
 import { state } from "./state.js";
 import { $ } from "./util.js";
 import { applyTheme } from "./theme.js";
+import { SPEECH_MODES, statusLabel, refreshSpeechAvailability } from "./ttsDetectionService.js";
 
 const CHECK_IDS = {
   bubbles_deletable: "setDeletableAll",
@@ -26,8 +27,28 @@ export async function loadSettings() {
   applyTheme();
 }
 
+function selectedSpeechMode() {
+  const r = document.querySelector('input[name="speechMode"]:checked');
+  return r && SPEECH_MODES.includes(r.value) ? r.value : "server";
+}
+
+export async function updateSpeechStatus() {
+  const status = $("speechStatus");
+  if (!status) return;
+  const mode = selectedSpeechMode();
+  status.textContent = "Prüfe…";
+  status.className = "connStatus";
+  await refreshSpeechAvailability();
+  const label = statusLabel(mode);
+  status.textContent = label.text;
+  status.className = "connStatus" + (label.cls ? " " + label.cls : "");
+}
+
 export function initSettings() {
   $("setCancel").onclick = () => $("overlay").classList.remove("open");
+  document.querySelectorAll('input[name="speechMode"]').forEach((r) => {
+    r.addEventListener("change", () => updateSpeechStatus());
+  });
   $("setTestConn").onclick = async () => {
     const btn = $("setTestConn");
     const status = $("connStatus");
@@ -69,6 +90,7 @@ export function initSettings() {
       model: $("setModel").value.trim(),
       system_prompt: $("setSystemPrompt").value,
       theme: $("setTheme").value,
+      speech_mode: selectedSpeechMode(),
     };
     for (const [key, id] of Object.entries(CHECK_IDS)) body[key] = $(id).checked;
     if ($("setKey").value.trim()) body.api_key = $("setKey").value.trim();
@@ -94,5 +116,10 @@ export function openSettings(tab = "general") {
   $("setSystemPrompt").value = state.settings.system_prompt || "";
   $("setTheme").value = state.settings.theme;
   for (const [key, id] of Object.entries(CHECK_IDS)) $(id).checked = state.settings[key] !== false;
+  const mode = SPEECH_MODES.includes(state.settings.speech_mode) ? state.settings.speech_mode : "server";
+  document.querySelectorAll('input[name="speechMode"]').forEach((r) => {
+    r.checked = r.value === mode;
+  });
   $("overlay").classList.add("open");
+  updateSpeechStatus();
 }
