@@ -151,7 +151,9 @@ async function resubmitMessage(s, mid, text, attachments, mode) {
 // Generierung nach dem Senden/Bearbeiten anstossen (serverseitige Hintergrund-Task).
 async function triggerGeneration(s) {
   const detail = await api.get(`/sessions/${s.id}`);
-  const payload = buildChatPayload({ model: state.settings.model, messages: normalizeMessages(detail.messages) });
+  const messages = normalizeMessages(detail.messages);
+  renderChat(messages);
+  const payload = buildChatPayload({ model: state.settings.model, messages });
   try {
     await api.post("/chat", { session_id: s.id, ...payload });
   } catch (err) {
