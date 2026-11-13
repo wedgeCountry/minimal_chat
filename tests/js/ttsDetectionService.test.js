@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { speechControlsVisible } from "../../static/js/visibility.js";
-import { speechStatusLabel, SPEECH_MODES, mergeTranscript, effectiveModeFor } from "../../static/js/speech.js";
+import { speechStatusLabel, SPEECH_MODES, mergeTranscript, effectiveModeFor } from "../../static/js/ttsDetectionService.js";
 import { state } from "../../static/js/state.js";
 
 const avail = { systemStt: true, systemTts: true, serverStt: true, serverTts: true };

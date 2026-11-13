@@ -2,24 +2,13 @@ import { esc } from "./util.js";
 import { ICONS } from "./icons.js";
 import { state } from "./state.js";
 import { isBubbleDeletable, isBubbleCheckable, isBubbleSpeaker } from "./visibility.js";
-import { synthesizeSpeech, VOICE_UNAVAILABLE_MSG } from "./voice.js";
-import { effectiveModeFor, controlsVisible, selectedModeAvailable, SYSTEM_UNAVAILABLE_MSG } from "./speech.js";
+import { controlsVisible, speak, isSpeaking, stopSpeech } from "./ttsDetectionService.js";
 import { showError } from "./confirm.js";
 import { BUBBLE_MODES, clampText, isClamped, nextBubbleMode, bubbleModeTitle } from "./bubbleMode.js";
 
 const typeLabels = { message: "", toolcall: "Tool-Call", reasoning: "Thinking", system: "System" };
 
 let tmpBubbleSeq = 0;
-
-let activeAudio = null;
-
-function stopActiveSpeech() {
-  if (activeAudio) {
-    activeAudio.pause();
-    activeAudio = null;
-    document.querySelectorAll(".ttsBtn.on").forEach((x) => x.classList.remove("on"));
-  }
-}
 
 const MIN_BUBBLE_WIDTH = 260;
 const _ss = typeof sessionStorage !== "undefined" ? sessionStorage : null;
@@ -214,43 +203,11 @@ export function bubbleEl(m, handlers = {}, opts = {}) {
   const tts = b.querySelector(".ttsBtn");
   if (tts)
   tts.onclick = async () => {
-    if (activeAudio) {
-      stopActiveSpeech();
+    if (isSpeaking()) {
+      stopSpeech();
       return;
     }
-    const mode = effectiveModeFor("tts");
-    if (mode === "none" || !controlsVisible("tts")) {
-      await showError("Sprachdienst nicht verfügbar.");
-      return;
-    }
-    if (!(await selectedModeAvailable("tts"))) {
-      await showError(mode === "system" ? SYSTEM_UNAVAILABLE_MSG : VOICE_UNAVAILABLE_MSG);
-      return;
-    }
-    if (mode === "system") {
-      const u = new SpeechSynthesisUtterance(m.text || "");
-      u.lang = "de-DE";
-      u.onend = () => tts.classList.remove("on");
-      tts.classList.add("on");
-      speechSynthesis.speak(u);
-      return;
-    }
-    try {
-      const blob = await synthesizeSpeech(m.text || "");
-      const audio = new Audio(URL.createObjectURL(blob));
-      activeAudio = audio;
-      tts.classList.add("on");
-      audio.onended = () => {
-        tts.classList.remove("on");
-        if (activeAudio === audio) activeAudio = null;
-      };
-      audio.onerror = audio.onended;
-      await audio.play();
-    } catch (err) {
-      tts.classList.remove("on");
-      if (activeAudio) activeAudio = null;
-      await showError(err.message || "Vorlesen fehlgeschlagen.");
-    }
+    await speak(m.text || "", tts, { onError: showError });
   };
   return b;
 }

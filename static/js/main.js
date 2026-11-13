@@ -8,7 +8,7 @@ import { addAttachments } from "./attachments.js";
 import { initSettings, loadSettings, openSettings } from "./settings.js";
 import { initConfirm, showError } from "./confirm.js";
 import { transcribeAudio, encodeWav, VOICE_UNAVAILABLE_MSG } from "./voice.js";
-import { effectiveModeFor, controlsVisible, selectedModeAvailable, refreshSpeechAvailability, mergeTranscript, SYSTEM_UNAVAILABLE_MSG } from "./speech.js";
+import { effectiveModeFor, controlsVisible, selectedModeAvailable, refreshSpeechAvailability, mergeTranscript, SYSTEM_UNAVAILABLE_MSG } from "./ttsDetectionService.js";
 import { initPartials } from "./html.js";
 import { initGlobalErrorHandling } from "./errors.js";
 

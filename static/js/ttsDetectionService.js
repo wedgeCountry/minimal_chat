@@ -1,10 +1,10 @@
 import { state } from "./state.js";
-import { voiceStatus } from "./voice.js";
-import { speechControlsVisible } from "./visibility.js";
+import { voiceStatus, synthesizeSpeech, VOICE_UNAVAILABLE_MSG } from "./voice.js";
 
 export const SPEECH_MODES = ["system", "server", "none"];
 
 export const SYSTEM_UNAVAILABLE_MSG = "System-Sprachdienst im Browser nicht verfügbar.";
+export const SPEECH_UNAVAILABLE_MSG = "Sprachdienst nicht verfügbar.";
 
 export function speechMode() {
   return SPEECH_MODES.includes(state.settings.speech_mode) ? state.settings.speech_mode : "server";
@@ -83,4 +83,61 @@ export function speechStatusLabel(mode, speech) {
   if (avail(other))
     return { text: "Nicht verfügbar – Fallback: " + (other === "system" ? "System-API" : "Server"), cls: "err" };
   return { text: "Nicht verfügbar", cls: "err" };
+}
+
+// Single Source of Truth fuer das Settings-Menue: Label zum gewaehlten Modus.
+export function statusLabel(mode) {
+  return speechStatusLabel(mode, state.speech);
+}
+
+let activeAudio = null;
+
+export function isSpeaking() {
+  return !!activeAudio;
+}
+
+export function stopSpeech() {
+  if (activeAudio) {
+    activeAudio.pause();
+    activeAudio = null;
+    document.querySelectorAll(".ttsBtn.on").forEach((x) => x.classList.remove("on"));
+  }
+}
+
+// TTS-Aktion inkl. Modus-Erkennung: system -> speechSynthesis, server -> Voice
+// Companion. onError(reason) wird bei nicht verfuegbarem Modus/Fehler gerufen.
+export async function speak(text, btn, { onError } = {}) {
+  const mode = effectiveModeFor("tts");
+  if (mode === "none" || !controlsVisible("tts")) {
+    await onError?.(SPEECH_UNAVAILABLE_MSG);
+    return;
+  }
+  if (!(await selectedModeAvailable("tts"))) {
+    await onError?.(mode === "system" ? SYSTEM_UNAVAILABLE_MSG : VOICE_UNAVAILABLE_MSG);
+    return;
+  }
+  if (mode === "system") {
+    const u = new SpeechSynthesisUtterance(text || "");
+    u.lang = "de-DE";
+    u.onend = () => btn?.classList.remove("on");
+    btn?.classList.add("on");
+    speechSynthesis.speak(u);
+    return;
+  }
+  try {
+    const blob = await synthesizeSpeech(text || "");
+    const audio = new Audio(URL.createObjectURL(blob));
+    activeAudio = audio;
+    btn?.classList.add("on");
+    audio.onended = () => {
+      btn?.classList.remove("on");
+      if (activeAudio === audio) activeAudio = null;
+    };
+    audio.onerror = audio.onended;
+    await audio.play();
+  } catch (err) {
+    btn?.classList.remove("on");
+    if (activeAudio) activeAudio = null;
+    await onError?.(err.message || "Vorlesen fehlgeschlagen.");
+  }
 }

@@ -2,7 +2,7 @@ import { api } from "./api.js";
 import { state } from "./state.js";
 import { $ } from "./util.js";
 import { applyTheme } from "./theme.js";
-import { SPEECH_MODES, speechMode, speechStatusLabel, refreshSpeechAvailability } from "./speech.js";
+import { SPEECH_MODES, statusLabel, refreshSpeechAvailability } from "./ttsDetectionService.js";
 
 const CHECK_IDS = {
   bubbles_deletable: "setDeletableAll",
@@ -36,15 +36,10 @@ export async function updateSpeechStatus() {
   const status = $("speechStatus");
   if (!status) return;
   const mode = selectedSpeechMode();
-  if (mode === "server") {
-    status.textContent = "Prüfe Server…";
-    status.className = "connStatus";
-    await refreshSpeechAvailability();
-  } else {
-    state.speech.systemStt = !!(window.SpeechRecognition || window.webkitSpeechRecognition);
-    state.speech.systemTts = "speechSynthesis" in window;
-  }
-  const label = speechStatusLabel(mode, state.speech);
+  status.textContent = "Prüfe…";
+  status.className = "connStatus";
+  await refreshSpeechAvailability();
+  const label = statusLabel(mode);
   status.textContent = label.text;
   status.className = "connStatus" + (label.cls ? " " + label.cls : "");
 }
