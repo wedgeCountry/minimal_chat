@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { speechControlsVisible } from "../../static/js/visibility.js";
-import { speechStatusLabel, SPEECH_MODES, mergeTranscript, effectiveModeFor } from "../../static/js/ttsDetectionService.js";
+import { speechStatusLabel, SPEECH_MODES, mergeTranscript, effectiveModeFor, controlsVisible } from "../../static/js/ttsDetectionService.js";
 import { state } from "../../static/js/state.js";
 
 const avail = { systemStt: true, systemTts: true, serverStt: true, serverTts: true };
@@ -67,6 +67,38 @@ test("effectiveModeFor: Fallback auf den anderen Modus, beide weg -> none", () =
     state.settings.speech_mode = "none";
     state.speech = { systemStt: true, systemTts: true, serverStt: true, serverTts: true };
     assert.equal(effectiveModeFor("stt"), "none");
+  } finally {
+    state.settings.speech_mode = saved.mode;
+    state.speech = saved.speech;
+  }
+});
+
+test("controlsVisible: gewaehlter Modus entscheidet ohne Fallback (none/unverfuegbar -> ausgeblendet)", () => {
+  const saved = { mode: state.settings.speech_mode, speech: state.speech };
+  try {
+    state.settings.speech_mode = "server";
+    state.speech = { systemStt: true, systemTts: true, serverStt: true, serverTts: true };
+    assert.equal(controlsVisible("stt"), true);
+    assert.equal(controlsVisible("tts"), true);
+
+    state.speech = { systemStt: true, systemTts: true, serverStt: false, serverTts: false };
+    assert.equal(controlsVisible("stt"), false);
+    assert.equal(controlsVisible("tts"), false);
+
+    state.settings.speech_mode = "system";
+    state.speech = { systemStt: false, systemTts: false, serverStt: true, serverTts: true };
+    assert.equal(controlsVisible("stt"), false);
+    assert.equal(controlsVisible("tts"), false);
+
+    state.settings.speech_mode = "none";
+    state.speech = { systemStt: true, systemTts: true, serverStt: true, serverTts: true };
+    assert.equal(controlsVisible("stt"), false);
+    assert.equal(controlsVisible("tts"), false);
+
+    state.settings.speech_mode = "server";
+    state.speech = { systemStt: false, systemTts: false, serverStt: true, serverTts: false };
+    assert.equal(controlsVisible("stt"), true);
+    assert.equal(controlsVisible("tts"), false);
   } finally {
     state.settings.speech_mode = saved.mode;
     state.speech = saved.speech;
