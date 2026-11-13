@@ -180,12 +180,8 @@ export function bubbleEl(m, handlers = {}, opts = {}) {
     try {
       await navigator.clipboard.writeText(text);
     } catch {
-      const ta = document.createElement("textarea");
-      ta.value = text;
-      document.body.appendChild(ta);
-      ta.select();
-      document.execCommand("copy");
-      ta.remove();
+      await showError("Kopieren fehlgeschlagen – Zwischenablage nicht verfügbar.");
+      return;
     }
     btn.classList.add("ok");
     setTimeout(() => btn.classList.remove("ok"), 900);
