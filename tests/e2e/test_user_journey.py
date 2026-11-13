@@ -451,7 +451,7 @@ def test_toolcall_and_toolresult_bubbles_are_collapsed_by_default(page, base_url
           await fetch(`/api/sessions/${sid}/messages`, {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({role: 'assistant', type: 'toolresult', text: 'Z1\\nZ2\\nZ3', in_context: false}),
+            body: JSON.stringify({role: 'assistant', type: 'toolresult', text: 'Z1\\\\nZ2\\\\nZ3', in_context: false}),
           });
         }"""
     )

@@ -85,7 +85,8 @@ async def run_generation(
             else:
                 dbq.q_update_message(con, ids["ai"], {"text": ai_text})
         for idx, t in tools.items():
-            text = f"{t['name'] or 'tool'}({t['args']})"
+            # Argumente sind JSON-String-Literale: literale "\n" als echte Umbrueche speichern
+            text = f"{t['name'] or 'tool'}({t['args']})".replace("\\n", "\n")
             if idx in ids["tool"]:
                 dbq.q_update_message(con, ids["tool"][idx], {"text": text})
             else:
@@ -93,7 +94,7 @@ async def run_generation(
                     con, sid, {"role": "assistant", "type": "toolcall", "text": text, "in_context": False}
                 )["id"]
         for idx, r in tool_results.items():
-            text = f"{r['name']}: {r['result']}" if r["name"] else r["result"]
+            text = (f"{r['name']}: {r['result']}" if r["name"] else r["result"]).replace("\\n", "\n")
             if idx in ids["toolres"]:
                 dbq.q_update_message(con, ids["toolres"][idx], {"text": text})
             else:

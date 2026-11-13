@@ -74,6 +74,7 @@ Darstellung nach Typ:
 - **reasoning/thinking**: schlichter, gedämpfter Stil, Label „Thinking", mitkimmt optional ins `reasoning`-Feld bzw. wird nicht gesendet
 - **toolcall**: monospace, zeigt Werkzeugnamen und Argumente (falls vom Endpunkt geliefert)
 - **toolresult**: monospace, zeigt das Tool-Ergebnis (`name: result`, falls Name geliefert), startet eingeklappt
+- bei `toolcall`/`toolresult` werden literale `\n` (aus JSON-String-Literalen) als echte Zeilenumbrueche angezeigt und zaehlen bei der Kuerzung (`collapsed` = 1 Zeile + `[...]`)
 
 ## 4. Generierung und Fortschritt
 

@@ -71,6 +71,28 @@ test("setBubbleText with short text is not clamped", () => {
   assert.equal(b._body.classList.contains("clamped"), false);
 });
 
+test("toolcall/toolresult: literale \\n zaehlen als Zeilenumbruch (collapsed zeigt nur Zeile 1 + [...])", () => {
+  for (const type of ["toolcall", "toolresult"]) {
+    const b = fakeBubble();
+    b.dataset.type = type;
+    b.dataset.mode = "collapsed";
+    setBubbleText(b, "Z1\\nZ2\\nZ3");
+    assert.equal(b._body.textContent, "Z1 [...]", `${type} mit escaped Newlines muss gekuerzt werden`);
+    assert.ok(b._body.classList.contains("clamped"));
+    setBubbleMode(b, "full");
+    assert.equal(b._body.textContent, "Z1\nZ2\nZ3", `${type} full zeigt echte Umbrueche`);
+  }
+});
+
+test("message: literales \\n bleibt unangetastet", () => {
+  const b = fakeBubble();
+  b.dataset.type = "message";
+  b.dataset.mode = "collapsed";
+  setBubbleText(b, "Z1\\nZ2\\nZ3");
+  assert.equal(b._body.textContent, "Z1\\nZ2\\nZ3");
+  assert.equal(b._body.classList.contains("clamped"), false);
+});
+
 function fakeTtsBubble() {
   let tts = null;
   return {

@@ -90,8 +90,12 @@ function renderBubbleBody(b) {
   if (!body) return;
   const mode = b.dataset.mode || "normal";
   const full = b._fullText ?? body.textContent;
-  body.textContent = clampText(full, mode);
-  body.classList.toggle("clamped", isClamped(full, mode));
+  // Tool-Argumente/-Ergebnisse kommen als JSON-String-Literale und behalten
+  // literale "\n" - fuer die Anzeige und Zeilen-Kuerzung als echte Umbrueche behandeln
+  const display =
+    b.dataset.type === "toolcall" || b.dataset.type === "toolresult" ? full.replace(/\\n/g, "\n") : full;
+  body.textContent = clampText(display, mode);
+  body.classList.toggle("clamped", isClamped(display, mode));
 }
 
 // Inline-Edit: der Bubble-Body wird durch ein Textarea + Speichern/Abbrechen ersetzt.
