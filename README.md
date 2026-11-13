@@ -61,8 +61,9 @@ Beim ersten Programmstart wird automatisch eine **`.env`** aus der gecheckten **
 
 ```bash
 pip install -e ".[dev]"   # fastapi, uvicorn, httpx, cryptography, pytest, playwright, argon2-cffi, itsdangerous
-pip install ./vendors/user_registry-0.1.0-py3-none-any.whl   # Login/Registrierung (user_registry)
-pip install ./vendors/voice_companion-0.1.0-py3-none-any.whl  # STT/TTS-Server (Voice Companion, eigener Port)
+.venv/bin/python -m pip install vendors/user_registry-*.whl --force-reinstall
+.venv/bin/python -m pip install vendors/voice_companion-*.whl --force-reinstall
+
 python -m app              # startet uvicorn (Host/Port aus der .env), .env wird falls noetig erzeugt
 # oder: uvicorn app.main:app --host 127.0.0.1 --port 8000
 ```
