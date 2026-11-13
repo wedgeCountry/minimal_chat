@@ -848,7 +848,7 @@ def test_resend_last_user_message(page, base_url, llm_expect, server_data_dir):
 
 def test_edit_last_user_message(page, base_url, llm_expect, server_data_dir):
     """Edit-Button nur auf der letzten User-Bubble: Inline-Edit direkt in der Bubble
-    (Textarea + Speichern/Abbrechen, Esc bricht ab) - beim Speichern wird die Nachricht
+    (Textarea, Enter sendet, Esc bricht ab) - beim Absenden wird die Nachricht
     gepatcht, alle Nachrichten danach (Assistenten-Antworten) gelöscht und neu generiert."""
     email = "edit-user@example.com"
     api_client = _register_client(base_url, email, "Geheim-123")
@@ -879,12 +879,13 @@ def test_edit_last_user_message(page, base_url, llm_expect, server_data_dir):
     assert "Zweite Frage" in last_user.locator('[data-testid="bubble-body"]').inner_text()
     assert page.locator(T["chat_input"]).input_value() == ""
 
-    # Erneut oeffnen, Text aendern und per Speichern-Button absenden
+    # Erneut oeffnen, Text aendern und mit Enter absenden (kein Speichern-Button)
     last_user.locator('[data-testid="bubble-edit-btn"]').click()
     edit_input = last_user.locator('[data-testid="bubble-edit-input"]')
     edit_input.wait_for()
     edit_input.fill("Zweite Frage (bearbeitet)")
-    last_user.locator('[data-testid="bubble-edit-save-btn"]').click()
+    assert last_user.locator('[data-testid="bubble-edit-save-btn"]').count() == 0
+    edit_input.press("Enter")
 
     # Assistenten-Antwort folgt auf die Nachricht -> Bestaetigungs-Modal -> OK
     _confirm_delete(page)

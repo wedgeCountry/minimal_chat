@@ -203,7 +203,6 @@ const handlers = {
       editingMessageId = null;
       return;
     }
-    ui.saveBtn.onclick = () => submitEdit(m.id, ui.textarea.value);
     ui.cancelBtn.onclick = () => cancelEdit();
     ui.textarea.addEventListener("keydown", (e) => {
       e.stopPropagation();
@@ -211,6 +210,7 @@ const handlers = {
         e.preventDefault();
         cancelEdit();
       } else if (e.key === "Enter" && !e.shiftKey) {
+        // Enter sendet immer (Shift+Enter = Zeilenumbruch)
         e.preventDefault();
         submitEdit(m.id, ui.textarea.value);
       }

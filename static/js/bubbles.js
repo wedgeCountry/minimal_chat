@@ -101,7 +101,6 @@ export function enterBubbleEdit(b, text) {
   body.innerHTML = `
     <textarea class="editInput" data-testid="bubble-edit-input" rows="2"></textarea>
     <div class="editActions">
-      <button class="iconBtn editSaveBtn" data-testid="bubble-edit-save-btn" title="Speichern & erneut senden">${ICONS.send}</button>
       <button class="iconBtn editCancelBtn" data-testid="bubble-edit-cancel-btn" title="Abbrechen">${ICONS.x}</button>
     </div>`;
   const textarea = body.querySelector(".editInput");
@@ -112,7 +111,7 @@ export function enterBubbleEdit(b, text) {
   };
   textarea.addEventListener("input", grow);
   grow();
-  return { textarea, saveBtn: body.querySelector(".editSaveBtn"), cancelBtn: body.querySelector(".editCancelBtn") };
+  return { textarea, cancelBtn: body.querySelector(".editCancelBtn") };
 }
 
 export function exitBubbleEdit(b) {
