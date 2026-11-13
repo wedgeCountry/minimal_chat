@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import ipaddress
 import json
 import socket
@@ -143,17 +144,48 @@ async def check_llm_connection(base_url: str, api_key: str) -> tuple[bool, str]:
     return True, f"{url} -> HTTP {res.status_code}"
 
 
+async def _aiter_until_abort(chunks: AsyncIterator[bytes], abort: asyncio.Event | None) -> AsyncIterator[bytes]:
+    """Liefert Chunks wie ``chunks``, endet aber sofort, sobald ``abort`` gesetzt ist.
+
+    Der haengende Read wird gecancelt: ein Abort wirkt damit auch dann, wenn das
+    LLM (noch) keine weiteren Chunks liefert.
+    """
+    if abort is None:
+        async for chunk in chunks:
+            yield chunk
+        return
+    it = chunks.__aiter__()
+    while not abort.is_set():
+        nxt = asyncio.ensure_future(it.__anext__())
+        abort_wait = asyncio.ensure_future(abort.wait())
+        done, _pending = await asyncio.wait({nxt, abort_wait}, return_when=asyncio.FIRST_COMPLETED)
+        if abort_wait in done:
+            nxt.cancel()
+            await asyncio.gather(nxt, abort_wait, return_exceptions=True)
+            return
+        abort_wait.cancel()
+        await asyncio.gather(abort_wait, return_exceptions=True)
+        try:
+            chunk = nxt.result()
+        except StopAsyncIteration:
+            return
+        yield chunk
+
+
 async def stream_completion(
     base_url: str,
     api_key: str,
     payload: dict[str, Any],
     settings: dict[str, bool] | None = None,
     client_factory: ClientFactory | None = None,
+    abort: asyncio.Event | None = None,
 ) -> AsyncIterator[str]:
     """Leitet einen Chat-Completions-Request als SSE-Stream weiter.
 
     ``settings`` steuert das serverseitige Filtern: ``show_system_prompt``
     filtert den Request, ``show_reasoning``/``show_tool_output`` den Response-Stream.
+    ``abort`` wird gegen das Oeffnen der Response und jeden Chunk-Read geracet;
+    beim Abort wird die Upstream-Verbindung sofort geschlossen.
     """
     flags = settings or {}
     show_system_prompt = flags.get("show_system_prompt", True)
@@ -171,17 +203,35 @@ async def stream_completion(
         # Erreichbarkeit des LLM-Servers ergibt sich aus dem POST selbst:
         # ConnectError/TimeoutError propagieren und werden vom Aufrufer
         # (run_generation) als System-Message persistiert.
-        async with client.stream("POST", url, headers=headers, json=payload) as res:
+        stream_cm = client.stream("POST", url, headers=headers, json=payload)
+        if abort is not None and abort.is_set():
+            return
+        if abort is None:
+            res = await stream_cm.__aenter__()
+        else:
+            enter = asyncio.ensure_future(stream_cm.__aenter__())
+            abort_wait = asyncio.ensure_future(abort.wait())
+            done, _pending = await asyncio.wait({enter, abort_wait}, return_when=asyncio.FIRST_COMPLETED)
+            if abort_wait in done and abort.is_set():
+                enter.cancel()
+                await asyncio.gather(enter, abort_wait, return_exceptions=True)
+                return
+            abort_wait.cancel()
+            await asyncio.gather(abort_wait, return_exceptions=True)
+            res = enter.result()
+        try:
             if res.status_code >= 400:
                 # Upstream-Body nicht an den Client reichen (Info-Leak bei internen Zielen)
                 error = json.dumps({"error": f"HTTP {res.status_code}"})
                 yield f"data: {error}\n\n"
                 yield "data: [DONE]\n\n"
                 return
-            raw = res.aiter_bytes()
+            raw = _aiter_until_abort(res.aiter_bytes(), abort)
             if show_reasoning and show_tool_output:
                 async for chunk in raw:
                     yield chunk.decode("utf-8", errors="replace")
             else:
                 async for line in sse_filter(raw, show_reasoning=show_reasoning, show_tool_output=show_tool_output):
                     yield line
+        finally:
+            await stream_cm.__aexit__(None, None, None)

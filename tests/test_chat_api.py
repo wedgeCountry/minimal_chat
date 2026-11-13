@@ -191,6 +191,52 @@ def test_chat_abort_unknown_session_404(client, auth_headers):
     assert res.status_code == 404
 
 
+def test_chat_abort_cancels_stalled_upstream_stream(client, auth_headers, monkeypatch):
+    """Abort muss auch wirken, wenn das LLM (noch) keine Chunks liefert: der
+    haengende Upstream-Read wird gecancelt, die Teilausgabe bleibt erhalten."""
+    pause_s = 30.0
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        async def body():
+            yield b'data: {"choices":[{"delta":{"content":"Teil A "}}]}\n\n'
+            await asyncio.sleep(pause_s)
+            yield b'data: {"choices":[{"delta":{"content":"Teil B"}}]}\n\n'
+            yield b"data: [DONE]\n\n"
+
+        return httpx.Response(200, headers={"content-type": "text/event-stream"}, content=body())
+
+    def factory(**kwargs):
+        kwargs.pop("timeout", None)
+        return RealAsyncClient(transport=httpx.MockTransport(handler))
+
+    monkeypatch.setattr("app.services.chat.httpx.AsyncClient", factory)
+    sid = _new_session(client, auth_headers)
+    _post_user_message(client, auth_headers, sid, "langsam")
+    assert _start_chat(client, auth_headers, sid).status_code == 202
+
+    deadline = time.time() + 5
+    while time.time() < deadline:
+        detail = client.get(f"/api/sessions/{sid}", headers=auth_headers).json()
+        if any(m["text"] == "Teil A " for m in detail["messages"]):
+            break
+        time.sleep(0.05)
+    assert detail["generating"] is True
+    assert any(m["text"] == "Teil A " for m in detail["messages"])
+
+    t0 = time.time()
+    res = client.post("/api/chat/abort", json={"session_id": sid}, headers=auth_headers)
+    assert res.status_code == 200
+    detail = _wait_generation(client, auth_headers, sid, timeout=5)
+    assert time.time() - t0 < pause_s  # Abort wirkt sofort, nicht erst nach der Pause
+    texts = [m["text"] for m in detail["messages"]]
+    assert "Teil A " in texts
+    assert not any("Teil B" in t for t in texts)
+    assert not any(m["role"] == "system" for m in detail["messages"]), "Abbruch darf keine Fehlermeldung erzeugen"
+    assert generation._running == set()
+    assert generation._abort_events == {}
+    assert generation._abort_requested == set()
+
+
 def test_chat_filters_reasoning_and_tool_output_server_side(client, auth_headers, monkeypatch):
     _mock_llm(monkeypatch)
     client.put(
