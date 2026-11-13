@@ -1,6 +1,6 @@
 import { api } from "./api.js";
 import { activeSession, normalizeMessages, state } from "./state.js";
-import { $ } from "./util.js";
+import { $, isNearBottom } from "./util.js";
 import { ICONS } from "./icons.js";
 import { bubbleEl, setBubbleText, enterBubbleEdit, exitBubbleEdit, syncBubbleTts } from "./bubbles.js";
 import { buildChatPayload } from "./payload.js";
@@ -99,9 +99,17 @@ function updateBubble(b, m, showResend, showEdit) {
   syncBubbleTts(b);
 }
 
+export function scrollChatToBottom() {
+  const chat = $("chat");
+  chat.scrollTop = chat.scrollHeight;
+}
+
 export function renderChat(messages) {
   const chat = $("chat");
   const s = activeSession();
+  // nur ans Ende scrollen, wenn der Nutzer bereits unten ist (Refresh/Poll
+  // darf nicht hochgescrolltes Lesen unterbrechen)
+  const pinToBottom = s != null && isNearBottom(chat);
   if (!s || !messages?.length) {
     lastMessages = [];
     cancelEdit();
@@ -146,7 +154,7 @@ export function renderChat(messages) {
       bubbleNodes.delete(key);
     }
   }
-  chat.scrollTop = chat.scrollHeight;
+  if (pinToBottom) chat.scrollTop = chat.scrollHeight;
 }
 
 // Edit-Modus: id der Nutzernachricht, die gerade inline in ihrer Bubble bearbeitet wird
@@ -180,6 +188,7 @@ async function triggerGeneration(s) {
   const detail = await api.get(`/sessions/${s.id}`);
   const messages = normalizeMessages(detail.messages);
   renderChat(messages);
+  scrollChatToBottom(); // nach dem Absenden direkt zur neuen Nachricht/Antwort springen
   const payload = buildChatPayload({ model: state.settings.model, messages });
   try {
     await api.post("/chat", { session_id: s.id, ...payload });

@@ -1,5 +1,11 @@
 export const $ = (id) => document.getElementById(id);
 
+// true, wenn der Scroll-Container (fast) ganz unten steht - dann darf beim
+// Re-Render ans Ende gescrollt werden, ohne den Nutzer beim Lesen hochzureissen.
+export function isNearBottom(el, threshold = 80) {
+  return el.scrollHeight - el.scrollTop - el.clientHeight <= threshold;
+}
+
 export const esc = (s) =>
   String(s ?? "").replace(/[&<>"]/g, (c) => ({
     "&": "&amp;",
