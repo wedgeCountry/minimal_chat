@@ -1,4 +1,5 @@
 import { state } from "./state.js";
+import { speechControlsVisible } from "./visibility.js";
 import { voiceStatus, synthesizeSpeech, VOICE_UNAVAILABLE_MSG } from "./voice.js";
 
 export const SPEECH_MODES = ["system", "server", "none"];
@@ -45,7 +46,7 @@ export function effectiveModeFor(kind) {
 }
 
 export function controlsVisible(kind) {
-  return effectiveModeFor(kind) !== "none";
+  return speechControlsVisible(speechMode(), kind, state.speech);
 }
 
 export async function selectedModeAvailable(kind) {
