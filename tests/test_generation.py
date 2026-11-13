@@ -14,7 +14,7 @@ from app.auth import user_identity
 from app.db import database as dbq
 from app.db.database import Database
 from app.services import generation
-from app.services.chat import parse_sse_buffer
+from app.services.sse import parse_sse_buffer
 from app.services.generation import is_running, request_abort, run_generation
 
 SECRET = "test-secret"

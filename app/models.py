@@ -96,7 +96,8 @@ class ChatRequest(BaseModel):
     session_id: str = Field(max_length=64)
     model: str = Field(max_length=200)
     stream: bool = True
-    messages: list[ChatMessage] = Field(max_length=500)
+    # veraltet: die Chat-History wird serverseitig aus der Session-DB gebaut (build_llm_context)
+    messages: list[ChatMessage] = Field(default_factory=list, max_length=500)
 
 
 class ChatAbortRequest(BaseModel):

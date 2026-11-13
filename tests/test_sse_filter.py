@@ -1,4 +1,4 @@
-"""Unit-Tests fuer das serverseitige SSE-Filtern (app/services/chat.py).
+"""Unit-Tests fuer das serverseitige SSE-Filtern (app/services/sse.py + llm.py).
 
 Pin-Verhalten: Reasoning/Tool-Calls landen nur im Stream, wenn die
 User-Settings sie aktivieren; [DONE] und Nicht-JSON-Zeilen gehen unveraendert
@@ -10,7 +10,8 @@ from __future__ import annotations
 import asyncio
 import json
 
-from app.services.chat import filter_request_messages, sse_filter
+from app.services.llm import filter_request_messages
+from app.services.sse import sse_filter
 
 
 async def _aiter(chunks):

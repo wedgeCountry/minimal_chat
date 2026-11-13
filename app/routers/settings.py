@@ -9,7 +9,8 @@ from ..db import database as dbq
 from ..db.database import Database
 from ..deps import get_config, get_current_user, get_db
 from ..models import SettingsIn, SettingsOut, SettingsTestIn
-from ..services.chat import check_llm_connection, validate_llm_base_url
+from ..services.llm import check_llm_connection
+from ..services.ssrf import validate_llm_base_url
 from ..services.settings import BOOL_SETTINGS, resolve_base_url, stored_bool, stored_speech_mode, to_db
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
@@ -57,7 +58,8 @@ async def test_connection(
     stored = await asyncio.to_thread(_load_stored)
     base = body.base or resolve_base_url(stored, config)
     try:
-        validate_llm_base_url(base, config.allow_private_llm)
+        # DNS-Lookup in validate_llm_base_url ist blockierend -> nicht auf dem Event-Loop
+        await asyncio.to_thread(validate_llm_base_url, base, config.allow_private_llm)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     api_key = body.api_key or stored.get("api_key") or config.default_api_key

@@ -37,7 +37,7 @@ def _mock_llm(monkeypatch, body: bytes = SSE_BODY):
         kwargs.pop("timeout", None)
         return RealAsyncClient(transport=httpx.MockTransport(handler))
 
-    monkeypatch.setattr("app.services.chat.httpx.AsyncClient", factory)
+    monkeypatch.setattr("app.services.llm.httpx.AsyncClient", factory)
     return seen
 
 
@@ -209,7 +209,7 @@ def test_chat_abort_cancels_stalled_upstream_stream(client, auth_headers, monkey
         kwargs.pop("timeout", None)
         return RealAsyncClient(transport=httpx.MockTransport(handler))
 
-    monkeypatch.setattr("app.services.chat.httpx.AsyncClient", factory)
+    monkeypatch.setattr("app.services.llm.httpx.AsyncClient", factory)
     sid = _new_session(client, auth_headers)
     _post_user_message(client, auth_headers, sid, "langsam")
     assert _start_chat(client, auth_headers, sid).status_code == 202
@@ -295,7 +295,7 @@ def test_chat_upstream_error_persisted_as_system_message(client, auth_headers, m
         kwargs.pop("timeout", None)
         return RealAsyncClient(transport=httpx.MockTransport(handler))
 
-    monkeypatch.setattr("app.services.chat.httpx.AsyncClient", factory)
+    monkeypatch.setattr("app.services.llm.httpx.AsyncClient", factory)
     sid = _new_session(client, auth_headers)
     _post_user_message(client, auth_headers, sid)
     assert _start_chat(client, auth_headers, sid).status_code == 202
@@ -324,7 +324,7 @@ def test_chat_server_unreachable_persisted_as_system_message(client, auth_header
         kwargs.pop("timeout", None)
         return RealAsyncClient(transport=httpx.MockTransport(handler))
 
-    monkeypatch.setattr("app.services.chat.httpx.AsyncClient", factory)
+    monkeypatch.setattr("app.services.llm.httpx.AsyncClient", factory)
     sid = _new_session(client, auth_headers)
     _post_user_message(client, auth_headers, sid)
     assert _start_chat(client, auth_headers, sid).status_code == 202

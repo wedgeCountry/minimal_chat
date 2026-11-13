@@ -19,8 +19,11 @@ app/                  FastAPI backend (uvicorn)
     crypto.py         Fernet-Ver-/Entschluesselung
     database.py       Einziger Zugriff auf die lokalen SQLite-Datenbanken
   routers/            auth.py, sessions.py, settings.py, chat.py (serverseitige Generierung)
-  services/chat.py    SSE-Client zum LLM-Endpunkt (stream_completion, SSE-Parsing/ -Filter)
-                      + validate_llm_base_url (SSRF-Schutz fuer user-gesteuerte LLM-URLs)
+  services/llm.py     LLM-Client (LlmClient: stream_completion mit Abort-Race, check_llm_connection)
+  services/context.py LLM-Kontext aus der Session-DB via trixie_ai.LlmContext (vendored Wheel,
+                      inkl. Tool-Calls als assistant/tool-Messages)
+  services/sse.py     SSE-Parsing/-Filter (parse_sse_data, parse_sse_buffer, SseParser, sse_filter)
+  services/ssrf.py    LlmUrlValidator / validate_llm_base_url (SSRF-Schutz fuer user-gesteuerte LLM-URLs)
   services/files.py   Upload-Verarbeitung (gestreamtes Lesen mit Byte-Cap, Kontingent, Expansion)
 static/               Frontend (statisch, ohne Build-Schritt)
   index.html          schlanke Shell mit Partial-Platzhaltern

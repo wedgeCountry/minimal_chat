@@ -149,7 +149,7 @@ def _mock_llm_models(monkeypatch, handler):
         kwargs.pop("timeout", None)
         return RealAsyncClient(transport=httpx.MockTransport(handler))
 
-    monkeypatch.setattr("app.services.chat.httpx.AsyncClient", factory)
+    monkeypatch.setattr("app.services.llm.httpx.AsyncClient", factory)
 
 
 def test_connection_test_ok(client, auth_headers, monkeypatch):

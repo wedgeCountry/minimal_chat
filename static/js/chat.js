@@ -3,7 +3,6 @@ import { activeSession, normalizeMessages, state } from "./state.js";
 import { $, isNearBottom } from "./util.js";
 import { ICONS } from "./icons.js";
 import { bubbleEl, setBubbleText, enterBubbleEdit, exitBubbleEdit, syncBubbleTts } from "./bubbles.js";
-import { buildChatPayload } from "./payload.js";
 import { loadSessions, newSession, changed } from "./sessions.js";
 import { uploadPendingAttachments } from "./attachments.js";
 import { confirmModal } from "./confirm.js";
@@ -189,9 +188,9 @@ async function triggerGeneration(s) {
   const messages = normalizeMessages(detail.messages);
   renderChat(messages);
   scrollChatToBottom(); // nach dem Absenden direkt zur neuen Nachricht/Antwort springen
-  const payload = buildChatPayload({ model: state.settings.model, messages });
   try {
-    await api.post("/chat", { session_id: s.id, ...payload });
+    // Chat-History baut der Server aus der Session-DB (gueltiges LLM-Format inkl. Tool-Calls)
+    await api.post("/chat", { session_id: s.id, model: state.settings.model });
   } catch (err) {
     const em = { role: "system", type: "message", text: "Fehler: " + err.message, in_context: false };
     await api.post(`/sessions/${s.id}/messages`, em).catch(() => {});

@@ -32,5 +32,5 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: python -m pip install -e ".[dev]" vendors/user_registry-0.1.0-py3-none-any.whl
+      - run: python -m pip install -e ".[dev]" vendors/user_registry-0.1.0-py3-none-any.whl vendors/trixie_ai-0.1.0-py3-none-any.whl
       - run: python -m pytest -q

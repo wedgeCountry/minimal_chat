@@ -12,7 +12,8 @@ from typing import Any
 
 from ..db import database as dbq
 from ..db.database import Database
-from .chat import parse_sse_buffer, stream_completion
+from .llm import stream_completion
+from .sse import SseParser
 
 FLUSH_INTERVAL_S = 0.25
 
@@ -66,7 +67,7 @@ async def run_generation(
     tool_results: dict[int, dict[str, str]] = {}
     ids: dict[str, Any] = {"ai": None, "think": None, "tool": {}, "toolres": {}}
     error: str | None = None
-    buf = ""
+    parser = SseParser()
 
     async def flush(final: bool = False) -> None:
         # DB-Zugriff (Dekodieren/Verschluesseln der per-user DB) ist blockierend
@@ -98,7 +99,7 @@ async def run_generation(
                 dbq.q_update_message(con, ids["tool"][idx], {"text": text})
             else:
                 ids["tool"][idx] = dbq.q_add_message(
-                    con, sid, {"role": "assistant", "type": "toolcall", "text": text, "in_context": False}
+                    con, sid, {"role": "assistant", "type": "toolcall", "text": text, "in_context": True}
                 )["id"]
         for idx, r in tool_results.items():
             text = (f"{r['name']}: {r['result']}" if r["name"] else r["result"]).replace("\\n", "\n")
@@ -106,7 +107,7 @@ async def run_generation(
                 dbq.q_update_message(con, ids["toolres"][idx], {"text": text})
             else:
                 ids["toolres"][idx] = dbq.q_add_message(
-                    con, sid, {"role": "assistant", "type": "toolresult", "text": text, "in_context": False}
+                    con, sid, {"role": "assistant", "type": "toolresult", "text": text, "in_context": True}
                 )["id"]
         if final:
             if error:
@@ -142,9 +143,7 @@ async def run_generation(
             async for chunk in stream_completion(base_url, api_key, payload, settings=settings, abort=ev):
                 if ev.is_set():
                     break
-                buf += chunk
-                events, buf = parse_sse_buffer(buf)
-                for j in events:
+                for j in parser.feed(chunk):
                     if j.get("error"):
                         error = str(j["error"])
                         break

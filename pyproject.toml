@@ -13,8 +13,9 @@ dependencies = [
     "httpx>=0.27",
     "python-multipart>=0.0.9",  # Multipart-Uploads (POST /api/sessions/{id}/attachments)
     "cryptography>=42",
-    # user_registry (Login/Registrierung) wird als vendored Wheel installiert:
-    #   pip install ./vendors/user_registry-0.1.0-py3-none-any.whl
+    # user_registry (Login/Registrierung) und trixie_ai (LlmContext fuer die Chat-History)
+    # werden als vendored Wheels installiert:
+    #   pip install ./vendors/user_registry-0.1.0-py3-none-any.whl ./vendors/trixie_ai-0.1.0-py3-none-any.whl
     "argon2-cffi>=23.1",
     "itsdangerous>=2.1",
 ]
