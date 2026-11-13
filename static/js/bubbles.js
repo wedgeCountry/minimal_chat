@@ -4,7 +4,7 @@ import { state } from "./state.js";
 import { isBubbleDeletable, isBubbleCheckable, isBubbleSpeaker } from "./visibility.js";
 import { controlsVisible, speak, isSpeaking, stopSpeech } from "./ttsDetectionService.js";
 import { showError } from "./confirm.js";
-import { BUBBLE_MODES, clampText, isClamped, nextBubbleMode, bubbleModeTitle } from "./bubbleMode.js";
+import { BUBBLE_MODES, clampText, isClamped, nextBubbleMode, bubbleModeTitle, defaultBubbleMode } from "./bubbleMode.js";
 
 const typeLabels = { message: "", toolcall: "Tool-Call", reasoning: "Thinking", system: "System" };
 
@@ -130,8 +130,7 @@ export function bubbleEl(m, handlers = {}, opts = {}) {
   b.dataset.type = m.type;
   if (m.id != null) b.dataset.msgId = String(m.id);
   b.className = `bubble ${m.role} ${m.type}`;
-  const collapsible = m.type === "reasoning" || m.type === "toolcall";
-  const mode = collapsible ? "collapsed" : "normal";
+  const mode = defaultBubbleMode(m.type);
   b.classList.add(mode);
   b.dataset.mode = mode;
   if (m.type === "message") b.classList.add(m.inContext !== false ? "selected" : "deselected");

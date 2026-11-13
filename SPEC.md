@@ -57,7 +57,7 @@ Eigenschaften je Bubble:
 | Text | Nachrichteninhalt, bei Markdown einfache Formatierung optional |
 | Rolle | `user`, `assistant`, `system` |
 | Typ | `message`, `toolcall`, `reasoning` (Thinking) |
-| Dreistufig ausklappbar | Toggle in der Kopfzeile wechselt zyklisch: `normal` (max. 10 Zeilen, Rest hinter `[...]`), `full` (kompletter Text), `collapsed` (1 Zeile, Rest hinter `[...]`); Standard: `message`/`user`/`assistant` = normal, `reasoning`/`toolcall` = collapsed |
+| Dreistufig ausklappbar | Toggle in der Kopfzeile wechselt zyklisch: `normal` (max. 10 Zeilen, Rest hinter `[...]`), `full` (kompletter Text), `collapsed` (1 Zeile, Rest hinter `[...]`); Standard: `message` = normal, alle anderen Typen (`reasoning`, `toolcall`, Tool-Ergebnisse) = collapsed |
 | Mindestzeilenanzahl | Bubbles behalten eine Mindesthöhe, damit kurze Nachrichten das Layout nicht springen lassen |
 | Kopieren | Kopier-Symbol kopiert den Inhalt in die Zwischenablage (`navigator.clipboard`, Fallback `execCommand`) |
 | Bearbeiten | Stift-Symbol nur auf der letzten Nutzernachricht: Inline-Edit direkt in der Bubble (Textarea in den Bubble-Farben mit X-Button rechts daneben, Enter sendet, Esc bricht ab); beim Senden wird die Nachricht per `PATCH` aktualisiert, alle Nachrichten danach per `DELETE /api/sessions/{id}/messages/after/{mid}` gelöscht und die Antwort neu generiert |
