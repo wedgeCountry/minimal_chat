@@ -58,7 +58,7 @@ Eigenschaften je Bubble:
 | Text | Nachrichteninhalt, bei Markdown einfache Formatierung optional |
 | Rolle | `user`, `assistant`, `system` |
 | Typ | `message`, `toolcall`, `reasoning` (Thinking), `toolresult` (Tool-Ergebnis) |
-| Sortierung | chronologisch nach Zeitstempel; bei Gleichstand (Sekundenaufloesung): Reasoning/Toolcall/Toolresult vor der finalen Assistant-Message, Toolcall vor Toolresult, sonst Einfuegereihenfolge (id) |
+| Sortierung | chronologisch nach Zeitstempel; bei Gleichstand (Sekundenaufloesung) nach Turn (jede User-Message eroeffnet einen neuen Turn); innerhalb eines Turns: Reasoning/Toolcall/Toolresult vor der finalen Assistant-Message, Toolcall vor Toolresult, sonst Einfuegereihenfolge (id) |
 | Dreistufig ausklappbar | Toggle in der Kopfzeile wechselt zyklisch: `normal` (max. 10 Zeilen, Rest hinter `[...]`), `full` (kompletter Text), `collapsed` (1 Zeile, Rest hinter `[...]`); Standard: `message` = normal, alle anderen Typen (`reasoning`, `toolcall`, Tool-Ergebnisse) = collapsed |
 | Mindestzeilenanzahl | Bubbles behalten eine Mindesthöhe, damit kurze Nachrichten das Layout nicht springen lassen |
 | Kopieren | Kopier-Symbol kopiert den Inhalt in die Zwischenablage (`navigator.clipboard`, Fallback `execCommand`) |

@@ -25,26 +25,34 @@ export function abortStream() {
   if (s) api.post("/chat/abort", { session_id: s.id }).catch(() => {});
 }
 
-// Bei gleichem Zeitstempel (Sekundenaufloesung): die finale Assistant-Message
-// landet hinter ihren Sondertypen, Toolcall vor Toolresult; sonst Einfuegereihenfolge (id).
+// Bei gleichem Zeitstempel (Sekundenaufloesung) zaehlt die Turn-Reihenfolge
+// (jede User-Message eroeffnet einen neuen Turn); innerhalb eines Turns landet
+// die finale Assistant-Message hinter ihren Sondertypen, Toolcall vor Toolresult.
 const _TYPE_TIE_RANK = { reasoning: 0, toolcall: 1, toolresult: 2 };
 
-function _tieBreak(a, b) {
-  const fa = a.type === "message" && a.role === "assistant" ? 1 : 0;
-  const fb = b.type === "message" && b.role === "assistant" ? 1 : 0;
-  if (fa !== fb) return fa - fb;
-  const ra = _TYPE_TIE_RANK[a.type] ?? 0;
-  const rb = _TYPE_TIE_RANK[b.type] ?? 0;
-  if (ra !== rb) return ra - rb;
-  return (a.id ?? 0) - (b.id ?? 0);
-}
-
 export function sortMessagesForRender(messages) {
-  // Chronologisch nach Zeitstempel, bei Gleichstand (Sekundenaufloesung) nach _tieBreak
-  return [...messages].sort((a, b) => {
+  const byTsId = [...messages].sort((a, b) => {
+    const d = (a.ts ?? 0) - (b.ts ?? 0);
+    return d !== 0 ? d : (a.id ?? 0) - (b.id ?? 0);
+  });
+  const turnOf = new Map();
+  let turn = 0;
+  for (const m of byTsId) {
+    if (m.role === "user" && m.type === "message") turn += 1;
+    turnOf.set(m, turn);
+  }
+  return byTsId.sort((a, b) => {
     const d = (a.ts ?? 0) - (b.ts ?? 0);
     if (d !== 0) return d;
-    return _tieBreak(a, b);
+    const t = turnOf.get(a) - turnOf.get(b);
+    if (t !== 0) return t;
+    const fa = a.type === "message" && a.role === "assistant" ? 1 : 0;
+    const fb = b.type === "message" && b.role === "assistant" ? 1 : 0;
+    if (fa !== fb) return fa - fb;
+    const ra = _TYPE_TIE_RANK[a.type] ?? 0;
+    const rb = _TYPE_TIE_RANK[b.type] ?? 0;
+    if (ra !== rb) return ra - rb;
+    return (a.id ?? 0) - (b.id ?? 0);
   });
 }
 
