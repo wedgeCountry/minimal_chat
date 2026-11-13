@@ -17,6 +17,7 @@ from .chat import parse_sse_buffer, stream_completion
 FLUSH_INTERVAL_S = 0.25
 
 _abort_events: dict[str, asyncio.Event] = {}
+_abort_requested: set[str] = set()
 _running: set[str] = set()
 
 
@@ -25,10 +26,13 @@ def _key(user: dict, sid: str) -> str:
 
 
 def request_abort(user: dict, sid: str) -> bool:
-    ev = _abort_events.get(_key(user, sid))
+    key = _key(user, sid)
+    ev = _abort_events.get(key)
     if ev:
         ev.set()
         return True
+    # Task registriert sein Event evtl. noch nicht (Race direkt nach POST /api/chat)
+    _abort_requested.add(key)
     return False
 
 
@@ -53,6 +57,9 @@ async def run_generation(
     ev = asyncio.Event()
     _abort_events[key] = ev
     _running.add(key)
+    if key in _abort_requested:
+        _abort_requested.discard(key)
+        ev.set()
     ai_text = ""
     think_text = ""
     tools: dict[int, dict[str, str]] = {}
@@ -122,7 +129,7 @@ async def run_generation(
 
         flusher = asyncio.create_task(_periodic_flush())
         try:
-            async for chunk in stream_completion(base_url, api_key, payload, settings=settings):
+            async for chunk in stream_completion(base_url, api_key, payload, settings=settings, abort=ev):
                 if ev.is_set():
                     break
                 buf += chunk
@@ -160,4 +167,5 @@ async def run_generation(
     finally:
         await flush(final=True)
         _abort_events.pop(key, None)
+        _abort_requested.discard(key)
         _running.discard(key)
