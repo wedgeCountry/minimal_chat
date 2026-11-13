@@ -42,6 +42,7 @@ def _new_uid() -> str:
 def _row_to_message(row: sqlite3.Row) -> dict:
     return {
         "id": row["id"],
+        "session_id": row["session_id"],
         "role": row["role"],
         "type": row["type"],
         "text": row["text"],
@@ -219,11 +220,19 @@ def q_update_message(con: sqlite3.Connection, mid: int, patch: dict) -> dict | N
         con.execute("UPDATE messages SET in_context = ? WHERE id = ?", (1 if patch["in_context"] else 0, mid))
     if patch.get("text") is not None:
         con.execute("UPDATE messages SET text = ? WHERE id = ?", (patch["text"], mid))
+    if patch.get("attachments") is not None:
+        con.execute("UPDATE messages SET attachments = ? WHERE id = ?", (json.dumps(patch["attachments"]), mid))
     return q_get_message(con, mid)
 
 
 def q_delete_message(con: sqlite3.Connection, mid: int) -> None:
     con.execute("DELETE FROM messages WHERE id = ?", (mid,))
+
+
+def q_delete_messages_after(con: sqlite3.Connection, sid: str, mid: int) -> int:
+    # ids sind autoincrement -> id > mid ist die chronologische Reihenfolge der Session
+    cur = con.execute("DELETE FROM messages WHERE session_id = ? AND id > ?", (sid, mid))
+    return cur.rowcount
 
 
 # --- Attachments ---

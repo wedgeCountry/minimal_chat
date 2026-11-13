@@ -19,6 +19,7 @@ class MessageOut(MessageIn):
 class MessagePatch(BaseModel):
     in_context: bool | None = None
     text: str | None = None
+    attachments: list[dict[str, Any]] | None = None
 
 
 class SessionIn(BaseModel):

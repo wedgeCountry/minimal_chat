@@ -2,7 +2,7 @@ import { api } from "./api.js";
 import { activeSession, normalizeMessages, state } from "./state.js";
 import { $ } from "./util.js";
 import { ICONS } from "./icons.js";
-import { bubbleEl, setBubbleText } from "./bubbles.js";
+import { bubbleEl, setBubbleText, enterBubbleEdit, exitBubbleEdit } from "./bubbles.js";
 import { buildChatPayload } from "./payload.js";
 import { loadSessions, newSession, changed } from "./sessions.js";
 import { uploadPendingAttachments } from "./attachments.js";
@@ -43,6 +43,12 @@ export function findLastUserMessage(messages) {
   return null;
 }
 
+export function hasMessagesAfter(messages, id) {
+  const sorted = sortMessagesForRender(messages || []);
+  const idx = sorted.findIndex((x) => x.id === id);
+  return idx >= 0 && sorted.slice(idx + 1).length > 0;
+}
+
 let lastMessages = [];
 
 // Keyed reconciliation: Bubbles werden pro Nachricht wiederverwendet und nur
@@ -53,10 +59,11 @@ function bubbleKey(m) {
   return m.id != null ? `msg-${m.id}` : "sys-prompt";
 }
 
-function updateBubble(b, m, showResend) {
+function updateBubble(b, m, showResend, showEdit) {
   b._msg = m;
   const text = m.text || "";
-  if (b._fullText !== text) setBubbleText(b, text);
+  // im Inline-Edit-Modus das Textarea nicht ueberschreiben
+  if (b.dataset.editing !== "true" && b._fullText !== text) setBubbleText(b, text);
   const inCtx = m.inContext !== false;
   const chk = b.querySelector(".chk");
   if (chk) chk.checked = inCtx;
@@ -66,6 +73,8 @@ function updateBubble(b, m, showResend) {
   }
   const resend = b.querySelector(".resendBtn");
   if (resend) resend.style.display = showResend ? "" : "none";
+  const edit = b.querySelector(".editBtn");
+  if (edit) edit.style.display = showEdit ? "" : "none";
 }
 
 export function renderChat(messages) {
@@ -73,6 +82,7 @@ export function renderChat(messages) {
   const s = activeSession();
   if (!s || !messages?.length) {
     lastMessages = [];
+    cancelEdit();
     chat.innerHTML = "";
     bubbleNodes.clear();
     const empty = document.createElement("div");
@@ -85,14 +95,15 @@ export function renderChat(messages) {
   chat.querySelector('[data-testid="chat-empty"]')?.remove();
   const sortedMessages = sortMessagesForRender(messages);
   lastMessages = sortedMessages;
+  if (editingMessageId != null && !sortedMessages.some((m) => m.id === editingMessageId)) cancelEdit();
   const lastUser = findLastUserMessage(sortedMessages);
   const items = [];
   const sysPrompt = state.settings.system_prompt;
   if (sysPrompt && state.settings.show_system_prompt !== false) {
-    items.push({ m: { role: "system", type: "message", text: sysPrompt, in_context: true }, showResend: false });
+    items.push({ m: { role: "system", type: "message", text: sysPrompt, in_context: true }, showResend: false, showEdit: false });
   }
   for (const m of sortedMessages.filter((m) => isBubbleVisible(m, state.settings))) {
-    items.push({ m, showResend: m === lastUser });
+    items.push({ m, showResend: m === lastUser, showEdit: m === lastUser });
   }
   const seen = new Set();
   for (const item of items) {
@@ -100,10 +111,10 @@ export function renderChat(messages) {
     seen.add(key);
     let b = bubbleNodes.get(key);
     if (!b) {
-      b = bubbleEl(item.m, handlers, { showResend: item.showResend });
+      b = bubbleEl(item.m, handlers, { showResend: item.showResend, showEdit: item.showEdit });
       bubbleNodes.set(key, b);
     } else {
-      updateBubble(b, item.m, item.showResend);
+      updateBubble(b, item.m, item.showResend, item.showEdit);
     }
     chat.appendChild(b); // appendChild verschiebt bestehende Knoten an die richtige Stelle
   }
@@ -116,7 +127,98 @@ export function renderChat(messages) {
   chat.scrollTop = chat.scrollHeight;
 }
 
+// Edit-Modus: id der Nutzernachricht, die gerade inline in ihrer Bubble bearbeitet wird
+let editingMessageId = null;
+
+export function cancelEdit() {
+  if (editingMessageId == null) return;
+  const mid = editingMessageId;
+  editingMessageId = null;
+  const b = document.querySelector(`.bubble[data-msg-id="${mid}"]`);
+  if (b) exitBubbleEdit(b);
+}
+
+// Gemeinsamer Kern von Bearbeiten (inline) und Erneut-senden: Nachricht patchen,
+// alle Nachrichten danach loeschen. Liefert false, wenn der Nutzer abbricht.
+// Beim Bearbeiten gibt es keinen Bestaetigungsdialog mehr (direktes Speichern).
+async function resubmitMessage(s, mid, text, attachments, mode) {
+  if (mode !== "edit" && hasMessagesAfter(lastMessages, mid)) {
+    const ok = await confirmModal({
+      title: mode === "edit" ? "Nachricht bearbeiten" : "Erneut senden",
+      text:
+        "Alle Nachrichten nach dieser Nachricht (inkl. Antworten des Assistenten) werden gelöscht. " +
+        (mode === "edit" ? "Bearbeiten und erneut senden?" : "Erneut senden?"),
+      okLabel: mode === "edit" ? "Bearbeiten & senden" : "Erneut senden",
+    });
+    if (!ok) return false;
+  }
+  await api.patch(`/sessions/${s.id}/messages/${mid}`, { text, attachments });
+  await api.del(`/sessions/${s.id}/messages/after/${mid}`).catch(() => {});
+  return true;
+}
+
+// Generierung nach dem Senden/Bearbeiten anstossen (serverseitige Hintergrund-Task).
+async function triggerGeneration(s) {
+  const detail = await api.get(`/sessions/${s.id}`);
+  const payload = buildChatPayload({ model: state.settings.model, messages: normalizeMessages(detail.messages) });
+  try {
+    await api.post("/chat", { session_id: s.id, ...payload });
+  } catch (err) {
+    const em = { role: "system", type: "message", text: "Fehler: " + err.message, in_context: false };
+    await api.post(`/sessions/${s.id}/messages`, em).catch(() => {});
+    await loadSessions();
+    changed();
+    return;
+  }
+  setStreamingUI(true);
+  await pollOnce();
+  ensurePolling();
+}
+
+// Speichern aus dem Inline-Edit der Bubble (Save-Button oder Enter)
+async function submitEdit(mid, rawText) {
+  const s = activeSession();
+  if (!s || state.streaming || editingMessageId !== mid) return;
+  const text = (rawText || "").trim();
+  if (!text) {
+    cancelEdit();
+    return;
+  }
+  const detail = await api.get(`/sessions/${s.id}`);
+  const old = normalizeMessages(detail.messages).find((x) => x.id === mid);
+  const ok = await resubmitMessage(s, mid, text, old?.attachments || [], "edit");
+  if (!ok) return; // Edit-Modus bleibt aktiv
+  cancelEdit();
+  await loadSessions();
+  changed();
+  await triggerGeneration(s);
+}
+
 const handlers = {
+  onEdit: (m, b) => {
+    if (state.streaming || !m || m.id == null || editingMessageId === m.id) return;
+    cancelEdit();
+    editingMessageId = m.id;
+    const ui = enterBubbleEdit(b, m.text || "");
+    if (!ui) {
+      editingMessageId = null;
+      return;
+    }
+    ui.cancelBtn.onclick = () => cancelEdit();
+    ui.textarea.addEventListener("keydown", (e) => {
+      e.stopPropagation();
+      if (e.key === "Escape") {
+        e.preventDefault();
+        cancelEdit();
+      } else if (e.key === "Enter" && !e.shiftKey) {
+        // Enter sendet immer (Shift+Enter = Zeilenumbruch)
+        e.preventDefault();
+        submitEdit(m.id, ui.textarea.value);
+      }
+    });
+    ui.textarea.focus();
+    ui.textarea.setSelectionRange(ui.textarea.value.length, ui.textarea.value.length);
+  },
   onToggleContext: (m) => {
     const s = activeSession();
     if (m.id != null && s)
@@ -130,18 +232,14 @@ const handlers = {
     changed();
   },
   onResend: async (m) => {
-    if (state.streaming) return;
-    const idx = lastMessages.findIndex((x) => x.id === m.id);
-    const answered = idx >= 0 && lastMessages.slice(idx + 1).some((x) => x.role === "assistant");
-    if (answered) {
-      const ok = await confirmModal({
-        title: "Erneut senden",
-        text: "Auf diese Nachricht hat der Assistent bereits geantwortet. Erneut senden?",
-        okLabel: "Erneut senden",
-      });
-      if (!ok) return;
-    }
+    // Erneut senden = Bearbeiten ohne Text-Aenderung: gleicher Code-Pfad wie der
+    // Edit-Button (Nachricht patchen, alles danach loeschen, neu generieren).
+    if (state.streaming || m.id == null) return;
+    const prev = editingMessageId;
+    if (prev !== m.id) cancelEdit();
+    editingMessageId = m.id;
     await send(m.text, m.attachments || []);
+    if (editingMessageId === m.id) editingMessageId = prev; // abgebrochen -> vorheriger Zustand
   },
 };
 
@@ -190,7 +288,8 @@ export async function send(textOverride, attachmentsOverride) {
     return;
   }
   const input = $("input");
-  const text = (typeof textOverride === "string" ? textOverride : input.value).trim();
+  const composerSubmit = typeof textOverride !== "string";
+  const text = (composerSubmit ? input.value : textOverride).trim();
   const pending = Array.isArray(attachmentsOverride) ? attachmentsOverride : state.pendingAttachments;
   if (!text && !pending.length) return;
   let s = activeSession();
@@ -198,36 +297,34 @@ export async function send(textOverride, attachmentsOverride) {
     await newSession(true);
     s = activeSession();
   }
-  const attachments = Array.isArray(attachmentsOverride) ? attachmentsOverride : await uploadPendingAttachments(s.id);
-  await api.post(`/sessions/${s.id}/messages`, {
-    role: "user",
-    type: "message",
-    text,
-    in_context: true,
-    attachments,
-  });
+  if (!composerSubmit && editingMessageId != null) {
+    // Erneut-senden der letzten Nutzernachricht (Refresh-Button, Text unveraendert):
+    // patchen, alles danach loeschen, neu generieren.
+    const mid = editingMessageId;
+    const detail = await api.get(`/sessions/${s.id}`);
+    const old = normalizeMessages(detail.messages).find((x) => x.id === mid);
+    const attachments = Array.isArray(attachmentsOverride) ? attachmentsOverride : old?.attachments || [];
+    const ok = await resubmitMessage(s, mid, text, attachments, "resend");
+    if (!ok) return; // Edit-Modus bleibt aktiv
+    cancelEdit();
+  } else {
+    const attachments = Array.isArray(attachmentsOverride) ? attachmentsOverride : await uploadPendingAttachments(s.id);
+    await api.post(`/sessions/${s.id}/messages`, {
+      role: "user",
+      type: "message",
+      text,
+      in_context: true,
+      attachments,
+    });
+  }
   await loadSessions();
-  if (typeof textOverride !== "string") {
+  if (composerSubmit) {
     input.value = "";
     input.style.height = "auto";
     input.style.overflowY = "hidden";
   }
   changed();
-
-  const detail = await api.get(`/sessions/${s.id}`);
-  const payload = buildChatPayload({ model: state.settings.model, messages: normalizeMessages(detail.messages) });
-  try {
-    await api.post("/chat", { session_id: s.id, ...payload });
-  } catch (err) {
-    const em = { role: "system", type: "message", text: "Fehler: " + err.message, in_context: false };
-    await api.post(`/sessions/${s.id}/messages`, em).catch(() => {});
-    await loadSessions();
-    changed();
-    return;
-  }
-  setStreamingUI(true);
-  await pollOnce();
-  ensurePolling();
+  await triggerGeneration(s);
 }
 
 export function renderHeader() {

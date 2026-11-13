@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { sortMessagesForRender, findLastUserMessage } from "../../static/js/chat.js";
+import { sortMessagesForRender, findLastUserMessage, hasMessagesAfter } from "../../static/js/chat.js";
 
 test("sortMessagesForRender: chronological by ts", () => {
   const messages = [
@@ -87,4 +87,18 @@ test("findLastUserMessage: ignores reasoning/toolcall/system, null when none", (
   assert.equal(findLastUserMessage(messages).id, 1);
   assert.equal(findLastUserMessage([{ role: "assistant", type: "message", text: "A", ts: 1, id: 1 }]), null);
   assert.equal(findLastUserMessage([]), null);
+});
+
+test("hasMessagesAfter: true only when messages follow the given id (edit-truncate check)", () => {
+  const messages = [
+    { role: "user", type: "message", text: "Frage 1", ts: 1000, id: 1 },
+    { role: "assistant", type: "message", text: "Antwort 1", ts: 2000, id: 2 },
+    { role: "user", type: "message", text: "Frage 2", ts: 3000, id: 3 },
+    { role: "assistant", type: "message", text: "Antwort 2", ts: 4000, id: 4 },
+  ];
+  assert.equal(hasMessagesAfter(messages, 3), true, "Antwort 2 folgt auf Frage 2");
+  assert.equal(hasMessagesAfter(messages, 1), true);
+  assert.equal(hasMessagesAfter(messages, 4), false, "letzte Nachricht: nichts folgt");
+  assert.equal(hasMessagesAfter(messages, 999), false, "unbekannte id");
+  assert.equal(hasMessagesAfter([], 1), false);
 });
