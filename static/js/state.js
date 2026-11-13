@@ -1,3 +1,5 @@
+import { defaultBoolSettings } from "./settingsKeys.js";
+
 const _ss = typeof sessionStorage !== "undefined" ? sessionStorage : null;
 
 export const state = {
@@ -11,15 +13,8 @@ export const state = {
     model: "",
     system_prompt: "",
     theme: "light",
-    bubbles_deletable: true,
-    bubbles_checkable: true,
-    bubbles_speaker: true,
-    show_system_prompt: true,
-    show_tool_output: true,
-    show_reasoning: true,
-    show_file_button: false,
-    show_image_button: false,
     speech_mode: "server",
+    ...defaultBoolSettings(),
   },
   streaming: false,
   pendingAttachments: [],

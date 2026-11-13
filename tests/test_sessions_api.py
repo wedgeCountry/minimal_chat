@@ -159,8 +159,8 @@ def test_message_patch_text_and_attachments(client, auth_headers):
 def test_delete_messages_after(client, auth_headers):
     s = _create_session(client, auth_headers)
     m1 = client.post(f"/api/sessions/{s['id']}/messages", json={"role": "user", "text": "Frage"}, headers=auth_headers).json()
-    m2 = client.post(f"/api/sessions/{s['id']}/messages", json={"role": "assistant", "text": "Antwort"}, headers=auth_headers).json()
-    m3 = client.post(f"/api/sessions/{s['id']}/messages", json={"role": "assistant", "type": "reasoning", "text": "Denke"}, headers=auth_headers).json()
+    client.post(f"/api/sessions/{s['id']}/messages", json={"role": "assistant", "text": "Antwort"}, headers=auth_headers)
+    client.post(f"/api/sessions/{s['id']}/messages", json={"role": "assistant", "type": "reasoning", "text": "Denke"}, headers=auth_headers)
 
     res = client.delete(f"/api/sessions/{s['id']}/messages/after/{m1['id']}", headers=auth_headers)
     assert res.status_code == 204
@@ -189,6 +189,53 @@ def test_delete_messages_after_rejects_message_of_other_session(client, auth_hea
     # Fremder User darf nicht loeschen
     bob = login_client(app, "bob@example.com")
     assert bob.delete(f"/api/sessions/{s1['id']}/messages/after/{m1['id']}").status_code == 404
+
+
+def test_message_patch_and_delete_reject_message_of_other_session(client, auth_headers):
+    """Nachricht einer anderen Session darf nicht ueber diese Session geaendert werden."""
+    s1 = _create_session(client, auth_headers, "Eins")
+    s2 = _create_session(client, auth_headers, "Zwei")
+    foreign = client.post(
+        f"/api/sessions/{s2['id']}/messages", json={"role": "user", "text": "fremd"}, headers=auth_headers
+    ).json()
+    res = client.patch(f"/api/sessions/{s1['id']}/messages/{foreign['id']}", json={"text": "x"}, headers=auth_headers)
+    assert res.status_code == 404
+    res = client.delete(f"/api/sessions/{s1['id']}/messages/{foreign['id']}", headers=auth_headers)
+    assert res.status_code == 404
+    detail = client.get(f"/api/sessions/{s2['id']}", headers=auth_headers).json()
+    assert detail["messages"][0]["text"] == "fremd"
+
+
+def test_attachment_upload_size_limit_413(client, auth_headers, app):
+    """Upload ueber dem Byte-Limit -> 413 (gestreamtes Lesen, kein komplettes In-RAM-Lesen)."""
+    app.state.config.max_upload_bytes = 4
+    s = _create_session(client, auth_headers)
+    res = client.post(
+        f"/api/sessions/{s['id']}/attachments",
+        files={"file": ("a.txt", b"12345", "text/plain")},
+        headers=auth_headers,
+    )
+    assert res.status_code == 413
+
+
+def test_attachment_storage_quota_413(client, auth_headers, app):
+    """Per-user Speicher-Kontingent fuer Anhaenge wird durchgesetzt."""
+    app.state.config.max_upload_bytes = 100
+    app.state.config.max_user_storage_bytes = 5
+    s = _create_session(client, auth_headers)
+    res = client.post(
+        f"/api/sessions/{s['id']}/attachments",
+        files={"file": ("a.txt", b"1234", "text/plain")},
+        headers=auth_headers,
+    )
+    assert res.status_code == 201, res.text
+    res = client.post(
+        f"/api/sessions/{s['id']}/attachments",
+        files={"file": ("b.txt", b"12", "text/plain")},
+        headers=auth_headers,
+    )
+    assert res.status_code == 413
+    assert "Kontingent" in res.json()["detail"]
 
 
 def test_messages_are_isolated_per_user(client, auth_headers, app):

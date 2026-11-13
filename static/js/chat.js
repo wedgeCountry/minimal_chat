@@ -140,12 +140,22 @@ export function cancelEdit() {
 }
 
 // Gemeinsamer Kern von Bearbeiten (inline) und Erneut-senden: Nachricht patchen,
-// alle Nachrichten danach loeschen. Liefert false, wenn der Nutzer abbricht.
-// Beim Bearbeiten gibt es keinen Bestaetigungsdialog mehr (direktes Speichern).
-async function resubmitMessage(s, mid, text, attachments, mode) {
+// alle Nachrichten danach loeschen. Beim Bearbeiten gibt es keinen Bestaetigungsdialog
+// mehr (direktes Speichern).
+async function resubmitMessage(s, mid, text, attachments) {
   await api.patch(`/sessions/${s.id}/messages/${mid}`, { text, attachments });
   await api.del(`/sessions/${s.id}/messages/after/${mid}`).catch(() => {});
-  return true;
+}
+
+// Erneut senden = Bearbeiten ohne Textaenderung: gleicher Code-Pfad wie der Edit-Button
+// (Nachricht patchen, alles danach loeschen, neu generieren).
+async function resendMessage(m) {
+  const s = activeSession();
+  if (!s || state.streaming || m.id == null) return;
+  await resubmitMessage(s, m.id, m.text || "", m.attachments || []);
+  await loadSessions();
+  changed();
+  await triggerGeneration(s);
 }
 
 // Generierung nach dem Senden/Bearbeiten anstossen (serverseitige Hintergrund-Task).
@@ -179,8 +189,7 @@ async function submitEdit(mid, rawText) {
   }
   const detail = await api.get(`/sessions/${s.id}`);
   const old = normalizeMessages(detail.messages).find((x) => x.id === mid);
-  const ok = await resubmitMessage(s, mid, text, old?.attachments || [], "edit");
-  if (!ok) return; // Edit-Modus bleibt aktiv
+  await resubmitMessage(s, mid, text, old?.attachments || []);
   cancelEdit();
   await loadSessions();
   changed();
@@ -224,15 +233,8 @@ const handlers = {
     if (m.id != null && s) await api.del(`/sessions/${s.id}/messages/${m.id}`).catch(() => {});
     changed();
   },
-  onResend: async (m) => {
-    // Erneut senden = Bearbeiten ohne Text-Aenderung: gleicher Code-Pfad wie der
-    // Edit-Button (Nachricht patchen, alles danach loeschen, neu generieren).
-    if (state.streaming || m.id == null) return;
-    const prev = editingMessageId;
-    if (prev !== m.id) cancelEdit();
-    editingMessageId = m.id;
-    await send(m.text, m.attachments || []);
-    if (editingMessageId === m.id) editingMessageId = prev; // abgebrochen -> vorheriger Zustand
+  onResend: (m) => {
+    void resendMessage(m);
   },
 };
 
@@ -275,47 +277,31 @@ export function stopPolling() {
   }
 }
 
-export async function send(textOverride, attachmentsOverride) {
+export async function send() {
   if (state.streaming) {
     abortStream();
     return;
   }
   const input = $("input");
-  const composerSubmit = typeof textOverride !== "string";
-  const text = (composerSubmit ? input.value : textOverride).trim();
-  const pending = Array.isArray(attachmentsOverride) ? attachmentsOverride : state.pendingAttachments;
-  if (!text && !pending.length) return;
+  const text = input.value.trim();
+  if (!text && !state.pendingAttachments.length) return;
   let s = activeSession();
   if (!s) {
     await newSession(true);
     s = activeSession();
   }
-  if (!composerSubmit && editingMessageId != null) {
-    // Erneut-senden der letzten Nutzernachricht (Refresh-Button, Text unveraendert):
-    // patchen, alles danach loeschen, neu generieren.
-    const mid = editingMessageId;
-    const detail = await api.get(`/sessions/${s.id}`);
-    const old = normalizeMessages(detail.messages).find((x) => x.id === mid);
-    const attachments = Array.isArray(attachmentsOverride) ? attachmentsOverride : old?.attachments || [];
-    const ok = await resubmitMessage(s, mid, text, attachments, "resend");
-    if (!ok) return; // Edit-Modus bleibt aktiv
-    cancelEdit();
-  } else {
-    const attachments = Array.isArray(attachmentsOverride) ? attachmentsOverride : await uploadPendingAttachments(s.id);
-    await api.post(`/sessions/${s.id}/messages`, {
-      role: "user",
-      type: "message",
-      text,
-      in_context: true,
-      attachments,
-    });
-  }
+  const attachments = await uploadPendingAttachments(s.id);
+  await api.post(`/sessions/${s.id}/messages`, {
+    role: "user",
+    type: "message",
+    text,
+    in_context: true,
+    attachments,
+  });
   await loadSessions();
-  if (composerSubmit) {
-    input.value = "";
-    input.style.height = "auto";
-    input.style.overflowY = "hidden";
-  }
+  input.value = "";
+  input.style.height = "auto";
+  input.style.overflowY = "hidden";
   changed();
   await triggerGeneration(s);
 }

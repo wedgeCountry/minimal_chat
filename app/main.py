@@ -4,11 +4,12 @@ import logging
 import os
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from .auth import init_auth
-from .config import AppConfig, bootstrap_env, is_auto_login_enabled, load_config
+from .config import LOOPBACK_HOSTS, AppConfig, bootstrap_env, is_auto_login_enabled, load_config
 from .db.database import Database
 from .routers import auth, chat, log, meta, sessions, settings, voice
 
@@ -18,7 +19,17 @@ bootstrap_env()
 
 logger = logging.getLogger("leanchat")
 
-LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1"}
+# CSP fuer die App selbst (keine Inline-Skripte/-Styles noetig); die /auth-Seiten
+# der user_registry brauchen 'unsafe-inline' fuer den CSRF-Token im Inline-Script.
+CSP_APP = (
+    "default-src 'self'; script-src 'self'; style-src 'self'; "
+    "img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self'; "
+    "font-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'"
+)
+CSP_AUTH = (
+    "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; "
+    "img-src 'self' data:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'"
+)
 
 
 def create_app(
@@ -40,6 +51,36 @@ def create_app(
     app.state.config = cfg
     app.state.db = Database(cfg.data_dir, cfg.users_dir)
     init_auth(app, cfg)
+
+    @app.middleware("http")
+    async def limit_request_size(request: Request, call_next):
+        """Globales Request-Size-Limit fuer /api/* (DoS-Schutz; Uploads selbst
+        werden zusaetzlich gestreamt mit Byte-Cap gelesen, siehe read_upload_capped)."""
+        if request.url.path.startswith("/api/"):
+            length = request.headers.get("content-length")
+            if length:
+                try:
+                    too_big = int(length) > cfg.max_request_bytes
+                except ValueError:
+                    return JSONResponse({"detail": "Ungueltiger Content-Length-Header"}, status_code=400)
+                if too_big:
+                    return JSONResponse(
+                        {"detail": f"Request zu gross (Limit {cfg.max_request_bytes} Bytes)"}, status_code=413
+                    )
+        return await call_next(request)
+
+    @app.middleware("http")
+    async def security_headers(request: Request, call_next):
+        response = await call_next(request)
+        response.headers.setdefault("X-Content-Type-Options", "nosniff")
+        response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+        response.headers.setdefault("X-Frame-Options", "DENY")
+        # Ueberschreibt die minimale CSP der user_registry (frame-ancestors 'none') bewusst:
+        response.headers["Content-Security-Policy"] = CSP_AUTH if request.url.path.startswith("/auth") else CSP_APP
+        if cfg.ssl_certfile:
+            response.headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+        return response
+
     app.include_router(auth.router)
     app.include_router(sessions.router)
     app.include_router(settings.router)

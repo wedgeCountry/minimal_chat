@@ -93,10 +93,10 @@ class ChatMessage(BaseModel):
 
 
 class ChatRequest(BaseModel):
-    session_id: str
-    model: str
+    session_id: str = Field(max_length=64)
+    model: str = Field(max_length=200)
     stream: bool = True
-    messages: list[ChatMessage]
+    messages: list[ChatMessage] = Field(max_length=500)
 
 
 class ChatAbortRequest(BaseModel):
@@ -114,6 +114,6 @@ class SettingsTestIn(BaseModel):
 
 
 class VoiceTTSRequest(BaseModel):
-    text: str
+    text: str = Field(max_length=5000)
     voice: str | None = None
     language: Literal["en", "de"] | None = None

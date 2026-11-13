@@ -1,5 +1,16 @@
 import { state } from "./state.js";
 
+// Parst die Fehlermeldung aus einer nicht-ok Response (JSON detail, sonst Rohtext/Status).
+export async function parseErrorResponse(res, fallback = "") {
+  const text = await res.text().catch(() => "");
+  let msg = text || res.statusText;
+  try {
+    const data = JSON.parse(text);
+    if (data && data.detail) msg = data.detail;
+  } catch {}
+  return msg || fallback;
+}
+
 async function request(path, { method = "GET", body, signal } = {}) {
   const headers = {};
   const isForm = typeof FormData !== "undefined" && body instanceof FormData;
@@ -15,13 +26,7 @@ async function request(path, { method = "GET", body, signal } = {}) {
     throw new Error("Nicht authentifiziert");
   }
   if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    let msg = text || res.statusText;
-    try {
-      const data = JSON.parse(text);
-      if (data && data.detail) msg = data.detail;
-    } catch {}
-    throw new Error(msg);
+    throw new Error(await parseErrorResponse(res));
   }
   if (res.status === 204) return null;
   return res.json();

@@ -105,3 +105,5 @@ Speicherung: serverseitig in der verschlüsselten per-user SQLite (`user_setting
 - OpenAI-kompatibles Protokoll: `POST {baseURL}/chat/completions`, `Authorization: Bearer {key}`
 - Fehlerbehandlung: Netzwerk-/Auth-Fehler als System-Bubble im Chat
 - App-Zustand serverseitig in der verschlüsselten per-user DB persistiert
+- SSRF-Schutz: LLM-Ziel-URLs werden serverseitig validiert (nur http/https ohne Credentials; private/Loopback-/reservierte Ziele nur bei Loopback-Server oder explizitem Opt-in `LEANCHAT_ALLOW_PRIVATE_LLM`); Upstream-Fehler-Bodies werden nicht an den Client weitergegeben
+- DoS-Limits: Upload-Größe (gestreamtes Lesen), per-user Attachment-Kontingent und `/api/*`-Request-Größe sind serverseitig begrenzt (HTTP 413)

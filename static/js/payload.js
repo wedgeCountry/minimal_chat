@@ -16,9 +16,7 @@ export function buildChatPayload({ model, messages }) {
               ...m.attachments.map((a) =>
                 a.id != null
                   ? { type: "text", text: `[Datei: ${a.name}]`, attachment_id: a.id }
-                  : a.data
-                    ? { type: "image_url", image_url: { url: a.data } }
-                    : { type: "text", text: `[Datei: ${a.name}]\n${a.text || ""}` }
+                  : { type: "text", text: `[Datei: ${a.name}]\n${a.text || ""}` }
               ),
               { type: "text", text: m.text || "" },
             ]

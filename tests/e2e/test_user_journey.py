@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import json
 import re
-from pathlib import Path
 
 import httpx
 import pytest
@@ -289,7 +288,7 @@ def test_full_user_journey(page, base_url, tmp_path, llm_expect, server_data_dir
 def test_reasoning_bubbles_appear_before_response_and_are_collapsed(page, base_url, llm_expect):
     """Testet, dass Reasoning-Bubbles vor den Antwort-Bubbles erscheinen und standardmäßig eingeklappt sind."""
     # Setup: User per API anlegen
-    api_client = _register_client(base_url, "reasoning-user@example.com", "Geheim-123")
+    _register_client(base_url, "reasoning-user@example.com", "Geheim-123")
 
     # 1. Anmelden
     _login(page, base_url, "reasoning-user@example.com", "Geheim-123")
@@ -357,7 +356,7 @@ def test_reasoning_bubbles_appear_before_response_and_are_collapsed(page, base_u
 def test_reasoning_bubbles_can_be_expanded(page, base_url, llm_expect):
     """Testet, dass eingeklappte Reasoning-Bubbles ausgeklappt werden können."""
     # Setup: User per API anlegen
-    api_client = _register_client(base_url, "expand-user@example.com", "Geheim-123")
+    _register_client(base_url, "expand-user@example.com", "Geheim-123")
 
     # 1. Anmelden
     _login(page, base_url, "expand-user@example.com", "Geheim-123")
@@ -548,7 +547,7 @@ def test_error_popup_when_llm_unreachable(page, base_url, llm_expect, server_dat
     """Test that an error popup is shown when the LLM server is unreachable."""
     # Setup: Register user
     email = "unreachable-user@example.com"
-    api_client = _register_client(base_url, email, "Geheim-123")
+    _register_client(base_url, email, "Geheim-123")
     
     # Login
     _login(page, base_url, email, "Geheim-123")

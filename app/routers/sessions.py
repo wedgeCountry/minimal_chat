@@ -4,11 +4,12 @@ import asyncio
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 
+from ..config import AppConfig
 from ..db import database as dbq
 from ..db.database import Database
-from ..deps import get_current_user, get_db
+from ..deps import get_config, get_current_user, get_db
 from ..models import AttachmentOut, MessageIn, MessageOut, MessagePatch, SessionDetail, SessionIn, SessionOut, SessionRename
-from ..services.files import process_upload
+from ..services.files import UploadTooLarge, process_upload, read_upload_capped
 
 router = APIRouter(prefix="/api/sessions", tags=["sessions"])
 
@@ -76,9 +77,10 @@ def update_message(sid: str, mid: int, patch: MessagePatch, user: dict = Depends
     with db.user_db(user) as con:
         if not dbq.q_get_session(con, sid):
             raise HTTPException(status_code=404, detail="Session nicht gefunden")
-        updated = dbq.q_update_message(con, mid, patch.model_dump(exclude_none=True))
-        if not updated:
+        msg = dbq.q_get_message(con, mid)
+        if not msg or msg["session_id"] != sid:
             raise HTTPException(status_code=404, detail="Nachricht nicht gefunden")
+        updated = dbq.q_update_message(con, mid, patch.model_dump(exclude_none=True))
     return MessageOut(**updated)
 
 
@@ -87,7 +89,8 @@ def delete_message(sid: str, mid: int, user: dict = Depends(get_current_user), d
     with db.user_db(user) as con:
         if not dbq.q_get_session(con, sid):
             raise HTTPException(status_code=404, detail="Session nicht gefunden")
-        if not dbq.q_get_message(con, mid):
+        msg = dbq.q_get_message(con, mid)
+        if not msg or msg["session_id"] != sid:
             raise HTTPException(status_code=404, detail="Nachricht nicht gefunden")
         dbq.q_delete_message(con, mid)
 
@@ -111,12 +114,16 @@ async def add_attachment(
     file: UploadFile = File(...),
     user: dict = Depends(get_current_user),
     db: Database = Depends(get_db),
+    config: AppConfig = Depends(get_config),
 ):
     """Laedt eine Datei per Multipart-Upload (Rohdaten, kein Base64-in-JSON) hoch;
-    das Lesen/Dekodieren passiert serverseitig."""
-    raw = await file.read()
+    das Lesen/Dekodieren passiert serverseitig. Gestreamtes Lesen mit Byte-Cap
+    (kein komplettes In-RAM-Lesen vor der Groessenpruefung) + per-user Kontingent."""
     try:
-        processed = process_upload(file.filename or "datei", file.content_type or "", raw)
+        raw = await read_upload_capped(file, config.max_upload_bytes)
+        processed = process_upload(file.filename or "datei", file.content_type or "", raw, max_bytes=config.max_upload_bytes)
+    except UploadTooLarge as exc:
+        raise HTTPException(status_code=413, detail=str(exc))
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
@@ -124,6 +131,11 @@ async def add_attachment(
         with db.user_db(user) as con:
             if not dbq.q_get_session(con, sid):
                 raise HTTPException(status_code=404, detail="Session nicht gefunden")
+            if dbq.q_total_attachment_bytes(con) + len(raw) > config.max_user_storage_bytes:
+                raise HTTPException(
+                    status_code=413,
+                    detail=f"Speicherplatz-Kontingent ueberschritten (Limit {config.max_user_storage_bytes} Bytes)",
+                )
             return dbq.q_add_attachment(con, sid, processed)
 
     # DB-Zugriff ist blockierend -> nicht auf dem Event-Loop ausfuehren

@@ -65,7 +65,6 @@ def test_input_grows_at_line_wrap_and_shrinks_on_delete(mobile_page, base_url):
     # sichtbar sein (scrollHeight <= clientHeight + 1), d.h. das Feld waechst
     # spaetestens beim Zeilenumbruch auf die zweite Zeile.
     growth = {0: one_line_h}
-    prev_h = one_line_h
     for ch in LONG_TEXT:
         mobile_page.keyboard.type(ch)
         m = _metrics(mobile_page)
@@ -73,7 +72,6 @@ def test_input_grows_at_line_wrap_and_shrinks_on_delete(mobile_page, base_url):
             f"content hidden after typing len={m['len']}: scrollHeight={m['sh']} clientHeight={m['ch']}"
         )
         growth[m["len"]] = m["h"]
-        prev_h = m["h"]
 
     final = _metrics(mobile_page)
     assert final["h"] > one_line_h + 10, "input should have grown beyond one line"

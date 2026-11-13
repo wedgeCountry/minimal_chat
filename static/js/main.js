@@ -13,8 +13,16 @@ import { initPartials } from "./html.js";
 import { initGlobalErrorHandling } from "./errors.js";
 
 let currentMessages = [];
+let autoLoginEnabled = false;
 
 const sysRecRef = { current: null };
+
+function applyAutoLoginUI() {
+  if (!autoLoginEnabled) return;
+  document.documentElement.classList.add("auto-login");
+  $("logoutBtn").style.display = "none";
+  $("changePwBtn").style.display = "none";
+}
 
 function setSideHidden(hidden) {
   $("side").classList.toggle("hidden", hidden);
@@ -154,18 +162,15 @@ async function bootstrap() {
   if (window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches)
     document.documentElement.classList.add("dark");
   
-  // Check if auto-login is enabled
-  let autoLoginEnabled = false;
+  // Check if auto-login is enabled (einmalig; initEvents nutzt das Ergebnis via applyAutoLoginUI)
   try {
     const config = await api.get("/auth/config");
     autoLoginEnabled = config.auto_login || false;
-    if (autoLoginEnabled) {
-      document.documentElement.classList.add("auto-login");
-    }
   } catch {
     // If config endpoint fails, continue with normal flow
   }
-  
+  applyAutoLoginUI();
+
   try {
     await api.get("/auth/me");
   } catch (err) {
@@ -220,20 +225,6 @@ function initEvents() {
     $("burgerMenu").classList.remove("open");
     $("chat").classList.toggle("compact");
   };
-  // Check if auto-login is enabled to hide logout button
-  let autoLoginEnabled = false;
-  try {
-    api.get("/auth/config").then(config => {
-      autoLoginEnabled = config.auto_login || false;
-      if (autoLoginEnabled) {
-        $("logoutBtn").style.display = "none";
-        $("changePwBtn").style.display = "none";
-      }
-    });
-  } catch {
-    // If config endpoint fails, keep logout button visible
-  }
-  
   $("changePwBtn").onclick = () => {
     $("burgerMenu").classList.remove("open");
     window.location.href = "/auth/change-password";
