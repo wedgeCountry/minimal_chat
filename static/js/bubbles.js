@@ -1,7 +1,7 @@
 import { esc } from "./util.js";
 import { ICONS } from "./icons.js";
 import { state } from "./state.js";
-import { isBubbleDeletable, isBubbleCheckable, isBubbleSpeaker } from "./visibility.js";
+import { isBubbleDeletable, isBubbleContextToggleable, isBubbleSpeaker } from "./visibility.js";
 import { controlsVisible, speak, isSpeaking, stopSpeech } from "./ttsDetectionService.js";
 import { showError } from "./confirm.js";
 import { BUBBLE_MODES, clampText, isClamped, nextBubbleMode, bubbleModeTitle, defaultBubbleMode } from "./bubbleMode.js";
@@ -140,9 +140,9 @@ export function bubbleEl(m, handlers = {}, opts = {}) {
   const mode = defaultBubbleMode(m.type);
   b.classList.add(mode);
   b.dataset.mode = mode;
-  if (m.type === "message") b.classList.add(m.inContext !== false ? "selected" : "deselected");
+  if (m.type !== "reasoning") b.classList.add(m.inContext !== false ? "selected" : "deselected");
   const label = m.type === "message" ? m.role : typeLabels[m.type] || m.role;
-  const showChk = m.type === "message" && isBubbleCheckable(state.settings);
+  const showChk = isBubbleContextToggleable(m, state.settings);
   const showDel = isBubbleDeletable(state.settings);
   const showTts = bubbleShowTts();
   const showResend = m.role === "user" && m.type === "message" && opts.showResend === true;

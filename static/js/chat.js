@@ -88,7 +88,7 @@ function updateBubble(b, m, showResend, showEdit) {
   const inCtx = m.inContext !== false;
   const chk = b.querySelector(".chk");
   if (chk) chk.checked = inCtx;
-  if (m.type === "message") {
+  if (m.type !== "reasoning") {
     b.classList.toggle("selected", inCtx);
     b.classList.toggle("deselected", !inCtx);
   }

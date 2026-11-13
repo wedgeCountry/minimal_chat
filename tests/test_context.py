@@ -136,6 +136,30 @@ def test_db_rows_malformed_tool_text_do_not_crash():
     assert wire[-1] == {"role": "user", "content": ""}
 
 
+def test_toolresult_without_preceding_toolcall_is_skipped():
+    """Eine tool-Message ohne passenden tool_call ist ungueltig (422 bei strikten Servern)."""
+    rows = [
+        _db_row(1, "assistant", "toolresult", "f: ok"),
+        _db_row(2, "user", "message", "Hallo"),
+    ]
+    wire = build_llm_context(rows).compile()
+    assert [m["role"] for m in wire] == ["user"]
+
+
+def test_excluded_toolcall_drops_its_toolresult_from_wire():
+    """Kontext-Checkbox am Tool-Call abwaehlen -> Tool-Result landet nicht als orphan im Request."""
+    rows = [
+        _db_row(1, "user", "message", "Wetter in Berlin?"),
+        _db_row(2, "assistant", "toolcall", 'get_weather({"city":"Berlin"})', in_context=False),
+        _db_row(3, "assistant", "toolresult", "get_weather: 21C", in_context=True),
+        _db_row(4, "assistant", "message", "Es sind 21C."),
+    ]
+    wire = build_llm_context(rows).compile()
+    assert not any(m.get("tool_calls") for m in wire)
+    assert not any(m["role"] == "tool" for m in wire)
+    assert [m["role"] for m in wire] == ["user", "assistant"]
+
+
 def test_empty_system_message_is_never_sent_to_llm():
     rows = [
         _db_row(1, "system", "message", ""),

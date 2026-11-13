@@ -63,8 +63,10 @@ def build_llm_context(
                 "tool_calls": [{"id": tid, "type": "function", "function": {"name": fn["name"], "arguments": fn["arguments"]}}],
             })
         elif mtype == "toolresult":
-            tid = pending_tool_call_ids.pop(0) if pending_tool_call_ids else (f"call_{mid}" if mid is not None else "call_0")
-            wire.append({"role": "tool", "tool_call_id": tid, "content": text})
+            if not pending_tool_call_ids:
+                # ohne passenden tool_call davor waere die tool-Message ungueltig (422 bei strikten LLM-Servern)
+                continue
+            wire.append({"role": "tool", "tool_call_id": pending_tool_call_ids.pop(0), "content": text})
         elif mtype == "reasoning":
             continue  # Thinking wird nicht an das Modell gesendet
         else:

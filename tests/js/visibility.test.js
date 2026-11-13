@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { isBubbleDeletable, isBubbleCheckable, isBubbleSpeaker, isBubbleVisible } from "../../static/js/visibility.js";
+import { isBubbleDeletable, isBubbleCheckable, isBubbleContextToggleable, isBubbleSpeaker, isBubbleVisible } from "../../static/js/visibility.js";
 
 const allOn = {
   bubbles_deletable: true,
@@ -47,6 +47,16 @@ test("Checkable/Speaker Schalter", () => {
   assert.equal(isBubbleCheckable({ ...allOn, bubbles_checkable: false }), false);
   assert.ok(isBubbleSpeaker(allOn));
   assert.equal(isBubbleSpeaker({ ...allOn, bubbles_speaker: false }), false);
+});
+
+test("Kontext-Checkbox auf allen Bubble-Typen ausser reasoning", () => {
+  assert.ok(isBubbleContextToggleable({ role: "user", type: "message" }, allOn));
+  assert.ok(isBubbleContextToggleable({ role: "assistant", type: "toolcall" }, allOn));
+  assert.ok(isBubbleContextToggleable({ role: "assistant", type: "toolresult" }, allOn));
+  assert.ok(isBubbleContextToggleable({ role: "system", type: "message", text: "Fehler" }, allOn));
+  // Reasoning wird nie an das LLM gesendet -> keine Checkbox
+  assert.equal(isBubbleContextToggleable({ role: "assistant", type: "reasoning" }, allOn), false);
+  assert.equal(isBubbleContextToggleable({ role: "assistant", type: "toolcall" }, { ...allOn, bubbles_checkable: false }), false);
 });
 
 test("bubbles_deletable=false sperrt den Loeschen-Button fuer alle Bubbles", () => {
