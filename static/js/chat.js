@@ -2,7 +2,7 @@ import { api } from "./api.js";
 import { activeSession, normalizeMessages, state } from "./state.js";
 import { $ } from "./util.js";
 import { ICONS } from "./icons.js";
-import { bubbleEl, setBubbleText, enterBubbleEdit, exitBubbleEdit } from "./bubbles.js";
+import { bubbleEl, setBubbleText, enterBubbleEdit, exitBubbleEdit, syncBubbleTts } from "./bubbles.js";
 import { buildChatPayload } from "./payload.js";
 import { loadSessions, newSession, changed } from "./sessions.js";
 import { uploadPendingAttachments } from "./attachments.js";
@@ -75,6 +75,7 @@ function updateBubble(b, m, showResend, showEdit) {
   if (resend) resend.style.display = showResend ? "" : "none";
   const edit = b.querySelector(".editBtn");
   if (edit) edit.style.display = showEdit ? "" : "none";
+  syncBubbleTts(b);
 }
 
 export function renderChat(messages) {
