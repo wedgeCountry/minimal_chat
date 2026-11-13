@@ -157,6 +157,24 @@ def test_load_config_reads_security_limits_and_ssrf_flag(tmp_path, monkeypatch):
     assert cfg.to_dict()["max_upload_bytes"] == 1024  # Limits sind nicht geheim -> persistiert ok
 
 
+def test_load_config_env_path_none_means_unset(tmp_path, monkeypatch):
+    # .env.example schreibt "=None" fuer optionale Pfade; das darf nicht als gesetzter Pfad gelten
+    # (sonst waere z. B. ssl_certfile gesetzt -> Secure-Cookies auch ohne TLS)
+    from app.config import load_config
+
+    monkeypatch.setenv("LEANCHAT_SSL_CERTFILE", "None")
+    monkeypatch.setenv("LEANCHAT_SSL_KEYFILE", "")
+    monkeypatch.setenv("LEANCHAT_CONFIG_PATH", "none")
+    cfg = load_config(data_dir=tmp_path / "data", secret="s")
+    assert cfg.ssl_certfile is None
+    assert cfg.ssl_keyfile is None
+    assert cfg.app_config_path is None
+
+    monkeypatch.setenv("LEANCHAT_SSL_CERTFILE", str(tmp_path / "cert.pem"))
+    cfg = load_config(data_dir=tmp_path / "data", secret="s")
+    assert cfg.ssl_certfile == tmp_path / "cert.pem"
+
+
 def test_loopback_host_auto_enables_private_llm(tmp_path, monkeypatch):
     monkeypatch.setenv("LEANCHAT_DATA_DIR", str(tmp_path / "data"))
     monkeypatch.setenv("LEANCHAT_SECRET", "s")

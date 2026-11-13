@@ -103,6 +103,9 @@ def server_port(server_data_dir, mock_llm_port):
         LEANCHAT_API_KEY=api_key,
         LEANCHAT_LLM_HOST=parsed.hostname or "127.0.0.1",
         LEANCHAT_LLM_PORT=str(parsed.port or ""),
+        # Loopback-Host pinnen, damit eine lokale .env (z. B. LEANCHAT_HOST=0.0.0.0)
+        # den SSRF-Schutz nicht ausschaltet und das Mock-LLM (127.0.0.1) blockiert
+        LEANCHAT_HOST="127.0.0.1",
     )
     proc = subprocess.Popen(
         [sys.executable, "-m", "uvicorn", "app.main:app", "--host", "127.0.0.1", "--port", str(port)],

@@ -47,6 +47,7 @@ Eine schlanke, eigenständige Chat-Oberfläche für OpenAI-kompatible Endpunkte.
   - **Kamera-Symbol**: Foto aufnehmen (`<input type="file" accept="image/*" capture="environment">`, primär für Mobilgeräte)
   - **Mikro-Symbol**: Nachricht diktieren (Web Speech API `SpeechRecognition`, falls verfügbar; sonst ausgeblendet/deaktiviert)
   - **X-Symbol** (ersetzt Senden-Button während des Streamings): aktuelle Generierung abbrechen
+- Zusammenspiel Sprache (STT/TTS): Läuft die Wiedergabe (Speaker-Button einer Bubble), wird eine Aufnahme unterdrückt; startet die Wiedergabe während einer Aufnahme, stoppt die Aufnahme (Puffer wird verworfen); **Senden** stoppt die Aufnahme, leert die Chat-Zeile und verwirft den Aufnahme-Puffer; erneuter Klick auf den Speaker-Button stoppt die Wiedergabe
 
 ## 3. Message-Bubbles
 
@@ -62,7 +63,7 @@ Eigenschaften je Bubble:
 | Kopieren | Kopier-Symbol kopiert den Inhalt in die Zwischenablage (`navigator.clipboard`, Fallback `execCommand`) |
 | Bearbeiten | Stift-Symbol nur auf der letzten Nutzernachricht: Inline-Edit direkt in der Bubble (Textarea in den Bubble-Farben mit X-Button rechts daneben, Enter sendet, Esc bricht ab); beim Senden wird die Nachricht per `PATCH` aktualisiert, alle Nachrichten danach per `DELETE /api/sessions/{id}/messages/after/{mid}` gelöscht und die Antwort neu generiert |
 | Erneut senden | Refresh-Symbol nur auf der letzten Nutzernachricht: dasselbe wie **Bearbeiten ohne Textänderung** – die Nachricht wird per `PATCH` unverändert übernommen, alle Nachrichten danach gelöscht und die Antwort neu generiert |
-| Vorlesen | Audio-Symbol: Vorlesen per `speechSynthesis`, erneuter Klick stoppt |
+| Vorlesen | Audio-Symbol: Vorlesen per `speechSynthesis`/Voice Companion, erneuter Klick stoppt die Wiedergabe (ohne Fehlermeldung); Wiedergabe stoppt eine laufende Aufnahme und unterdrückt den Aufnahme-Start |
 | Kontext-Checkbox | Rechts oben; legt fest, ob die Nachricht beim nächsten Request im `messages`-Array mitgesendet wird |
 | Löschen | Mülleimer-Symbol entfernt die Nachricht aus der Session |
 

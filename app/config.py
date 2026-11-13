@@ -24,6 +24,14 @@ def _env_bool(name: str) -> bool:
     return os.environ.get(name, "").lower() in ("1", "true", "yes", "on")
 
 
+def _env_path(name: str) -> Path | None:
+    # .env.example schreibt "=None" fuer nicht gesetzte Pfade; "None"/leer = nicht gesetzt
+    value = os.environ.get(name, "").strip()
+    if not value or value.lower() == "none":
+        return None
+    return Path(value)
+
+
 @dataclass
 class AppConfig:
     """Alle globalen Variablen der App.
@@ -170,9 +178,9 @@ def load_config(
         voice_base=os.environ.get("LEANCHAT_VOICE_BASE", "http://127.0.0.1:8001"),
         host=os.environ.get("LEANCHAT_HOST", "127.0.0.1"),
         port=int(os.environ.get("LEANCHAT_PORT", "8000")),
-        ssl_certfile=Path(os.environ["LEANCHAT_SSL_CERTFILE"]) if os.environ.get("LEANCHAT_SSL_CERTFILE") else None,
-        ssl_keyfile=Path(os.environ["LEANCHAT_SSL_KEYFILE"]) if os.environ.get("LEANCHAT_SSL_KEYFILE") else None,
-        app_config_path=Path(os.environ["LEANCHAT_CONFIG_PATH"]) if os.environ.get("LEANCHAT_CONFIG_PATH") else None,
+        ssl_certfile=_env_path("LEANCHAT_SSL_CERTFILE"),
+        ssl_keyfile=_env_path("LEANCHAT_SSL_KEYFILE"),
+        app_config_path=_env_path("LEANCHAT_CONFIG_PATH"),
         allow_private_llm=_env_bool("LEANCHAT_ALLOW_PRIVATE_LLM"),
         max_upload_bytes=int(os.environ.get("LEANCHAT_MAX_UPLOAD_BYTES", str(DEFAULT_MAX_UPLOAD_BYTES))),
         max_user_storage_bytes=int(os.environ.get("LEANCHAT_MAX_USER_STORAGE_BYTES", str(DEFAULT_MAX_USER_STORAGE_BYTES))),

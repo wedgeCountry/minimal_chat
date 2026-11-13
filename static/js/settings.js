@@ -62,7 +62,7 @@ export function initSettings() {
         api_key: $("setKey").value.trim() || undefined,
       });
       if (res.ok) {
-        status.textContent = "Erreichbar ✓ " + (res.detail || "");
+        status.textContent = "Erreichbar ✓ ";
         status.classList.add("ok");
       } else {
         status.textContent = "Nicht erreichbar: " + (res.detail || "unbekannter Fehler");
