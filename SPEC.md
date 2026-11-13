@@ -58,7 +58,7 @@ Eigenschaften je Bubble:
 | Text | Nachrichteninhalt, bei Markdown einfache Formatierung optional |
 | Rolle | `user`, `assistant`, `system` |
 | Typ | `message`, `toolcall`, `reasoning` (Thinking), `toolresult` (Tool-Ergebnis) |
-| Sortierung | chronologisch nach Zeitstempel; bei Gleichstand (Sekundenaufloesung) nach Turn (jede User-Message eroeffnet einen neuen Turn); innerhalb eines Turns: Reasoning/Toolcall/Toolresult vor der finalen Assistant-Message, Toolcall vor Toolresult, sonst Einfuegereihenfolge (id) |
+| Sortierung | chronologisch nach Zeitstempel (ms-Aufloesung: jeder Stream-Block erhaelt beim Typwechsel im LLM-Stream seinen Abschluss-Zeitstempel als `created_at`); bei Gleichstand nach Turn (jede User-Message eroeffnet einen neuen Turn); innerhalb eines Turns: Reasoning/Toolcall/Toolresult vor der finalen Assistant-Message, Toolcall vor Toolresult, sonst Einfuegereihenfolge (id) |
 | Dreistufig ausklappbar | Toggle in der Kopfzeile wechselt zyklisch: `normal` (max. 10 **gerenderte GUI-Zeilen** via CSS line-clamp, Rest hinter `[...]`), `full` (kompletter Text), `collapsed` (genau **1 gerenderte GUI-Zeile**, auch bei langer umgebrochener Zeile); Standard: `message` = normal, alle anderen Typen (`reasoning`, `toolcall`, Tool-Ergebnisse) = collapsed |
 | Mindestzeilenanzahl | Bubbles behalten eine Mindesthöhe, damit kurze Nachrichten das Layout nicht springen lassen |
 | Kopieren | Kopier-Symbol kopiert den Inhalt in die Zwischenablage (`navigator.clipboard`, Fallback `execCommand`) |
@@ -80,7 +80,7 @@ Darstellung nach Typ:
 
 - Die Generierung läuft **serverseitig** in einer Hintergrund-Task (`POST /api/chat` → `202`, Task persistiert den LLM-SSE-Stream chunk-weise in die Session-DB); das Session-Feld `generating` signalisiert den laufenden Stand
 - Der Client hält **keinen** LLM-Stream mehr, sondern pollt `GET /api/sessions/{id}` und rendert die persistierten Nachrichten (live im Vordergrund, nach App-Wechsel/Re-Attach per `visibilitychange`/`pageshow` sofort)
-- `delta.content` landet in der Assistant-Message, `delta.reasoning_content` / `reasoning` in einer separaten Thinking-Bubble, `tool_calls` als Toolcall-Bubbles, `tool_results` als Toolresult-Bubbles — serverseitig persistiert
+- `delta.content` landet in der Assistant-Message, `delta.reasoning_content` / `reasoning` in einer separaten Thinking-Bubble, `tool_calls` als Toolcall-Bubbles, `tool_results` als Toolresult-Bubbles — serverseitig persistiert; **jeder Block-Folge im Stream (z. B. Reasoning → Toolcall → Toolresult → Message → Reasoning → …) wird eine eigene Message-Zeile** zugewiesen (keine Akkumulation ueber den Stream), mit Abschluss-Zeitstempel (ms) beim Typwechsel bzw. am Stream-Ende
 - Die Chat-History wird **serverseitig aus der Session-DB** gebaut (`build_llm_context`, trixie `LlmContext`): System-Prompt zuerst, dann Nachrichten in Reihenfolge; Toolcalls als `assistant`-Message mit `tool_calls`, Tool-Ergebnisse als gepaarte `tool`-Message (`tool_call_id`) — das Modell kann so Tool-Calls von normalem Text unterscheiden; Nachrichten mit `in_context=false` (z. B. Reasoning, Fehler) werden nicht gesendet
 - Leerer System-Prompt: keine System-Bubble im Chat und keine leere `system`-Message im LLM-Request (sonst HTTP 422 vom LLM)
 - Während der Generierung: dezente **Progress-Anzeige** (Ladebalken), angesteuert über das serverseitige `generating`-Flag

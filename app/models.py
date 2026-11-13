@@ -14,6 +14,7 @@ class MessageIn(BaseModel):
 
 class MessageOut(MessageIn):
     id: int
+    ts: int = 0  # ms seit Epoch (created_at); pro Stream-Block der Abschluss-Zeitstempel
 
 
 class MessagePatch(BaseModel):

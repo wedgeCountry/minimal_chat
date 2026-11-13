@@ -24,7 +24,8 @@ export function abortStream() {
   if (s) api.post("/chat/abort", { session_id: s.id }).catch(() => {});
 }
 
-// Bei gleichem Zeitstempel (Sekundenaufloesung) zaehlt die Turn-Reihenfolge
+// Primär chronologisch nach ts (ms; jeder Stream-Block traegt als ts seinen Abschluss-
+// Zeitstempel beim Typwechsel im LLM-Stream). Bei gleichem ts zaehlt die Turn-Reihenfolge
 // (jede User-Message eroeffnet einen neuen Turn); innerhalb eines Turns landet
 // die finale Assistant-Message hinter ihren Sondertypen, Toolcall vor Toolresult.
 const _TYPE_TIE_RANK = { reasoning: 0, toolcall: 1, toolresult: 2 };

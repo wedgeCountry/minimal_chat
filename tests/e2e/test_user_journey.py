@@ -423,7 +423,8 @@ def test_reasoning_bubbles_can_be_expanded(page, base_url, llm_expect):
 
 def test_toolcall_and_toolresult_bubbles_are_collapsed_by_default(page, base_url, llm_expect):
     """Toolcall- und Toolresult-Bubbles starten eingeklappt (collapsed), auch nach Reload;
-    Reihenfolge bei gleichem ts: Toolcall vor Toolresult vor der finalen Assistant-Message."""
+    Reihenfolge laut Stream (jeder Block mit eigenem Abschluss-Ts): Reasoning, Toolcall,
+    Toolresult vor der finalen Assistant-Message."""
     email = "tool-bubble-user@example.com"
     _register_client(base_url, email, "Geheim-123")
     _login(page, base_url, email, "Geheim-123")
@@ -431,7 +432,7 @@ def test_toolcall_and_toolresult_bubbles_are_collapsed_by_default(page, base_url
     page.click(T["new_session"])
     page.wait_for_selector(f'{T["session_tile"]}.active')
 
-    # Mock-LLM antwortet u. a. mit einem tool_call
+    # Mock-LLM antwortet in einem Stream mit reasoning, tool_call, tool_result (mehrzeilig) und content
     page.fill(T["chat_input"], "Wetter in Berlin?")
     page.click(T["send_btn"])
     page.wait_for_function(
@@ -441,19 +442,6 @@ def test_toolcall_and_toolresult_bubbles_are_collapsed_by_default(page, base_url
     page.wait_for_function(
         '() => !document.querySelector(\'[data-testid="send-btn"]\').classList.contains("abort")',
         timeout=llm_expect["timeout_ms"],
-    )
-
-    # Toolresult serverseitig einfuegen (mehrzeilig, damit die Kuerzung sichtbar ist)
-    page.evaluate(
-        """async () => {
-          const sessions = await (await fetch('/api/sessions')).json();
-          const sid = sessions[0].id;
-          await fetch(`/api/sessions/${sid}/messages`, {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({role: 'assistant', type: 'toolresult', text: 'Z1\\\\nZ2\\\\nZ3', in_context: false}),
-          });
-        }"""
     )
     page.reload()
     page.wait_for_selector(f'{T["session_tile"]}.active')
@@ -468,13 +456,93 @@ def test_toolcall_and_toolresult_bubbles_are_collapsed_by_default(page, base_url
         assert b.get_attribute("data-mode") == "collapsed", f"{type_}-Bubble data-mode sollte 'collapsed' sein"
 
     toolresult_body = page.locator(_bubble("assistant", "toolresult")).locator('[data-testid="bubble-body"]')
-    assert toolresult_body.inner_text() == "Z1 [...]", "mehrzeiliger Toolresult-Body muss auf 1 Zeile + [...] gekuerzt sein"
+    assert toolresult_body.inner_text() == "get_weather: Z1 [...]", "mehrzeiliger Toolresult-Body muss auf 1 Zeile + [...] gekuerzt sein"
 
-    # Reihenfolge: Toolcall vor Toolresult vor der finalen Assistant-Message
+    # Reihenfolge: Reasoning, Toolcall, Toolresult vor der finalen Assistant-Message
     order = page.evaluate(
         """() => [...document.querySelectorAll('[data-testid="chat"] > .bubble')].map(b => b.dataset.role + ":" + b.dataset.type)"""
     )
     assert order == ["user:message", "assistant:reasoning", "assistant:toolcall", "assistant:toolresult", "assistant:message"], order
+
+
+def test_double_reasoning_toolcall_cycle_renders_each_block_separately_in_order(page, base_url, llm_expect, server_data_dir):
+    """LLM antwortet in einem Stream mit Reasoning -> Toolcall -> Toolresult -> Message, dann
+    nochmals Reasoning -> Toolcall -> Toolresult -> Message. Erwartet: je 2 Bubbles pro Typ,
+    exakt in dieser Reihenfolge (nichts wird akkumuliert/zu einer Bubble verschmolzen, nichts
+    wird versteckt); jeder Block erhaelt beim Typwechsel im Stream seinen eigenen Ts."""
+    if llm_expect["default"] is None:
+        pytest.skip("Doppel-Zyklus braucht den Mock-LLM (Trigger 'doppelzyklus')")
+    email = "double-cycle-user@example.com"
+    api_client = _register_client(base_url, email, "Geheim-123")
+    _login(page, base_url, email, "Geheim-123")
+    sid = _new_named_session(page, api_client)
+
+    page.fill(T["chat_input"], "doppelzyklus bitte")
+    page.click(T["send_btn"])
+    page.wait_for_function(
+        "() => document.querySelectorAll('[data-testid=\"chat\"] .bubble[data-role=\"assistant\"][data-type=\"message\"]').length === 2"
+        " && !document.querySelector('[data-testid=\"send-btn\"]').classList.contains('abort')",
+        timeout=llm_expect["timeout_ms"],
+    )
+
+    # je 2 Bubbles pro Typ, alle 9 Bubbles sichtbar (nichts wird versteckt)
+    for type_ in ("reasoning", "toolcall", "toolresult", "message"):
+        assert page.locator(_bubble("assistant", type_)).count() == 2, f"zwei {type_}-Bubbles erwartet"
+    assert page.locator(f'{T["chat"]} > .bubble:visible').count() == 9
+
+    # exakte Reihenfolge im DOM: R, TC, TR, M, R, TC, TR, M nach der User-Message
+    expected_order = [
+        "user:message",
+        "assistant:reasoning", "assistant:toolcall", "assistant:toolresult", "assistant:message",
+        "assistant:reasoning", "assistant:toolcall", "assistant:toolresult", "assistant:message",
+    ]
+    order = page.evaluate(
+        """() => [...document.querySelectorAll('[data-testid="chat"] > .bubble')].map(b => b.dataset.role + ":" + b.dataset.type)"""
+    )
+    assert order == expected_order, order
+
+    # Inhalte ueber die API: 8 getrennte Assistant-Messages in Stream-Reihenfolge
+    # (die beiden Messages sind NICHT zu einer Bubble verschmolzen)
+    msgs = api_client.get(f"/api/sessions/{sid}").json()["messages"]
+    assistant = [m for m in msgs if m["role"] == "assistant"]
+    assert [m["type"] for m in assistant] == ["reasoning", "toolcall", "toolresult", "message"] * 2
+    assert [m["text"] for m in assistant] == [
+        "Denken eins... ",
+        'get_weather({"city":"Berlin"})',
+        "get_weather: 21 Grad, sonnig",
+        "Antwort eins",
+        "Denken zwei... ",
+        'get_time({"tz":"Europe/Berlin"})',
+        "get_time: 12:00 Uhr",
+        "Antwort zwei",
+    ]
+    # jeder Block traegt einen eigenen, streng steigenden Abschluss-Zeitstempel
+    ts_list = [m["ts"] for m in assistant]
+    assert all(a < b for a, b in zip(ts_list, ts_list[1:])), f"ts muss pro Block steigen: {ts_list}"
+
+    # DB: 8 eigene Assistant-Zeilen in derselben Reihenfolge mit steigendem created_at
+    con = _open_user_db(server_data_dir, email)
+    try:
+        rows = con.execute(
+            "SELECT type, created_at FROM messages WHERE session_id = ? AND role = 'assistant' ORDER BY id",
+            (sid,),
+        ).fetchall()
+    finally:
+        con.close()
+    assert [r[0] for r in rows] == ["reasoning", "toolcall", "toolresult", "message"] * 2
+    assert all(rows[i][1] < rows[i + 1][1] for i in range(len(rows) - 1)), "created_at muss pro Block steigen"
+
+    # nach Reload bleibt die Reihenfolge erhalten
+    page.reload()
+    page.wait_for_selector(f'{T["session_tile"]}.active')
+    page.wait_for_function(
+        "() => document.querySelectorAll('[data-testid=\"chat\"] .bubble[data-role=\"assistant\"][data-type=\"message\"]').length === 2",
+        timeout=llm_expect["timeout_ms"],
+    )
+    order2 = page.evaluate(
+        """() => [...document.querySelectorAll('[data-testid="chat"] > .bubble')].map(b => b.dataset.role + ":" + b.dataset.type)"""
+    )
+    assert order2 == expected_order, order2
 
 
 def test_session_db_updated_immediately_when_user_message_sent(page, base_url, llm_expect, server_data_dir):
