@@ -81,6 +81,7 @@ Darstellung nach Typ:
 - Die Generierung läuft **serverseitig** in einer Hintergrund-Task (`POST /api/chat` → `202`, Task persistiert den LLM-SSE-Stream chunk-weise in die Session-DB); das Session-Feld `generating` signalisiert den laufenden Stand
 - Der Client hält **keinen** LLM-Stream mehr, sondern pollt `GET /api/sessions/{id}` und rendert die persistierten Nachrichten (live im Vordergrund, nach App-Wechsel/Re-Attach per `visibilitychange`/`pageshow` sofort)
 - `delta.content` landet in der Assistant-Message, `delta.reasoning_content` / `reasoning` in einer separaten Thinking-Bubble, `tool_calls` als Toolcall-Bubbles, `tool_results` als Toolresult-Bubbles — serverseitig persistiert
+- Die Chat-History wird **serverseitig aus der Session-DB** gebaut (`build_llm_context`, trixie `LlmContext`): System-Prompt zuerst, dann Nachrichten in Reihenfolge; Toolcalls als `assistant`-Message mit `tool_calls`, Tool-Ergebnisse als gepaarte `tool`-Message (`tool_call_id`) — das Modell kann so Tool-Calls von normalem Text unterscheiden; Nachrichten mit `in_context=false` (z. B. Reasoning, Fehler) werden nicht gesendet
 - Während der Generierung: dezente **Progress-Anzeige** (Ladebalken), angesteuert über das serverseitige `generating`-Flag
 - Abbrechen per X-Symbol (Header/Side-Panel und Composer) via `POST /api/chat/abort`: das Abort-Event wird in der Generierungs-Task gegen den Upstream-Read geracet, die LLM-Verbindung wird sofort geschlossen (auch wenn keine Chunks mehr eintreffen); die bis dahin generierte Antwort bleibt in der Session erhalten
 

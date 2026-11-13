@@ -224,21 +224,22 @@ def test_binary_attachment_sends_note_not_raw_bytes(client, auth_headers, monkey
     raw = b"%PDF-1.4 fake binary \x00\x01\x02"
     att = _upload(client, auth_headers, sid, "doc.pdf", "application/pdf", raw)
     assert att["kind"] == "binary"
+    # Chat-History kommt aus der Session-DB: Nachricht mit Anhang zuerst speichern
+    res = client.post(
+        f"/api/sessions/{sid}/messages",
+        json={
+            "role": "user",
+            "type": "message",
+            "text": "was steht da?",
+            "in_context": True,
+            "attachments": [{"id": att["id"], "name": att["name"], "type": att["mime"]}],
+        },
+        headers=auth_headers,
+    )
+    assert res.status_code == 201
     res = client.post(
         "/api/chat",
-        json={
-            "session_id": sid,
-            "model": "m",
-            "messages": [
-                {
-                    "role": "user",
-                    "content": [
-                        {"type": "text", "text": "[Datei: doc.pdf]", "attachment_id": att["id"]},
-                        {"type": "text", "text": "was steht da?"},
-                    ],
-                }
-            ],
-        },
+        json={"session_id": sid, "model": "m"},
         headers=auth_headers,
     )
     assert res.status_code == 202
@@ -258,21 +259,22 @@ def test_image_attachment_keeps_list_content_with_image_url(client, auth_headers
     )
     att = _upload(client, auth_headers, sid, "bild.png", "image/png", png)
     assert att["kind"] == "image"
+    # Chat-History kommt aus der Session-DB: Nachricht mit Anhang zuerst speichern
+    res = client.post(
+        f"/api/sessions/{sid}/messages",
+        json={
+            "role": "user",
+            "type": "message",
+            "text": "was ist auf dem Bild?",
+            "in_context": True,
+            "attachments": [{"id": att["id"], "name": att["name"], "type": att["mime"]}],
+        },
+        headers=auth_headers,
+    )
+    assert res.status_code == 201
     res = client.post(
         "/api/chat",
-        json={
-            "session_id": sid,
-            "model": "m",
-            "messages": [
-                {
-                    "role": "user",
-                    "content": [
-                        {"type": "text", "text": "[Datei: bild.png]", "attachment_id": att["id"]},
-                        {"type": "text", "text": "was ist auf dem Bild?"},
-                    ],
-                }
-            ],
-        },
+        json={"session_id": sid, "model": "m"},
         headers=auth_headers,
     )
     assert res.status_code == 202

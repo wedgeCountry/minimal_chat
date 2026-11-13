@@ -99,7 +99,7 @@ async def run_generation(
                 dbq.q_update_message(con, ids["tool"][idx], {"text": text})
             else:
                 ids["tool"][idx] = dbq.q_add_message(
-                    con, sid, {"role": "assistant", "type": "toolcall", "text": text, "in_context": False}
+                    con, sid, {"role": "assistant", "type": "toolcall", "text": text, "in_context": True}
                 )["id"]
         for idx, r in tool_results.items():
             text = (f"{r['name']}: {r['result']}" if r["name"] else r["result"]).replace("\\n", "\n")
@@ -107,7 +107,7 @@ async def run_generation(
                 dbq.q_update_message(con, ids["toolres"][idx], {"text": text})
             else:
                 ids["toolres"][idx] = dbq.q_add_message(
-                    con, sid, {"role": "assistant", "type": "toolresult", "text": text, "in_context": False}
+                    con, sid, {"role": "assistant", "type": "toolresult", "text": text, "in_context": True}
                 )["id"]
         if final:
             if error:

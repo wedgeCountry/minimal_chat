@@ -10,7 +10,7 @@ from ..db.database import Database
 from ..deps import get_config, get_current_user, get_db
 from ..models import ChatAbortRequest, ChatRequest
 from ..services.ssrf import validate_llm_base_url
-from ..services.files import expand_attachment_parts
+from ..services.context import build_llm_context
 from ..services.generation import request_abort, run_generation
 from ..services.settings import BOOL_SETTINGS, resolve_base_url, stored_bool
 
@@ -22,14 +22,15 @@ _background_tasks: set[asyncio.Task] = set()
 
 
 def _load_chat_context(db: Database, user: dict, session_id: str):
-    """Session + Settings + Attachments laden (blockierend -> via to_thread)."""
+    """Session + Settings + Attachments + Messages laden (blockierend -> via to_thread)."""
     with db.user_db(user) as con:
         session = dbq.q_get_session(con, session_id)
         if not session:
             return None
         stored = dbq.q_get_user_settings(con)
         attachments = {a["id"]: a for a in dbq.q_get_session_attachments(con, session_id)}
-    return session, stored, attachments
+        messages = dbq.q_get_messages(con, session_id)
+    return session, stored, attachments, messages
 
 
 def _session_exists(db: Database, user: dict, session_id: str) -> bool:
@@ -57,7 +58,7 @@ async def chat(
     ctx = await asyncio.to_thread(_load_chat_context, db, user, req.session_id)
     if ctx is None:
         raise HTTPException(status_code=404, detail="Session nicht gefunden")
-    _session, stored, attachments = ctx
+    _session, stored, attachments, session_messages = ctx
     base_url = resolve_base_url(stored, config)
     try:
         # DNS-Lookup in validate_llm_base_url ist blockierend -> nicht auf dem Event-Loop
@@ -72,14 +73,13 @@ async def chat(
         raise HTTPException(status_code=409, detail="Es läuft bereits eine Generierung für diese Session")
     api_key = stored.get("api_key") or config.default_api_key
     flags = {key: stored_bool(stored, key) for key in BOOL_SETTINGS}
-    messages = expand_attachment_parts([m.model_dump() for m in req.messages], attachments)
-    system_prompt = stored.get("system_prompt") or ""
-    if system_prompt:
-        messages.insert(0, {"role": "system", "content": system_prompt})
+    # Chat-History serverseitig aus der DB bauen (gueltiges Format inkl. Tool-Calls),
+    # nicht aus dem Client-Request uebernehmen
+    llm_ctx = build_llm_context(session_messages, system_prompt=stored.get("system_prompt") or "", attachments_by_id=attachments)
     payload = {
         "model": req.model,
         "stream": True,
-        "messages": messages,
+        "messages": llm_ctx.compile(),
     }
     task = asyncio.create_task(run_generation(db, user, req.session_id, base_url, api_key, payload, flags))
     _background_tasks.add(task)
