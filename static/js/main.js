@@ -1,6 +1,6 @@
 import { api } from "./api.js";
 import { state, activeSession, normalizeMessages } from "./state.js";
-import { $, } from "./util.js";
+import { $, spliceAtCursor } from "./util.js";
 import { goToLogin } from "./auth.js";
 import { loadSessions, renderSessions, newSession } from "./sessions.js";
 import { abortStream, pollOnce, renderChat, renderHeader, send } from "./chat.js";
@@ -55,12 +55,25 @@ function renderAll() {
   applyComposerButtons();
 }
 
+function insertAtCursor(input, text) {
+  if (!text) return;
+  const r = spliceAtCursor(input.value, input.selectionStart, input.selectionEnd, text);
+  input.value = r.value;
+  input.setSelectionRange(r.cursor, r.cursor);
+  input.dispatchEvent(new Event("input"));
+}
+
 function startSystemRecognition(input) {
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   const rec = new SR();
   rec.lang = "de-DE";
   rec.interimResults = true;
-  rec.continuous = false;
+  // continuous: nicht nach ~1s Stille automatisch stoppen (Android-Verhalten)
+  rec.continuous = true;
+  // Basis-Text und Cursor beim Start merken, damit der erkannte Text an der
+  // Cursor-Position eingefuegt wird statt den vorhandenen Text zu ersetzen
+  const base = input.value;
+  const cursor = input.selectionStart ?? base.length;
   let final = "";
   rec.onresult = (e) => {
     let interim = "";
@@ -68,7 +81,9 @@ function startSystemRecognition(input) {
       if (r.isFinal) final += r[0].transcript;
       else interim += r[0].transcript;
     }
-    input.value = final + interim;
+    const r2 = spliceAtCursor(base, cursor, cursor, final + interim);
+    input.value = r2.value;
+    input.dispatchEvent(new Event("input"));
   };
   rec.onend = () => {
     sysRecRef.current = null;
@@ -120,7 +135,7 @@ async function startWavRecorder(input) {
       }
       try {
         const text = await transcribeAudio(encodeWav(samples, sampleRate));
-        if (text) input.value = input.value ? input.value.trimEnd() + " " + text : text;
+        if (text) insertAtCursor(input, text);
         input.focus();
       } catch (err) {
         await showError(err.message || "Spracheingabe fehlgeschlagen.");
