@@ -52,8 +52,11 @@ def _filter_delta(delta: dict, show_reasoning: bool, show_tool_output: bool) -> 
     if not show_reasoning:
         delta.pop("reasoning_content", None)
         delta.pop("reasoning", None)
+        delta.pop("thinking", None)
     if not show_tool_output:
         delta.pop("tool_calls", None)
+        delta.pop("tool_results", None)
+        delta.pop("tool_result", None)
 
 
 def _filter_sse_data(data: str, show_reasoning: bool, show_tool_output: bool) -> str:
