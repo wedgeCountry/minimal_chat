@@ -1,6 +1,6 @@
 import { api } from "./api.js";
 import { activeSession, normalizeMessages, state } from "./state.js";
-import { $, isNearBottom } from "./util.js";
+import { $, isNearBottom, captureScrollAnchor, restoreScrollAnchor } from "./util.js";
 import { ICONS } from "./icons.js";
 import { bubbleEl, setBubbleText, enterBubbleEdit, exitBubbleEdit, syncBubbleTts } from "./bubbles.js";
 import { loadSessions, newSession, changed } from "./sessions.js";
@@ -107,9 +107,6 @@ export function scrollChatToBottom() {
 export function renderChat(messages) {
   const chat = $("chat");
   const s = activeSession();
-  // nur ans Ende scrollen, wenn der Nutzer bereits unten ist (Refresh/Poll
-  // darf nicht hochgescrolltes Lesen unterbrechen)
-  const pinToBottom = s != null && isNearBottom(chat);
   if (!s || !messages?.length) {
     lastMessages = [];
     cancelEdit();
@@ -123,6 +120,12 @@ export function renderChat(messages) {
     return;
   }
   chat.querySelector('[data-testid="chat-empty"]')?.remove();
+  // nur ans Ende scrollen, wenn der Nutzer bereits unten ist (Refresh/Poll
+  // darf nicht hochgescrolltes Lesen unterbrechen); sonst die sichtbare
+  // Position ueber einen Anker exakt halten, auch wenn Bubbles oberhalb des
+  // Views durch den Stream wachsen oder neu hinzukommen
+  const pinToBottom = isNearBottom(chat);
+  const anchor = pinToBottom ? null : captureScrollAnchor(chat);
   const sortedMessages = sortMessagesForRender(messages);
   lastMessages = sortedMessages;
   if (editingMessageId != null && !sortedMessages.some((m) => m.id === editingMessageId)) cancelEdit();
@@ -155,6 +158,7 @@ export function renderChat(messages) {
     }
   }
   if (pinToBottom) chat.scrollTop = chat.scrollHeight;
+  else restoreScrollAnchor(chat, anchor);
 }
 
 // Edit-Modus: id der Nutzernachricht, die gerade inline in ihrer Bubble bearbeitet wird
