@@ -38,6 +38,8 @@ T = {
     "logout_btn": '[data-testid="logout-btn"]',
     "settings_overlay": '[data-testid="settings-overlay"]',
     "set_show_system": '[data-testid="set-show-system"]',
+    "set_show_tool": '[data-testid="set-show-tool"]',
+    "set_show_reasoning": '[data-testid="set-show-reasoning"]',
     "set_save": '[data-testid="set-save"]',
     "confirm_overlay": '[data-testid="confirm-overlay"]',
     "confirm_ok": '[data-testid="confirm-ok"]',
@@ -463,6 +465,85 @@ def test_toolcall_and_toolresult_bubbles_are_collapsed_by_default(page, base_url
         """() => [...document.querySelectorAll('[data-testid="chat"] > .bubble')].map(b => b.dataset.role + ":" + b.dataset.type)"""
     )
     assert order == ["user:message", "assistant:reasoning", "assistant:toolcall", "assistant:toolresult", "assistant:message"], order
+
+
+def test_show_tool_output_and_reasoning_toggles_redraw_chat(page, base_url, llm_expect):
+    """Einstellungen 'Tool-Ausgabe anzeigen'/'Reasoning anzeigen': Abwahlen + Speichern zeichnet
+    den Chat sofort neu (Tool- bzw. Reasoning-Bubbles verschwinden aus dem Canvas); serverseitig
+    persistiert und nach Reload weiterhin wirksam, erneutes Aktivieren holt die Bubbles zurueck."""
+    email = "visibility-toggle-user@example.com"
+    api_client = _register_client(base_url, email, "Geheim-123")
+    _login(page, base_url, email, "Geheim-123")
+    _open_panel(page)
+    page.click(T["new_session"])
+    page.wait_for_selector(f'{T["session_tile"]}.active')
+
+    # Mock-LLM streamt reasoning, toolcall, toolresult und message
+    page.fill(T["chat_input"], "Wetter in Berlin?")
+    page.click(T["send_btn"])
+    for type_ in ("reasoning", "toolcall", "toolresult"):
+        page.wait_for_function(
+            f'() => document.querySelectorAll(\'[data-testid="chat"] .bubble[data-type="{type_}"]\').length === 1',
+            timeout=llm_expect["timeout_ms"],
+        )
+    page.wait_for_function(
+        '() => !document.querySelector(\'[data-testid="send-btn"]\').classList.contains("abort")',
+        timeout=llm_expect["timeout_ms"],
+    )
+
+    def chat_count(type_):
+        return page.locator(f'{T["chat"]} .bubble[data-type="{type_}"]').count()
+
+    def set_bool_setting(testid, checked):
+        page.click(T["burger_btn"])
+        page.click(T["settings_btn"])
+        page.wait_for_selector(f'{T["settings_overlay"]}.open')
+        (page.check if checked else page.uncheck)(testid)
+        page.click(T["set_save"])
+        page.wait_for_selector(f'{T["settings_overlay"]}:not(.open)', state="attached")
+
+    # 'Tool-Ausgabe anzeigen' abwahlen -> Toolcall/Toolresult-Bubbles muessen sofort verschwinden
+    set_bool_setting(T["set_show_tool"], False)
+    page.wait_for_function(
+        '() => document.querySelectorAll(\'[data-testid="chat"] .bubble[data-type="toolcall"]\').length === 0'
+        ' && document.querySelectorAll(\'[data-testid="chat"] .bubble[data-type="toolresult"]\').length === 0',
+        timeout=llm_expect["timeout_ms"],
+    )
+    assert chat_count("reasoning") == 1
+    assert chat_count("message") == 2  # User- + Assistant-Message
+    assert api_client.get("/api/settings").json()["show_tool_output"] is False
+
+    # Wieder aktivieren -> Tool-Bubbles erscheinen wieder
+    set_bool_setting(T["set_show_tool"], True)
+    page.wait_for_function(
+        '() => document.querySelectorAll(\'[data-testid="chat"] .bubble[data-type="toolcall"]\').length === 1'
+        ' && document.querySelectorAll(\'[data-testid="chat"] .bubble[data-type="toolresult"]\').length === 1',
+        timeout=llm_expect["timeout_ms"],
+    )
+
+    # 'Reasoning anzeigen' abwahlen -> Reasoning-Bubble verschwindet, Tool-Bubbles bleiben
+    set_bool_setting(T["set_show_reasoning"], False)
+    page.wait_for_function(
+        '() => document.querySelectorAll(\'[data-testid="chat"] .bubble[data-type="reasoning"]\').length === 0',
+        timeout=llm_expect["timeout_ms"],
+    )
+    assert chat_count("toolcall") == 1
+    assert chat_count("toolresult") == 1
+    assert api_client.get("/api/settings").json()["show_reasoning"] is False
+
+    # Nach Reload: serverseitig gespeichert, Reasoning bleibt ausgeblendet, Tool wieder sichtbar
+    page.reload()
+    page.wait_for_selector(f'{T["session_tile"]}.active')
+    page.wait_for_function(
+        '() => document.querySelectorAll(\'[data-testid="chat"] .bubble[data-type="message"]\').length === 2',
+        timeout=llm_expect["timeout_ms"],
+    )
+    assert chat_count("reasoning") == 0
+    assert chat_count("toolcall") == 1
+    assert chat_count("toolresult") == 1
+    settings = api_client.get("/api/settings").json()
+    assert settings["show_tool_output"] is True
+    assert settings["show_reasoning"] is False
 
 
 def test_double_reasoning_toolcall_cycle_renders_each_block_separately_in_order(page, base_url, llm_expect, server_data_dir):
