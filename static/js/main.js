@@ -12,7 +12,6 @@ import { onMicClick } from "./recorder.js";
 import { initPartials } from "./html.js";
 import { initGlobalErrorHandling } from "./errors.js";
 
-let currentMessages = [];
 let autoLoginEnabled = false;
 
 function applyAutoLoginUI() {
@@ -34,17 +33,21 @@ export function isMobileInput() {
 
 async function refreshChat() {
   const s = activeSession();
-  if (s) {
+  if (!s) {
+    state.messages = [];
+    state.messagesSid = null;
+  } else if (state.messagesSid !== s.id) {
+    // Session-Detail nur bei Session-Wechsel laden; Mutationen pflegt der Client lokal (chat.js)
+    state.messagesSid = s.id;
+    state.messages = [];
     try {
       const detail = await api.get(`/sessions/${s.id}`);
-      currentMessages = normalizeMessages(detail.messages);
+      state.messages = normalizeMessages(detail.messages);
     } catch {
-      currentMessages = [];
+      state.messagesSid = null; // naechster Aufruf versucht es erneut
     }
-  } else {
-    currentMessages = [];
   }
-  renderChat(currentMessages);
+  renderChat(state.messages);
 }
 
 function applyComposerButtons() {
