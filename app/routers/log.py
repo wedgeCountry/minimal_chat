@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from ..deps import get_current_user
 from ..models import ClientLogIn
+from ..types import UserIdentity
 
 router = APIRouter(prefix="/api/log", tags=["log"])
 
@@ -19,7 +20,7 @@ _hits: dict[str, deque[float]] = defaultdict(deque)
 
 
 @router.post("")
-def post_client_log(body: ClientLogIn, user: dict = Depends(get_current_user)) -> dict:
+def post_client_log(body: ClientLogIn, user: UserIdentity = Depends(get_current_user)) -> dict[str, bool]:
     # Client-seitige Fehler landen so im Server-Konsolen-Log.
     # Nur authentifizierte Clients, mit Rate-Limit gegen Log-Spam.
     now = time.monotonic()

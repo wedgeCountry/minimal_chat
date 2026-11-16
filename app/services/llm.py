@@ -65,12 +65,12 @@ async def aiter_until_abort(chunks: AsyncIterator[bytes], abort: asyncio.Event |
     it = chunks.__aiter__()
     while not abort.is_set():
         try:
-            chunk, aborted = await race_abort(it.__anext__(), abort)
+            nxt, aborted = await race_abort(it.__anext__(), abort)
         except StopAsyncIteration:
             return
-        if aborted:
+        if aborted or nxt is None:
             return
-        yield chunk
+        yield nxt
 
 
 class LlmClient:
@@ -137,7 +137,7 @@ class LlmClient:
             # (run_generation) als System-Message persistiert.
             stream_cm = client.stream("POST", self.chat_completions_url, headers=self._headers(), json=payload)
             res, aborted = await race_abort(stream_cm.__aenter__(), abort)
-            if aborted:
+            if aborted or res is None:
                 return
             try:
                 if res.status_code >= 400:

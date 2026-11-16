@@ -8,22 +8,24 @@ anhand der User-Settings.
 from __future__ import annotations
 
 import json
-from typing import AsyncIterator
+from collections.abc import AsyncIterator
+from typing import Any
 
 
-def parse_sse_data(data: str) -> dict | None:
+def parse_sse_data(data: str) -> dict[str, Any] | None:
     """Parst einen einzelnen SSE-data-Payload; ``[DONE]`` und ungueltiges JSON -> None."""
     if data == "[DONE]":
         return None
     try:
-        return json.loads(data)
+        event: dict[str, Any] = json.loads(data)
+        return event
     except json.JSONDecodeError:
         return None
 
 
-def parse_sse_buffer(buf: str) -> tuple[list[dict], str]:
+def parse_sse_buffer(buf: str) -> tuple[list[dict[str, Any]], str]:
     """Zerlegt einen SSE-Puffer in vollstaendige Events und den unvollstaendigen Rest."""
-    events: list[dict] = []
+    events: list[dict[str, Any]] = []
     lines = buf.split("\n")
     rest = lines.pop()
     for line in lines:
@@ -42,13 +44,13 @@ class SseParser:
     def __init__(self) -> None:
         self._buf = ""
 
-    def feed(self, chunk: str) -> list[dict]:
+    def feed(self, chunk: str) -> list[dict[str, Any]]:
         self._buf += chunk
         events, self._buf = parse_sse_buffer(self._buf)
         return events
 
 
-def _filter_delta(delta: dict, show_reasoning: bool, show_tool_output: bool) -> None:
+def _filter_delta(delta: dict[str, Any], show_reasoning: bool, show_tool_output: bool) -> None:
     if not show_reasoning:
         delta.pop("reasoning_content", None)
         delta.pop("reasoning", None)

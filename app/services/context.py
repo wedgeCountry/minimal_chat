@@ -9,10 +9,12 @@ damit kann das Modell Tool-Calls von normalem Text unterscheiden.
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 from trixie_ai.context import LlmContext
 
+from ..types import AttachmentContent
 from .files import expand_attachment_parts
 
 
@@ -35,10 +37,10 @@ def _parse_toolcall(text: str) -> dict[str, str]:
 
 
 def build_llm_context(
-    messages: list[dict[str, Any]],
+    messages: Sequence[Mapping[str, Any]],
     *,
     system_prompt: str = "",
-    attachments_by_id: dict[int, dict] | None = None,
+    attachments_by_id: Mapping[int, AttachmentContent] | None = None,
 ) -> LlmContext:
     """Session-Nachrichten (DB-Format) -> LlmContext; ``compile()`` liefert die Wire-Messages."""
     ctx = LlmContext()

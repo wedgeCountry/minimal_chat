@@ -204,3 +204,31 @@ def test_public_host_blocks_private_llm_by_default_with_limit_defaults(tmp_path,
     assert cfg.max_upload_bytes == 20 * 1024 * 1024
     assert cfg.max_user_storage_bytes == 512 * 1024 * 1024
     assert cfg.max_request_bytes == 25 * 1024 * 1024
+
+
+def test_app_config_rejects_invalid_port(tmp_path):
+    import pytest
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError):
+        AppConfig(data_dir=tmp_path, secret="s", registry_path=tmp_path / "r.db", users_dir=tmp_path / "u", port=0)
+    with pytest.raises(ValidationError):
+        AppConfig(data_dir=tmp_path, secret="s", registry_path=tmp_path / "r.db", users_dir=tmp_path / "u", port=70000)
+
+
+def test_app_config_rejects_non_positive_limits(tmp_path):
+    import pytest
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError):
+        AppConfig(data_dir=tmp_path, secret="s", registry_path=tmp_path / "r.db", users_dir=tmp_path / "u", max_upload_bytes=0)
+    with pytest.raises(ValidationError):
+        AppConfig(data_dir=tmp_path, secret="s", registry_path=tmp_path / "r.db", users_dir=tmp_path / "u", max_request_bytes=-1)
+
+
+def test_app_config_from_dict_rejects_unknown_keys(tmp_path):
+    import pytest
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError):
+        AppConfig.from_dict({"data_dir": str(tmp_path), "secret": "s", "registry_path": "r.db", "users_dir": "u", "typo_key": 1})

@@ -12,6 +12,7 @@ from ..models import SettingsIn, SettingsOut, SettingsTestIn
 from ..services.llm import check_llm_connection
 from ..services.ssrf import validate_llm_base_url
 from ..services.settings import BOOL_SETTINGS, resolve_base_url, stored_bool, stored_speech_mode, to_db
+from ..types import UserIdentity
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
 
@@ -34,7 +35,7 @@ def _settings_out(stored: dict[str, str], config: AppConfig) -> SettingsOut:
 
 @router.get("", response_model=SettingsOut)
 def get_settings(
-    user: dict = Depends(get_current_user),
+    user: UserIdentity = Depends(get_current_user),
     db: Database = Depends(get_db),
     config: AppConfig = Depends(get_config),
 ) -> SettingsOut:
@@ -46,10 +47,10 @@ def get_settings(
 @router.post("/test")
 async def test_connection(
     body: SettingsTestIn,
-    user: dict = Depends(get_current_user),
+    user: UserIdentity = Depends(get_current_user),
     db: Database = Depends(get_db),
     config: AppConfig = Depends(get_config),
-) -> dict:
+) -> dict[str, object]:
     def _load_stored() -> dict[str, str]:
         with db.user_db(user) as con:
             return dbq.q_get_user_settings(con)
@@ -70,7 +71,7 @@ async def test_connection(
 @router.put("", response_model=SettingsOut)
 def put_settings(
     body: SettingsIn,
-    user: dict = Depends(get_current_user),
+    user: UserIdentity = Depends(get_current_user),
     db: Database = Depends(get_db),
     config: AppConfig = Depends(get_config),
 ) -> SettingsOut:

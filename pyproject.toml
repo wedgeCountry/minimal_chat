@@ -9,6 +9,7 @@ description = "LeanChat - schlanker Chat fuer OpenAI-kompatible Endpunkte (FastA
 requires-python = ">=3.11"
 dependencies = [
     "fastapi>=0.115",
+    "pydantic>=2.9",  # API-Models (app/models.py) + AppConfig-Validierung (app/config.py)
     "uvicorn>=0.30",
     "httpx>=0.27",
     "python-multipart>=0.0.9",  # Multipart-Uploads (POST /api/sessions/{id}/attachments)
@@ -25,6 +26,7 @@ dev = [
     "pytest>=8",
     "playwright>=1.45",
     "ruff>=0.8",
+    "mypy>=1.11",  # Typecheck: python -m mypy (Konfig unten, CI-Job typecheck)
 ]
 
 [tool.setuptools]
@@ -36,6 +38,19 @@ line-length = 140
 [tool.ruff.lint]
 # Konservatives Regel-Set, das der bestehende Codebestand einhaelt (CI-Lint-Job).
 select = ["E4", "E7", "E9", "F"]
+
+[tool.mypy]
+# app/ ist vollstaendig typisiert (CI-Job typecheck: python -m mypy).
+files = ["app", "scripts", "main.py"]
+python_version = "3.11"
+strict = true
+warn_unused_ignores = true
+pretty = true
+
+[[tool.mypy.overrides]]
+# vendored Wheels ohne py.typed-Marker
+module = ["user_registry.*", "trixie_ai.*", "voice_companion.*"]
+ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -16,6 +16,7 @@ from typing import Any
 
 from ..db import database as dbq
 from ..db.database import Database
+from ..types import MessageInput, StreamBlock, UserIdentity
 from .llm import stream_completion
 from .sse import SseParser
 
@@ -24,11 +25,11 @@ _abort_requested: set[str] = set()
 _running: set[str] = set()
 
 
-def _key(user: dict, sid: str) -> str:
+def _key(user: UserIdentity, sid: str) -> str:
     return f"{user['uid']}:{sid}"
 
 
-def request_abort(user: dict, sid: str) -> bool:
+def request_abort(user: UserIdentity, sid: str) -> bool:
     key = _key(user, sid)
     ev = _abort_events.get(key)
     if ev:
@@ -39,7 +40,7 @@ def request_abort(user: dict, sid: str) -> bool:
     return False
 
 
-def forget_abort_if_idle(user: dict, sid: str) -> None:
+def forget_abort_if_idle(user: UserIdentity, sid: str) -> None:
     """Abort-Request verwerfen, wenn keine Task laeuft (verwaistes generating-Flag nach
     Server-Neustart): eine spaeter gestartete Generierung derselben Session darf nicht
     durch den alten Request sofort abbrechen."""
@@ -48,13 +49,13 @@ def forget_abort_if_idle(user: dict, sid: str) -> None:
         _abort_requested.discard(key)
 
 
-def is_running(user: dict, sid: str) -> bool:
+def is_running(user: UserIdentity, sid: str) -> bool:
     return _key(user, sid) in _running
 
 
 async def run_generation(
     db: Database,
-    user: dict,
+    user: UserIdentity,
     sid: str,
     base_url: str,
     api_key: str,
@@ -79,8 +80,8 @@ async def run_generation(
     # wird zu einer eigenen Message-Zeile (keine Akkumulation ueber den ganzen Stream).
     # Der Abschluss-Zeitstempel (ms) wird beim Typwechsel im Stream bzw. am Stream-Ende
     # vergeben und als created_at persistiert.
-    blocks: list[dict[str, Any]] = []
-    tool_blocks: dict[tuple[str, int], dict[str, Any]] = {}
+    blocks: list[StreamBlock] = []
+    tool_blocks: dict[tuple[str, int], StreamBlock] = {}
     last_kind: tuple[str, int | None] | None = None
     last_ts = 0
     error: str | None = None
@@ -100,14 +101,14 @@ async def run_generation(
                     b["ts"] = _next_ts()
         last_kind = (kind, idx)
 
-    def _text_block(kind: str) -> dict[str, Any]:
+    def _text_block(kind: str) -> StreamBlock:
         if blocks and blocks[-1]["kind"] == kind and blocks[-1]["ts"] is None:
             return blocks[-1]
-        b: dict[str, Any] = {"kind": kind, "ts": None, "id": None, "text": ""}
+        b: StreamBlock = {"kind": kind, "ts": None, "id": None, "text": ""}
         blocks.append(b)
         return b
 
-    def _tool_block(kind: str, idx: int) -> dict[str, Any]:
+    def _tool_block(kind: str, idx: int) -> StreamBlock:
         b = tool_blocks.get((kind, idx))
         if b is None:
             b = {"kind": kind, "ts": None, "id": None, "name": "", "args": "", "result": ""}
@@ -115,7 +116,7 @@ async def run_generation(
             blocks.append(b)
         return b
 
-    def _block_text(b: dict[str, Any]) -> str:
+    def _block_text(b: StreamBlock) -> str:
         if b["kind"] == "toolcall":
             # Argumente sind JSON-String-Literale: literale "\n" als echte Umbrueche speichern
             return f"{b['name'] or 'tool'}({b['args']})".replace("\\n", "\n")
@@ -124,7 +125,7 @@ async def run_generation(
             return text.replace("\\n", "\n")
         return b["text"]
 
-    def _message_row(b: dict[str, Any]) -> dict[str, Any]:
+    def _message_row(b: StreamBlock) -> MessageInput:
         return {
             "role": "assistant",
             "type": b["kind"],

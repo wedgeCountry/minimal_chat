@@ -5,6 +5,7 @@ from fastapi.responses import JSONResponse
 
 from ..auth import clear_auth_cookie
 from ..deps import get_current_user
+from ..types import UserIdentity
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -17,11 +18,12 @@ def logout(request: Request) -> Response:
 
 
 @router.get("/me")
-def me(user: dict = Depends(get_current_user)) -> dict:
+def me(user: UserIdentity = Depends(get_current_user)) -> dict[str, str]:
     return {"email": user["email"], "username": user["username"]}
 
 
 @router.get("/config")
-def get_auth_config(request: Request) -> dict:
+def get_auth_config(request: Request) -> dict[str, bool]:
     """Get authentication configuration, including auto-login status."""
-    return {"auto_login": request.app.state.config.auto_login}
+    auto_login: bool = request.app.state.config.auto_login
+    return {"auto_login": auto_login}

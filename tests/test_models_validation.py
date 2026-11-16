@@ -57,3 +57,23 @@ def test_client_log_rejects_message_over_4000_chars(client, auth_headers):
     assert res.status_code == 422
     res = client.post("/api/log", json={"level": "fatal", "message": "x"}, headers=auth_headers)
     assert res.status_code == 422
+
+
+def test_message_attachment_requires_id(client, auth_headers):
+    sid = _new_session(client, auth_headers)
+    res = client.post(
+        f"/api/sessions/{sid}/messages",
+        json={"role": "user", "text": "x", "attachments": [{"name": "a.txt"}]},
+        headers=auth_headers,
+    )
+    assert res.status_code == 422
+
+
+def test_session_name_over_120_chars_rejected(client, auth_headers):
+    res = client.post("/api/sessions", json={"name": "x" * 121}, headers=auth_headers)
+    assert res.status_code == 422
+
+
+def test_chat_abort_session_id_over_64_chars_rejected(client, auth_headers):
+    res = client.post("/api/chat/abort", json={"session_id": "x" * 65}, headers=auth_headers)
+    assert res.status_code == 422

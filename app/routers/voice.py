@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from fastapi.responses import Response
 
@@ -7,6 +9,7 @@ from ..config import AppConfig
 from ..deps import get_config, get_current_user
 from ..models import VoiceTTSRequest
 from ..services.files import UploadTooLarge, read_upload_capped
+from ..types import UserIdentity
 from ..services.voice import (
     VoiceServiceUnavailable,
     VoiceUpstreamError,
@@ -22,9 +25,9 @@ UNAVAILABLE_DETAIL = "Sprachdienst nicht verfügbar"
 
 @router.get("/status")
 async def voice_status(
-    user: dict = Depends(get_current_user),
+    user: UserIdentity = Depends(get_current_user),
     config: AppConfig = Depends(get_config),
-) -> dict:
+) -> dict[str, bool]:
     """Funktionspruefung des Voice-Companion (STT + TTS ueber /health)."""
     available = await check_voice_service(config.voice_base)
     return {"available": available, "stt": available, "tts": available}
@@ -34,9 +37,9 @@ async def voice_status(
 async def voice_stt(
     file: UploadFile = File(...),
     language: str | None = None,
-    user: dict = Depends(get_current_user),
+    user: UserIdentity = Depends(get_current_user),
     config: AppConfig = Depends(get_config),
-) -> dict:
+) -> dict[str, Any]:
     try:
         data = await read_upload_capped(file, config.max_upload_bytes)
     except UploadTooLarge as exc:
@@ -58,7 +61,7 @@ async def voice_stt(
 @router.post("/tts")
 async def voice_tts(
     req: VoiceTTSRequest,
-    user: dict = Depends(get_current_user),
+    user: UserIdentity = Depends(get_current_user),
     config: AppConfig = Depends(get_config),
 ) -> Response:
     try:

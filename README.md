@@ -10,7 +10,8 @@ Born as a minimalist alternative to OpenWebUI: only the features you actually ne
 app/                  FastAPI backend (uvicorn)
   main.py             App-Factory, Router, StaticFiles + Middleware
                       (Request-Size-Limit fuer /api/*, Security-Header/CSP, HSTS bei TLS)
-  config.py           Konfiguration (Env: LEANCHAT_DATA_DIR, LEANCHAT_SECRET, LEANCHAT_API_KEY, LEANCHAT_LLM_HOST, LEANCHAT_LLM_PORT, LEANCHAT_AUTO_LOGIN)
+  config.py           Konfiguration (Pydantic-Model mit Validierung; Env: LEANCHAT_DATA_DIR, LEANCHAT_SECRET, LEANCHAT_API_KEY, LEANCHAT_LLM_HOST, LEANCHAT_LLM_PORT, LEANCHAT_AUTO_LOGIN)
+  types.py            TypedDicts fuer interne dict-Daten (DB-Zeilen, User-Identitaet, Stream-Bloecke)
   auth.py             user_registry-Integration: Registry-DB, mount_auth (/auth-Seiten), Session-Cookies
   models.py           Pydantic-Schemas
   deps.py             FastAPI-Dependencies (Auth via signiertem Session-Cookie)
@@ -89,6 +90,7 @@ Dann `http://127.0.0.1:8000` im Browser öffnen, `.env` anpassen (z. B. `LEANCHA
 python -m pytest                  # Python-Unit-Tests (API, DB, Krypto, Chat-Proxy, Security)
 npm test                          # JS-Unit-Tests (node:test)
 python -m ruff check app tests    # Lint (CI-Job `lint`)
+python -m mypy                    # Typecheck, strict (CI-Job `typecheck`)
 python -m pytest -m e2e tests/e2e # GUI-Tests mit Playwright (braucht `playwright install chromium`)
 ```
 
