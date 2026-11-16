@@ -1,8 +1,12 @@
 """Serverseitige Generierung: der LLM-Stream laeuft in einer Hintergrund-Task
-und wird direkt in die per-user SQLite persistiert.
+und wird in die per-user SQLite persistiert.
 
- Dadurch ueberlebt eine Generierung, dass der Client (z.B. App im
-Hintergrund) die Verbindung verliert; der Client pollt einfach den Session-Stand.
+Persistenz-Regel (Performance): Die per-user DB wird NICHT pro Chunk entschluesselt.
+Bloecke akkumulieren im Speicher; ein Block wird erst persistiert, wenn er im Stream
+abgeschlossen ist (Typwechsel bzw. Stream-Ende) - eine Zeile pro Block, sofort beim
+Abschluss. Der offene Block wird bei Abort/Fehler verworfen (nie geschrieben).
+Dadurch ueberlebt eine Generierung, dass der Client die Verbindung verliert; der
+Client pollt einfach den Session-Stand.
 """
 
 from __future__ import annotations
@@ -14,8 +18,6 @@ from ..db import database as dbq
 from ..db.database import Database
 from .llm import stream_completion
 from .sse import SseParser
-
-FLUSH_INTERVAL_S = 0.25
 
 _abort_events: dict[str, asyncio.Event] = {}
 _abort_requested: set[str] = set()
@@ -59,9 +61,12 @@ async def run_generation(
     payload: dict[str, Any],
     settings: dict[str, bool] | None = None,
 ) -> None:
-    """Streamt eine Chat-Completion und persistiert jeden Stand in die User-DB.
+    """Streamt eine Chat-Completion und persistiert abgeschlossene Bloecke in die User-DB.
 
-    Laeuft als asyncio-Task unabhaengig von der HTTP-Verbindung des Clients.
+    Laeuft als asyncio-Task unabhaengig von der HTTP-Verbindung des Clients. Nur
+    abgeschlossene Bloecke werden geschrieben (ein DB-Oeffnen pro Block-Abschluss plus
+    eins am Ende); der offene Block bleibt im Speicher und wird bei Abort/Fehler
+    verworfen.
     """
     key = _key(user, sid)
     ev = asyncio.Event()
@@ -119,127 +124,108 @@ async def run_generation(
             return text.replace("\\n", "\n")
         return b["text"]
 
-    async def flush(final: bool = False) -> None:
-        # DB-Zugriff (Dekodieren/Verschluesseln der per-user DB) ist blockierend
-        # und darf nicht direkt auf dem Event-Loop laufen.
-        def _flush() -> None:
+    def _message_row(b: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "role": "assistant",
+            "type": b["kind"],
+            "text": _block_text(b),
+            "in_context": b["kind"] != "reasoning",
+            "created_at": b["ts"] if b["ts"] is not None else _next_ts(),
+        }
+
+    async def _persist_closed_blocks() -> None:
+        """Persistiert abgeschlossene Bloecke sofort (beim Typwechsel im Stream).
+        Der offene Block wird nie geschrieben. Pro Batch genau ein DB-Oeffnen
+        (blockierend -> to_thread)."""
+        closed = [b for b in blocks if b["ts"] is not None and b["id"] is None and _block_text(b)]
+        if not closed:
+            return
+
+        def _do() -> None:
             with db.user_db(user) as con:
-                _flush_into(con, final)
-        await asyncio.to_thread(_flush)
+                for b in closed:
+                    b["id"] = dbq.q_add_message(con, sid, _message_row(b))["id"]
 
-    def _flush_into(con, final: bool) -> None:
-        if final:
-            # Stream-Ende: der letzte offene Block bekommt jetzt seinen Abschluss-Ts
-            for b in blocks:
-                if b["ts"] is None:
-                    b["ts"] = _next_ts()
-        for b in blocks:
-            text = _block_text(b)
-            if b["id"] is None:
-                if not text:
-                    continue
-                ts = b["ts"] if b["ts"] is not None else _next_ts()
-                b["id"] = dbq.q_add_message(
-                    con,
-                    sid,
-                    {
-                        "role": "assistant",
-                        "type": b["kind"],
-                        "text": text,
-                        "in_context": b["kind"] != "reasoning",
-                        "created_at": ts,
-                    },
-                )["id"]
-                b["ts_written"] = b["ts"] is not None
-            else:
-                patch: dict[str, Any] = {"text": text}
-                if b["ts"] is not None and not b.get("ts_written"):
-                    patch["created_at"] = b["ts"]
-                    b["ts_written"] = True
-                dbq.q_update_message(con, b["id"], patch)
-        if final:
-            if error:
-                dbq.q_add_message(
-                    con, sid, {"role": "system", "type": "message", "text": "Fehler: " + error, "in_context": False}
-                )
-            dbq.q_set_generating(con, sid, False)
+        await asyncio.to_thread(_do)
 
-    def _mark_generating() -> bool:
+    async def _final_flush() -> None:
+        """Ein einziges DB-Oeffnen am Stream-Ende: bei normalem Ende wird der letzte
+        offene Block abgeschlossen und persistiert; bei Abort/Fehler wird er verworfen.
+        Ausserdem Fehler-System-Message (falls error) und generating=0."""
+        discard_open = ev.is_set() or error is not None
+
+        def _do() -> None:
+            with db.user_db(user) as con:
+                if not discard_open:
+                    for b in blocks:
+                        if b["ts"] is None:
+                            b["ts"] = _next_ts()
+                    for b in blocks:
+                        if b["id"] is None and _block_text(b):
+                            b["id"] = dbq.q_add_message(con, sid, _message_row(b))["id"]
+                if error:
+                    dbq.q_add_message(
+                        con, sid, {"role": "system", "type": "message", "text": "Fehler: " + error, "in_context": False}
+                    )
+                dbq.q_set_generating(con, sid, False)
+
+        await asyncio.to_thread(_do)
+
+    def _session_exists() -> bool:
+        # nur Lesezugriff (kein Schreibzugriff -> Datei wird nicht neu verschluesselt);
+        # das generating-Flag setzt bereits der Router atomar (q_try_start_generating)
         with db.user_db(user) as con:
-            if not dbq.q_get_session(con, sid):
-                return False
-            dbq.q_set_generating(con, sid, True)
-            return True
+            return dbq.q_get_session(con, sid) is not None
 
     try:
-        if not await asyncio.to_thread(_mark_generating):
+        if not await asyncio.to_thread(_session_exists):
             return
-        # Periodisches Flushen: Teilausgabe landet auch ohne neuen Chunk
-        # nach spaetestens FLUSH_INTERVAL_S in der DB (nicht nur bei Chunk-Eingang).
-        stop_flush = asyncio.Event()
-
-        async def _periodic_flush() -> None:
-            while True:
-                try:
-                    await asyncio.wait_for(stop_flush.wait(), FLUSH_INTERVAL_S)
-                    return
-                except asyncio.TimeoutError:
-                    await flush()
-
-        flusher = asyncio.create_task(_periodic_flush())
-        try:
-            async for chunk in stream_completion(base_url, api_key, payload, settings=settings, abort=ev):
-                if ev.is_set():
+        async for chunk in stream_completion(base_url, api_key, payload, settings=settings, abort=ev):
+            if ev.is_set():
+                break
+            for j in parser.feed(chunk):
+                if j.get("error"):
+                    error = str(j["error"])
                     break
-                for j in parser.feed(chunk):
-                    if j.get("error"):
-                        error = str(j["error"])
-                        break
-                    choices = j.get("choices") or [{}]
-                    delta = choices[0].get("delta") or {}
-                    reasoning = delta.get("reasoning_content")
-                    if reasoning is None:
-                        reasoning = delta.get("reasoning")
-                    if reasoning:
-                        _touch("reasoning")
-                        _text_block("reasoning")["text"] += reasoning
-                    if delta.get("content"):
-                        _touch("message")
-                        _text_block("message")["text"] += delta["content"]
-                    for tc in delta.get("tool_calls") or []:
-                        idx = tc.get("index")
-                        if idx is None:
-                            idx = sum(1 for b in blocks if b["kind"] == "toolcall")
-                        _touch("toolcall", idx)
-                        b = _tool_block("toolcall", idx)
-                        fn = tc.get("function") or {}
-                        b["name"] += fn.get("name") or ""
-                        b["args"] += fn.get("arguments") or ""
-                    for tr in delta.get("tool_results") or []:
-                        idx = tr.get("index")
-                        if idx is None:
-                            idx = sum(1 for b in blocks if b["kind"] == "toolresult")
-                        _touch("toolresult", idx)
-                        b = _tool_block("toolresult", idx)
-                        fn = tr.get("function") or {}
-                        b["name"] += tr.get("name") or fn.get("name") or ""
-                        b["result"] += (
-                            tr.get("result") or tr.get("content") or tr.get("output") or tr.get("text")
-                            or fn.get("result") or fn.get("arguments") or ""
-                        )
-        finally:
-            stop_flush.set()
-            flusher.cancel()
-            try:
-                await flusher
-            except asyncio.CancelledError:
-                pass
+                choices = j.get("choices") or [{}]
+                delta = choices[0].get("delta") or {}
+                reasoning = delta.get("reasoning_content")
+                if reasoning is None:
+                    reasoning = delta.get("reasoning")
+                if reasoning:
+                    _touch("reasoning")
+                    _text_block("reasoning")["text"] += reasoning
+                if delta.get("content"):
+                    _touch("message")
+                    _text_block("message")["text"] += delta["content"]
+                for tc in delta.get("tool_calls") or []:
+                    idx = tc.get("index")
+                    if idx is None:
+                        idx = sum(1 for b in blocks if b["kind"] == "toolcall")
+                    _touch("toolcall", idx)
+                    b = _tool_block("toolcall", idx)
+                    fn = tc.get("function") or {}
+                    b["name"] += fn.get("name") or ""
+                    b["args"] += fn.get("arguments") or ""
+                for tr in delta.get("tool_results") or []:
+                    idx = tr.get("index")
+                    if idx is None:
+                        idx = sum(1 for b in blocks if b["kind"] == "toolresult")
+                    _touch("toolresult", idx)
+                    b = _tool_block("toolresult", idx)
+                    fn = tr.get("function") or {}
+                    b["name"] += tr.get("name") or fn.get("name") or ""
+                    b["result"] += (
+                        tr.get("result") or tr.get("content") or tr.get("output") or tr.get("text")
+                        or fn.get("result") or fn.get("arguments") or ""
+                    )
+            await _persist_closed_blocks()
     except asyncio.CancelledError:
         raise
     except Exception as exc:  # noqa: BLE001 - Fehler wird als System-Message persistiert
         error = error or str(exc)
     finally:
-        await flush(final=True)
+        await _final_flush()
         _abort_events.pop(key, None)
         _abort_requested.discard(key)
         _running.discard(key)

@@ -1,7 +1,8 @@
 """Unit- und Regression-Tests fuer app/services/generation.py.
 
-Regression-Verhalten (README/SPEC): Beim Abbruch einer laufenden Generierung
-bleibt die bis dahin gestreamte Teilausgabe in der Session erhalten.
+Regression-Verhalten (README/SPEC): Beim Abbruch einer laufenden Generierung bleibt
+nur der bereits abgeschlossene Block persistiert; der offene (in-flight) Block wird
+verworfen. Die DB wird nicht pro Chunk geoeffnet.
 """
 
 from __future__ import annotations
@@ -162,14 +163,16 @@ def test_run_generation_keeps_repeated_block_cycles_separate_with_switch_timesta
     assert all(a < b for a, b in zip(ts, ts[1:])), f"jeder Block braucht eigenen, steigenden Ts: {ts}"
 
 
-def test_abort_keeps_partial_output_and_clears_generating(db, user, sid, monkeypatch):
-    """Regression: Abbruch mitten im Stream - Teilausgabe bleibt erhalten."""
+def test_abort_discards_inflight_block_and_clears_generating(db, user, sid, monkeypatch):
+    """Abbruch mitten im Stream: bereits abgeschlossene Bloecke bleiben persistiert,
+    der offene (in-flight) Block wird verworfen; kein Fehler-System-Message; generating=0."""
 
     async def fake_stream(*args, **kwargs):
-        yield 'data: {"choices":[{"delta":{"content":"Teil 1 "}}]}\n\n'
+        yield _sse({"reasoning_content": "denke "})  # Block 1
+        yield _sse({"content": "Teil 1 "})  # schliesst Block 1, oeffnet Block 2 (message)
         # Abbruch wird von aussen angefordert, waehrend der Stream noch laeuft
         request_abort(user, sid)
-        yield 'data: {"choices":[{"delta":{"content":"VERWORFEN"}}]}\n\n'
+        yield _sse({"content": "VERWORFEN"})  # wird verworfen
         yield "data: [DONE]\n\n"
 
     monkeypatch.setattr("app.services.generation.stream_completion", fake_stream)
@@ -180,7 +183,8 @@ def test_abort_keeps_partial_output_and_clears_generating(db, user, sid, monkeyp
         messages = dbq.q_get_messages(con, sid)
     assert session["generating"] is False
     assistant = [m for m in messages if m["role"] == "assistant"]
-    assert [m["text"] for m in assistant] == ["Teil 1 "]
+    # nur der abgeschlossene reasoning-Block ist persistiert; der offene Message-Block nicht
+    assert [(m["type"], m["text"]) for m in assistant] == [("reasoning", "denke ")]
     # Abbruch ist kein Fehler: keine System-Fehlermeldung
     assert not [m for m in messages if m["role"] == "system"]
     assert is_running(user, sid) is False
@@ -204,10 +208,29 @@ def test_run_generation_persists_error_event_as_system_message(db, user, sid, mo
     assert "LLM-Server nicht erreichbar" in system[0]["text"]
 
 
-def test_partial_output_flushed_within_interval_without_new_chunk(db, user, sid, monkeypatch):
-    """Regression: Teilausgabe muss nach spaetestens ~FLUSH_INTERVAL_S in der DB
-    landen, auch wenn der LLM-Stream keinen weiteren Chunk schickt."""
-    import time
+def test_inflight_block_not_persisted_until_block_completes(db, user, sid, monkeypatch):
+    """Performance-Regression: die per-user DB wird nicht pro Chunk geoeffnet/geschrieben.
+    Der offene Block landet erst als eine Zeile mit komplettem Text, wenn der Block
+    abgeschlossen ist (hier: Stream-Ende)."""
+    from app.db.database import Database
+
+    opens = []
+    orig_user_db = Database.user_db
+
+    def spy_user_db(self, u):
+        opens.append(1)
+        return orig_user_db(self, u)
+
+    monkeypatch.setattr(Database, "user_db", spy_user_db)
+
+    writes = []
+    orig_add = dbq.q_add_message
+
+    def spy_add(con, s, data):
+        writes.append(data.get("text"))
+        return orig_add(con, s, data)
+
+    monkeypatch.setattr(dbq, "q_add_message", spy_add)
 
     release = asyncio.Event()
 
@@ -221,22 +244,20 @@ def test_partial_output_flushed_within_interval_without_new_chunk(db, user, sid,
 
     async def main():
         task = asyncio.create_task(run_generation(db, user, sid, "http://llm.test/v1", "k", {"messages": []}))
-        deadline = time.monotonic() + 2.0  # deutlich unter der release-Wartezeit
-        seen = []
-        while time.monotonic() < deadline:
-            with db.user_db(user) as con:
-                seen = [m["text"] for m in dbq.q_get_messages(con, sid) if m["role"] == "assistant"]
-            if seen:
-                break
-            await asyncio.sleep(0.05)
-        assert seen == ["Teil A "], f"Teilausgabe wurde nicht ohne neuen Chunk geflusht: {seen}"
+        await asyncio.sleep(0.5)  # laenger als das alte FLUSH_INTERVAL_S (0.25 s)
+        with orig_user_db(db, user) as con:  # am Spy vorbei, damit nur Task-Oeffnen zaehlen
+            assert dbq.q_get_messages(con, sid) == [], "offener Block darf nicht in die DB"
+        assert writes == [], f"offener Block darf nicht pro Chunk persistiert werden: {writes}"
         release.set()
         await asyncio.wait_for(task, timeout=5)
-        with db.user_db(user) as con:
+        with orig_user_db(db, user) as con:
             texts = [m["text"] for m in dbq.q_get_messages(con, sid) if m["role"] == "assistant"]
-        assert texts == ["Teil A Teil B"]
+        assert texts == ["Teil A Teil B"]  # eine Zeile, kompletter Text
+        assert writes == ["Teil A Teil B"]
 
     asyncio.run(main())
+    # DB-Oeffnen: 1x Session-Exists-Check + 1x finaler Flush (keine Zwischen-Flushes)
+    assert len(opens) == 2, opens
 
 
 def test_run_generation_unknown_session_is_noop(db, user, monkeypatch):

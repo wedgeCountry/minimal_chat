@@ -121,11 +121,13 @@ def test_settings_and_sessions_survive_app_restart(config):
     assert [m["text"] for m in detail["messages"]] == ["Hallo Restart"]
 
 
-def test_abort_via_api_preserves_partial_output_end_to_end(client, auth_headers, monkeypatch):
-    """End-to-end: POST /api/chat/abort haelt die Teilausgabe in der Session."""
+def test_abort_via_api_discards_inflight_block_end_to_end(client, auth_headers, monkeypatch):
+    """End-to-end: POST /api/chat/abort mitten im Stream - der abgeschlossene Block bleibt
+    persistiert, der offene (in-flight) Block wird verworfen (nicht in der Session)."""
 
     async def fake_stream(*args, **kwargs):
-        yield 'data: {"choices":[{"delta":{"content":"Teil "}}]}\n\n'
+        yield 'data: {"choices":[{"delta":{"reasoning_content":"denke"}}]}\n\n'
+        yield 'data: {"choices":[{"delta":{"content":"Teil "}}]}\n\n'  # schliesst reasoning-Block
         for _ in range(500):
             if any(ev.is_set() for ev in generation._abort_events.values()):
                 break
@@ -140,14 +142,16 @@ def test_abort_via_api_preserves_partial_output_end_to_end(client, auth_headers,
 
     deadline = time.time() + 5
     while time.time() < deadline:
-        if client.get(f"/api/sessions/{sid}", headers=auth_headers).json()["generating"]:
+        detail = client.get(f"/api/sessions/{sid}", headers=auth_headers).json()
+        if detail["generating"] and any(m["type"] == "reasoning" for m in detail["messages"]):
             break
         time.sleep(0.05)
+    assert any(m["text"] == "denke" for m in detail["messages"])
 
     res = client.post("/api/chat/abort", json={"session_id": sid}, headers=auth_headers)
     assert res.status_code == 200
 
     detail = _wait_generating(client, auth_headers, sid)
     texts = [m["text"] for m in detail["messages"] if m["role"] == "assistant"]
-    assert texts == ["Teil "]
+    assert texts == ["denke"]  # nur der abgeschlossene Block; "Teil "/"VERWORFEN" verworfen
     assert not any(m["role"] == "system" for m in detail["messages"])
