@@ -9,7 +9,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 ENV_FILE = REPO_ROOT / ".env"
-ENV_EXAMPLE = REPO_ROOT / ".env.example"
+ENV_EXAMPLE = REPO_ROOT / "env-example"
 
 PATH_FIELDS = ("data_dir", "registry_path", "users_dir", "app_config_path")
 
@@ -25,7 +25,7 @@ def _env_bool(name: str) -> bool:
 
 
 def _env_path(name: str) -> Path | None:
-    # .env.example schreibt "=None" fuer nicht gesetzte Pfade; "None"/leer = nicht gesetzt
+    # env-example schreibt "=None" fuer nicht gesetzte Pfade; "None"/leer = nicht gesetzt
     value = os.environ.get(name, "").strip()
     if not value or value.lower() == "none":
         return None
@@ -138,7 +138,7 @@ def load_env_file(path: Path) -> dict[str, str]:
 
 
 def ensure_env_file(env_file: Path = ENV_FILE, example: Path = ENV_EXAMPLE) -> Path:
-    """Erzeugt die .env beim ersten Programmstart aus der .env-Example."""
+    """Erzeugt die .env beim ersten Programmstart aus der env-example."""
     if not env_file.exists() and example.exists():
         shutil.copyfile(example, env_file)
     return env_file
