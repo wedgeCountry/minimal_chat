@@ -6,6 +6,26 @@ export function isNearBottom(el, threshold = 80) {
   return el.scrollHeight - el.scrollTop - el.clientHeight <= threshold;
 }
 
+// Scroll-Anker fuer Re-Render: erstes Kind, das den oberen Rand des Containers
+// schneidet, samt Abstand zu diesem Rand. Nach dem Re-Render laesst sich die
+// sichtbare Position exakt halten, auch wenn sich Hoehen oberhalb des Views
+// geaendert haben (z. B. waechst die streamende Bubble oberhalb des Ankers).
+export function captureScrollAnchor(el) {
+  const top = el.getBoundingClientRect().top;
+  for (const child of el.children) {
+    const r = child.getBoundingClientRect();
+    if (r.bottom > top) return { el: child, offset: r.top - top };
+  }
+  return null;
+}
+
+export function restoreScrollAnchor(el, anchor) {
+  if (!anchor || !anchor.el.isConnected) return;
+  const top = el.getBoundingClientRect().top;
+  const r = anchor.el.getBoundingClientRect();
+  el.scrollTop += r.top - top - anchor.offset;
+}
+
 export const esc = (s) =>
   String(s ?? "").replace(/[&<>"]/g, (c) => ({
     "&": "&amp;",

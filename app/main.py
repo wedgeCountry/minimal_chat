@@ -75,6 +75,12 @@ def create_app(
         response.headers.setdefault("X-Frame-Options", "DENY")
         # ueberschreibt die CSP der user_registry (frame-ancestors 'none') bewusst
         response.headers["Content-Security-Policy"] = CSP_AUTH if request.url.path.startswith("/auth") else CSP_APP
+        if not request.url.path.startswith("/api/"):
+            # Statische ES-Module und Auth-Seiten (CSRF-Token inline) duerfen nie aus
+            # dem Heuristik-Cache bedient werden: nach einem Deploy muss der Browser
+            # revalidieren, sonst mischt er alte/neue Module und das Linken des
+            # Modul-Graphen schlaegt fehl (App startet nicht mehr).
+            response.headers.setdefault("Cache-Control", "no-cache")
         if cfg.ssl_certfile:
             response.headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
         return response

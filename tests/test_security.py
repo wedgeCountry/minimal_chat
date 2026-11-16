@@ -136,6 +136,19 @@ def test_auth_pages_get_relaxed_csp_for_inline_csrf_script(client):
     assert "script-src 'self' 'unsafe-inline'" in csp
 
 
+def test_static_modules_and_auth_pages_send_cache_control_no_cache(app):
+    # Regression: ohne Cache-Control bedienen Browser statische ES-Module aus dem
+    # Heuristik-Cache; nach einem Deploy mischt das alte/neue Module und das
+    # Linken des Modul-Graphen schlaegt fehl (App startet nicht mehr).
+    with login_client(app) as client:
+        for path in ("/", "/js/util.js", "/js/chat.js", "/css/base.css", "/partials/chat-window.html"):
+            res = client.get(path)
+            assert res.status_code == 200, path
+            assert res.headers["Cache-Control"] == "no-cache", path
+        res = client.get("/auth/login")
+        assert res.headers["Cache-Control"] == "no-cache"
+
+
 def test_hsts_and_secure_session_cookie_with_tls(tmp_path):
     data = tmp_path / "data"
     cfg = AppConfig(

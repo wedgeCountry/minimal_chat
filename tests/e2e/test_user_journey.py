@@ -666,18 +666,20 @@ def test_session_db_updated_immediately_when_user_message_sent(page, base_url, l
     assert session2[2] >= session1[2]
 
 
-def test_bubble_width_resizable_and_persisted(page, base_url, llm_expect):
-    """Bubbles haben einen Drag-Griff zum Aendern der Breite; die Breite wird
-    pro Message persistiert. Ausserdem: Kontext-Checkbox auch in Assistant-Bubbles."""
-    email = "resize-user@example.com"
+def test_bubble_collapse_button_only_in_full_mode(page, base_url, llm_expect):
+    """Kein Resize-Griff mehr; im Modus 'full' sitzt unten rechts in der Bubble ein
+    Einklapp-Button, der auf 'collapsed' wechselt. Ausserdem: Kontext-Checkbox auch
+    in Assistant-Bubbles."""
+    if llm_expect["default"] is None:
+        pytest.skip("braucht den Mock-LLM (lange 'lang'-Antwort)")
+    email = "collapse-user@example.com"
     _register_client(base_url, email, "Geheim-123")
     _login(page, base_url, email, "Geheim-123")
     _open_panel(page)
     page.click(T["new_session"])
     page.wait_for_selector(f'{T["session_tile"]}.active')
 
-    long_text = "Hallo, das ist eine deutlich laengere Nachricht, damit die Bubble breit genug zum Ziehen ist"
-    page.fill(T["chat_input"], long_text)
+    page.fill(T["chat_input"], "lang")
     page.click(T["send_btn"])
     page.wait_for_function(
         "() => document.querySelectorAll('[data-testid=\"chat\"] .bubble[data-role=\"assistant\"][data-type=\"message\"]').length === 1"
@@ -690,25 +692,29 @@ def test_bubble_width_resizable_and_persisted(page, base_url, llm_expect):
     ai_bubble = page.locator(_bubble("assistant", "message")).first
     assert ai_bubble.locator('[data-testid="bubble-context-chk"]').is_visible()
 
-    # Breite per Drag am Griff aendern (User-Bubble ist rechtsbuendig -> nach links ziehen)
-    user_bubble = page.locator(_bubble("user")).first
-    w0 = user_bubble.bounding_box()["width"]
-    handle = user_bubble.locator('[data-testid="bubble-resize-handle"]')
-    hb = handle.bounding_box()
-    page.mouse.move(hb["x"] + hb["width"] / 2, hb["y"] + hb["height"] / 2)
-    page.mouse.down()
-    page.mouse.move(hb["x"] + hb["width"] / 2 - 200, hb["y"] + hb["height"] / 2, steps=10)
-    page.mouse.up()
-    page.wait_for_timeout(300)
-    w1 = user_bubble.bounding_box()["width"]
-    assert w1 < w0, f"Bubble sollte nach dem Drag schmaler sein ({w0} -> {w1})"
+    # Resize-Griff ist komplett entfernt
+    assert page.locator('[data-testid="bubble-resize-handle"]').count() == 0
 
-    # Breite bleibt nach Reload erhalten (sessionStorage pro Message-id)
-    page.reload()
-    page.wait_for_selector(_bubble("user"), timeout=llm_expect["timeout_ms"])
-    page.wait_for_timeout(500)
-    w2 = page.locator(_bubble("user")).first.bounding_box()["width"]
-    assert abs(w2 - w1) < 5, f"Breite nach Reload soll erhalten bleiben ({w1} vs {w2})"
+    bubble = ai_bubble
+    collapse_btn = bubble.locator('[data-testid="bubble-collapse-btn"]')
+    toggle = bubble.locator('[data-testid="bubble-toggle-btn"]')
+
+    # normal: Einklapp-Button nicht sichtbar
+    assert bubble.get_attribute("data-mode") == "normal"
+    assert not collapse_btn.is_visible()
+
+    toggle.click()  # -> full
+    page.wait_for_function(
+        f"() => document.querySelector('{_bubble('assistant', 'message')}').getAttribute('data-mode') === 'full'"
+    )
+    assert collapse_btn.is_visible()
+
+    # Einklapp-Button unten rechts klappt direkt auf collapsed zurueck
+    collapse_btn.click()
+    page.wait_for_function(
+        f"() => document.querySelector('{_bubble('assistant', 'message')}').getAttribute('data-mode') === 'collapsed'"
+    )
+    assert not collapse_btn.is_visible()
 
 
 def test_startup_side_panel_collapsed_and_new_session_on_first_start(page, base_url, llm_expect):
