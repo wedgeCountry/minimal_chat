@@ -175,6 +175,15 @@ def test_load_config_env_path_none_means_unset(tmp_path, monkeypatch):
     assert cfg.ssl_certfile == tmp_path / "cert.pem"
 
 
+def test_load_config_reads_auto_login_from_env(tmp_path, monkeypatch):
+    monkeypatch.setenv("LEANCHAT_AUTO_LOGIN", "1")
+    cfg = load_config(data_dir=tmp_path / "data", secret="s")
+    assert cfg.auto_login is True
+    assert cfg.to_dict()["auto_login"] is True
+    monkeypatch.setenv("LEANCHAT_AUTO_LOGIN", "0")
+    assert load_config(data_dir=tmp_path / "data", secret="s").auto_login is False
+
+
 def test_loopback_host_auto_enables_private_llm(tmp_path, monkeypatch):
     monkeypatch.setenv("LEANCHAT_DATA_DIR", str(tmp_path / "data"))
     monkeypatch.setenv("LEANCHAT_SECRET", "s")

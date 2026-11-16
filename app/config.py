@@ -57,6 +57,7 @@ class AppConfig:
     ssl_keyfile: Path | None = None
     app_config_path: Path | None = None
     allow_private_llm: bool = False
+    auto_login: bool = False
     max_upload_bytes: int = DEFAULT_MAX_UPLOAD_BYTES
     max_user_storage_bytes: int = DEFAULT_MAX_USER_STORAGE_BYTES
     max_request_bytes: int = DEFAULT_MAX_REQUEST_BYTES
@@ -84,6 +85,7 @@ class AppConfig:
             "ssl_keyfile": str(self.ssl_keyfile) if self.ssl_keyfile else None,
             "app_config_path": str(self.app_config_path) if self.app_config_path else None,
             "allow_private_llm": self.allow_private_llm,
+            "auto_login": self.auto_login,
             "max_upload_bytes": self.max_upload_bytes,
             "max_user_storage_bytes": self.max_user_storage_bytes,
             "max_request_bytes": self.max_request_bytes,
@@ -182,12 +184,8 @@ def load_config(
         ssl_keyfile=_env_path("LEANCHAT_SSL_KEYFILE"),
         app_config_path=_env_path("LEANCHAT_CONFIG_PATH"),
         allow_private_llm=_env_bool("LEANCHAT_ALLOW_PRIVATE_LLM"),
+        auto_login=_env_bool("LEANCHAT_AUTO_LOGIN"),
         max_upload_bytes=int(os.environ.get("LEANCHAT_MAX_UPLOAD_BYTES", str(DEFAULT_MAX_UPLOAD_BYTES))),
         max_user_storage_bytes=int(os.environ.get("LEANCHAT_MAX_USER_STORAGE_BYTES", str(DEFAULT_MAX_USER_STORAGE_BYTES))),
         max_request_bytes=int(os.environ.get("LEANCHAT_MAX_REQUEST_BYTES", str(DEFAULT_MAX_REQUEST_BYTES))),
     )
-
-
-def is_auto_login_enabled() -> bool:
-    """Check if auto-login mode is enabled (for testing)."""
-    return _env_bool("LEANCHAT_AUTO_LOGIN")

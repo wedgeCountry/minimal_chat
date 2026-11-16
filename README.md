@@ -10,7 +10,7 @@ Born as a minimalist alternative to OpenWebUI: only the features you actually ne
 app/                  FastAPI backend (uvicorn)
   main.py             App-Factory, Router, StaticFiles + Middleware
                       (Request-Size-Limit fuer /api/*, Security-Header/CSP, HSTS bei TLS)
-  config.py           Konfiguration (Env: LEANCHAT_DATA_DIR, LEANCHAT_SECRET, LEANCHAT_API_KEY, LEANCHAT_LLM_HOST, LEANCHAT_LLM_PORT)
+  config.py           Konfiguration (Env: LEANCHAT_DATA_DIR, LEANCHAT_SECRET, LEANCHAT_API_KEY, LEANCHAT_LLM_HOST, LEANCHAT_LLM_PORT, LEANCHAT_AUTO_LOGIN)
   auth.py             user_registry-Integration: Registry-DB, mount_auth (/auth-Seiten), Session-Cookies
   models.py           Pydantic-Schemas
   deps.py             FastAPI-Dependencies (Auth via signiertem Session-Cookie)
@@ -61,7 +61,7 @@ tests/
 
 ## Configuration (.env)
 
-Beim ersten Programmstart wird automatisch eine **`.env`** aus der gecheckten **`.env.example`** erzeugt (die `.env` selbst ist gitignored). Dort liegen alle globalen Variablen: Data-Root (`LEANCHAT_DATA_DIR`), Datenbankpfade (`LEANCHAT_REGISTRY_PATH`, `LEANCHAT_USERS_DIR`), Server-Secret (`LEANCHAT_SECRET`), LLM-Endpunkt (`LEANCHAT_LLM_HOST`, `LEANCHAT_LLM_PORT`, `LEANCHAT_MODEL`, `LEANCHAT_API_KEY`) sowie Host/Port (`LEANCHAT_HOST`, `LEANCHAT_PORT`). Echte Systemumgebungsvariablen haben Vorrang vor der `.env`.
+Beim ersten Programmstart wird automatisch eine **`.env`** aus der gecheckten **`.env.example`** erzeugt (die `.env` selbst ist gitignored). Dort liegen alle globalen Variablen: Data-Root (`LEANCHAT_DATA_DIR`), Datenbankpfade (`LEANCHAT_REGISTRY_PATH`, `LEANCHAT_USERS_DIR`), Server-Secret (`LEANCHAT_SECRET`), LLM-Endpunkt (`LEANCHAT_LLM_HOST`, `LEANCHAT_LLM_PORT`, `LEANCHAT_MODEL`, `LEANCHAT_API_KEY`), Host/Port (`LEANCHAT_HOST`, `LEANCHAT_PORT`) und Auto-Login-Testmodus (`LEANCHAT_AUTO_LOGIN`). Alle Variablen werden in `app/config.py` (`AppConfig`) gelesen und liegen in der `.env`. Echte Systemumgebungsvariablen haben Vorrang vor der `.env`.
 
 **Sicherheit/Limits** (ebenfalls in der `.env`, siehe `.env.example`):
 
