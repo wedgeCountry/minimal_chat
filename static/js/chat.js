@@ -335,7 +335,8 @@ export function stopPolling() {
 }
 
 export async function send() {
-  if (state.streaming) {
+  // auch serverseitig laufendes generating (z. B. nach Reload) zeigt Abbrechen statt Senden
+  if (state.streaming || activeSession()?.generating) {
     abortStream();
     return;
   }

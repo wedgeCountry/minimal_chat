@@ -1006,6 +1006,48 @@ def test_deleted_messages_excluded_from_llm_request(page, base_url, llm_expect, 
     assert any(m.get("role") == "tool" for m in wire)
 
 
+def test_reload_during_generation_shows_abort_and_cancel_clears_flag(page, base_url, llm_expect, mock_llm_port):
+    """Reload mitten in der Generierung (Mock-LLM 'langsam'): Abbrechen-Button statt Senden-Button
+    muss sichtbar sein (send-btn traegt die Klasse 'abort'); Abbrechen setzt serverseitig generating=0."""
+    if mock_llm_port is None:
+        pytest.skip("langsamer Stream nur beim Mock-LLM (Real-LLM-Lauf aktiv)")
+    email = "reload-abort-user@example.com"
+    api_client = _register_client(base_url, email, "Geheim-123")
+    _login(page, base_url, email, "Geheim-123")
+    sid = _new_named_session(page, api_client)
+
+    page.fill(T["chat_input"], "langsam bitte")
+    page.click(T["send_btn"])
+    page.wait_for_function(
+        "() => document.querySelector('[data-testid=\"send-btn\"]').classList.contains('abort')",
+        timeout=llm_expect["timeout_ms"],
+    )
+    assert api_client.get(f"/api/sessions/{sid}").json()["generating"] is True
+
+    # Reload mitten im Stream: Generierung laeuft serverseitig weiter, Abbrechen statt Senden sichtbar
+    page.reload()
+    page.wait_for_selector(T["chat_input"], timeout=llm_expect["timeout_ms"])
+    page.wait_for_function(
+        "() => document.querySelector('[data-testid=\"send-btn\"]').classList.contains('abort')",
+        timeout=llm_expect["timeout_ms"],
+    )
+    assert page.locator('[data-testid="progress"]').is_visible()
+    _open_panel(page)
+    assert page.locator('[data-testid="abort-side-btn"]').is_visible()
+    assert api_client.get(f"/api/sessions/{sid}").json()["generating"] is True
+
+    # Abbrechen (send-btn ist im Abort-Modus) -> generating=0 serverseitig
+    page.click(T["send_btn"])
+    page.wait_for_function(
+        "() => !document.querySelector('[data-testid=\"send-btn\"]').classList.contains('abort')",
+        timeout=llm_expect["timeout_ms"],
+    )
+    deadline = time.time() + 10
+    while time.time() < deadline and api_client.get(f"/api/sessions/{sid}").json()["generating"]:
+        time.sleep(0.2)
+    assert api_client.get(f"/api/sessions/{sid}").json()["generating"] is False
+
+
 def test_theme_setting_persists_across_reload(page, base_url, llm_expect):
     """Theme 'dark' ueber das Settings-Overlay setzen -> html.dark + serverseitig gespeichert."""
     email = "theme-user@example.com"

@@ -86,6 +86,7 @@ Darstellung nach Typ:
 - Leerer System-Prompt: keine System-Bubble im Chat und keine leere `system`-Message im LLM-Request (sonst HTTP 422 vom LLM)
 - Während der Generierung: dezente **Progress-Anzeige** (Ladebalken), angesteuert über das serverseitige `generating`-Flag
 - Abbrechen per X-Symbol (Header/Side-Panel und Composer) via `POST /api/chat/abort`: das Abort-Event wird in der Generierungs-Task gegen den Upstream-Read geracet, die LLM-Verbindung wird sofort geschlossen (auch wenn keine Chunks mehr eintreffen); die bis dahin generierte Antwort bleibt in der Session erhalten
+- Abbrechen setzt `generating` serverseitig auf 0 — sofort im Endpoint, wenn keine Generierungs-Task läuft (verwaistes Flag, z. B. nach Server-Neustart mitten im Stream), sonst beim finalen Flush der Task; der Client zeigt den Abbrechen-Button statt des Senden-Buttons, solange die aktive Session `generating=1` meldet (auch nach Reload)
 
 ## 5. Einstellungen
 

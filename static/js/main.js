@@ -3,7 +3,7 @@ import { state, activeSession, normalizeMessages } from "./state.js";
 import { $ } from "./util.js";
 import { goToLogin } from "./auth.js";
 import { loadSessions, renderSessions, newSession } from "./sessions.js";
-import { abortStream, pollOnce, renderChat, renderHeader, send } from "./chat.js";
+import { abortStream, pollOnce, renderChat, renderHeader, send, setStreamingUI } from "./chat.js";
 import { addAttachments } from "./attachments.js";
 import { initSettings, loadSettings, openSettings } from "./settings.js";
 import { initConfirm } from "./confirm.js";
@@ -101,6 +101,8 @@ async function bootstrap() {
     }
   } catch {}
   await loadSessions();
+  // serverseitig laufende Generierung (z. B. nach Reload) -> Abbrechen-Button statt Senden
+  setStreamingUI(!!activeSession()?.generating);
   if (state.sessions.length === 0) await newSession(true);
   $("side").classList.add("hidden");
   renderAll();
