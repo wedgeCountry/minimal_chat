@@ -15,7 +15,7 @@ import pytest
 
 from app.auth import user_identity
 from app.db import crypto
-from tests.e2e.conftest import REPO_ROOT
+from tests.e2e.conftest import E2E_SECRET, REPO_ROOT
 
 pytestmark = pytest.mark.e2e
 
@@ -63,7 +63,7 @@ def _reasoning_bubble():
     return _bubble("assistant", "reasoning")
 
 
-def _open_user_db(data_dir, email):
+def _open_user_db(data_dir, email, password="Geheim-123"):
     """Entschluesselt die per-user DB aus dem Server-Datenverzeichnis (read-only via :memory:)."""
     import sqlite3
 
@@ -71,15 +71,15 @@ def _open_user_db(data_dir, email):
 
     from app.db.keystore import KeyStore
 
-    user = user_identity(email, "Geheim-123", KeyStore(data_dir / "keystore.db"))
+    user = user_identity(email, password, KeyStore(data_dir / "keystore.db"))
     token = (data_dir / "users" / f"{user['uid']}.db.enc").read_bytes()
     con = sqlite3.connect(":memory:")
     con.deserialize(Fernet(crypto.normalize_key(user["key"])).decrypt(token))
     return con
 
 
-def _db_session_state(data_dir, email, sid):
-    con = _open_user_db(data_dir, email)
+def _db_session_state(data_dir, email, sid, password="Geheim-123"):
+    con = _open_user_db(data_dir, email, password)
     try:
         session = con.execute("SELECT id, name, ts FROM sessions WHERE id = ?", (sid,)).fetchone()
         messages = con.execute(
@@ -88,6 +88,20 @@ def _db_session_state(data_dir, email, sid):
     finally:
         con.close()
     return session, messages
+
+
+def _api_login(base_url, email, password):
+    """Login ueber die user_registry-API; der Client haelt danach den Session-Cookie."""
+    client = httpx.Client(base_url=base_url, timeout=10)
+    res = client.get("/auth/login")
+    token = re.search(r'window\.CSRF_TOKEN = "([^"]+)"', res.text).group(1)
+    res = client.post(
+        "/auth/api/login",
+        json={"email": email, "password": password},
+        headers={"X-CSRF-Token": token},
+    )
+    assert res.status_code == 200, res.text
+    return client
 
 
 def _register_client(base_url, email, password):
@@ -1048,6 +1062,84 @@ def test_reload_during_generation_shows_abort_and_cancel_clears_flag(page, base_
     while time.time() < deadline and api_client.get(f"/api/sessions/{sid}").json()["generating"]:
         time.sleep(0.2)
     assert api_client.get(f"/api/sessions/{sid}").json()["generating"] is False
+
+
+def test_register_encrypted_db_password_change_keeps_access(page, base_url, llm_expect, server_data_dir):
+    """E2E Envelope-Verschluesselung: Registrierung per UI -> Session + Nachrichten liegen in der
+    verschluesselten per-user DB (at rest ohne Passwort nicht entschluesselbar) -> Passwort-Wechsel
+    per UI re-wrapt den DEK -> nach erneutem Login sind die Nachrichten weiterhin abrufbar."""
+    import base64
+    import hashlib
+
+    import pytest
+    from argon2.low_level import Type, hash_secret_raw
+
+    from app.db.keystore import KeyStore
+
+    email = "envelope-user@example.com"
+    password = "Geheim-123"
+    new_password = "Neu-4567!"
+    secret_msg = "Geheime Envelope-Nachricht"
+
+    # 1. Registrierung ueber die UI-Seite
+    page.goto(base_url + "/auth/register")
+    page.wait_for_selector('[data-testid="register-email"]')
+    page.fill('[data-testid="register-email"]', email)
+    page.fill('[data-testid="register-display-name"]', "envelope-user")
+    page.fill('[data-testid="register-password"]', password)
+    page.fill('[data-testid="register-confirm-password"]', password)
+    page.check('[data-testid="register-accepted-terms"]')
+    page.click('[data-testid="register-submit"]')
+    page.wait_for_url("**/auth/login**")  # nach erfolgreicher Registrierung geht es zum Login
+    page.goto(base_url + "/")  # Registrierung setzt bereits die Session -> App oeffnet sich
+    page.wait_for_selector(T["new_session"])
+
+    # 2. Session anlegen und eine geheime Nachricht schicken
+    api_client = _api_login(base_url, email, password)
+    sid = _new_named_session(page, api_client)
+    _chat_once(page, secret_msg, 1, llm_expect["default"], llm_expect["timeout_ms"])
+    msgs = api_client.get(f"/api/sessions/{sid}").json()["messages"]
+    assert any(m["text"] == secret_msg for m in msgs)
+
+    # 3. At rest: per-user DB-Datei existiert, enthaelt keinen Klartext, und ist ohne das
+    #    Passwort des Users nicht entschluesselbar (auch nicht mit dem frueheren Secret+E-Mail-Schema)
+    uid = hashlib.sha256(email.encode()).hexdigest()[:16]
+    raw = (server_data_dir / "users" / f"{uid}.db.enc").read_bytes()
+    assert secret_msg.encode() not in raw
+    ks = KeyStore(server_data_dir / "keystore.db")
+    assert ks.unwrap(email, "Falsches-1!") is None  # falsches Passwort -> kein DEK
+    old_key_raw = hash_secret_raw(
+        E2E_SECRET.encode(), hashlib.sha256(email.encode()).digest()[:16],
+        time_cost=2, memory_cost=8192, parallelism=1, hash_len=32, type=Type.ID,
+    )
+    old_key = base64.urlsafe_b64encode(old_key_raw).decode()
+    with pytest.raises(ValueError):
+        crypto.decrypt(crypto.normalize_key(old_key), raw)  # nur Secret + E-Mail genuegt nicht mehr
+
+    # 4. Passwort-Wechsel ueber die UI (Request enthaelt das alte Passwort -> DEK wird re-wrapped)
+    page.goto(base_url + "/auth/change-password")
+    page.wait_for_selector('[data-testid="change-password-old"]')
+    page.fill('[data-testid="change-password-old"]', password)
+    page.fill('[data-testid="change-password-new"]', new_password)
+    page.fill('[data-testid="change-password-confirm"]', new_password)
+    page.click('[data-testid="change-password-submit"]')
+    page.wait_for_url("**/auth/login**")
+
+    # 5. Erneuter Login mit dem neuen Passwort: Nachrichten weiterhin abrufbar (UI + API + DB)
+    _login(page, base_url, email, new_password)
+    page.wait_for_selector(_bubble("user"), timeout=llm_expect["timeout_ms"])
+    assert secret_msg in page.locator(_bubble("user")).first.inner_text()
+
+    api2 = _api_login(base_url, email, new_password)
+    msgs2 = api2.get(f"/api/sessions/{sid}").json()["messages"]
+    assert any(m["text"] == secret_msg for m in msgs2)
+
+    con = _open_user_db(server_data_dir, email, new_password)
+    try:
+        rows = con.execute("SELECT text FROM messages WHERE session_id = ?", (sid,)).fetchall()
+    finally:
+        con.close()
+    assert any(secret_msg in r[0] for r in rows)
 
 
 def test_theme_setting_persists_across_reload(page, base_url, llm_expect):
