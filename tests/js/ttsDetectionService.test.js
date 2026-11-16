@@ -47,6 +47,17 @@ test("speechStatusLabel: none = deaktiviert, sonst gruen/rot", () => {
   assert.deepEqual(speechStatusLabel("server", serverOnly), { text: "Verfügbar", cls: "ok" });
 });
 
+test("speechStatusLabel: nur eine Richtung verfügbar (z.B. Firefox: TTS ja, STT nein)", () => {
+  const firefox = { systemStt: false, systemTts: true, serverStt: true, serverTts: true };
+  assert.deepEqual(speechStatusLabel("system", firefox), { text: "Nur TTS verfügbar", cls: "err" });
+  const sttOnly = { systemStt: true, systemTts: false, serverStt: false, serverTts: false };
+  assert.deepEqual(speechStatusLabel("system", sttOnly), { text: "Nur STT verfügbar", cls: "err" });
+  assert.deepEqual(speechStatusLabel("server", { systemStt: true, systemTts: true, serverStt: false, serverTts: true }), {
+    text: "Nur TTS verfügbar",
+    cls: "err",
+  });
+});
+
 test("effectiveModeFor: Fallback auf den anderen Modus, beide weg -> none", () => {
   const saved = { mode: state.settings.speech_mode, speech: state.speech };
   try {

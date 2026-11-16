@@ -201,3 +201,31 @@ def test_submit_stops_recording_and_clears_input_and_buffer(voice_page, base_url
     assert voice_state["stt_calls"] == 0, "Puffer wurde nach dem Senden doch transkribiert"
     assert page.locator(T["chat_input"]).input_value() == ""
     assert page.evaluate(MIC_ON) is False
+
+
+def test_speech_mode_radio_applies_immediately_without_save(voice_page, base_url, llm_expect):
+    """Firefox-artig (kein SpeechRecognition, speechSynthesis vorhanden): Auswahl von
+    System-API im Settings-Overlay blendet das Mikrofon sofort aus (ohne Speichern),
+    der Speaker bleibt (TTS verfuegbar) und das Label nennt die fehlende Richtung;
+    Abbrechen stellt den gespeicherten Modus wieder her."""
+    page, _ = voice_page
+    # Firefox hat kein SpeechRecognition, aber speechSynthesis
+    page.add_init_script("window.SpeechRecognition = undefined; window.webkitSpeechRecognition = undefined;")
+    _setup_with_answer(page, base_url, llm_expect, "voice-radio@example.com")
+    # Voice-Companion gestubbt ok + Modus "server" -> Mic und Speaker sichtbar
+    page.locator(MIC).wait_for(state="visible")
+    page.locator(TTS_BTN).first.wait_for(state="visible")
+
+    page.click(T["burger_btn"])
+    page.click(T["settings_btn"])
+    page.wait_for_selector(f'{T["settings_overlay"]}.open')
+    page.click('[data-testid="set-speech-system"]')
+    # ohne Speichern: Mic verschwindet sofort, Speaker bleibt, Label pro Richtung
+    page.locator(MIC).wait_for(state="hidden")
+    assert page.locator(TTS_BTN).first.is_visible()
+    assert page.locator('[data-testid="speech-status"]').inner_text() == "Nur TTS verfügbar"
+
+    # Abbrechen ohne Speichern: persistierter Modus (server) wird wiederhergestellt
+    page.click('[data-testid="set-cancel"]')
+    page.wait_for_selector(f'{T["settings_overlay"]}:not(.open)', state="attached")
+    page.locator(MIC).wait_for(state="visible")

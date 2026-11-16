@@ -77,13 +77,15 @@ export function mergeTranscript(finalSoFar, results, resultIndex) {
 
 export function speechStatusLabel(mode, speech) {
   if (mode === "none") return { text: "Deaktiviert", cls: "" };
-  const avail = (m) =>
-    m === "system"
-      ? !!(speech?.systemStt && speech?.systemTts)
-      : !!(speech?.serverStt && speech?.serverTts);
-  if (avail(mode)) return { text: "Verfügbar", cls: "ok" };
+  const stt = mode === "system" ? !!speech?.systemStt : !!speech?.serverStt;
+  const tts = mode === "system" ? !!speech?.systemTts : !!speech?.serverTts;
+  if (stt && tts) return { text: "Verfügbar", cls: "ok" };
+  // pro Richtung unterschiedlich (z.B. Firefox: speechSynthesis ja, SpeechRecognition nein)
+  if (stt || tts) return { text: stt ? "Nur STT verfügbar" : "Nur TTS verfügbar", cls: "err" };
   const other = mode === "system" ? "server" : "system";
-  if (avail(other))
+  const otherAvail =
+    other === "system" ? !!(speech?.systemStt && speech?.systemTts) : !!(speech?.serverStt && speech?.serverTts);
+  if (otherAvail)
     return { text: "Nicht verfügbar – Fallback: " + (other === "system" ? "System-API" : "Server"), cls: "err" };
   return { text: "Nicht verfügbar", cls: "err" };
 }
