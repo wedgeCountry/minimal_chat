@@ -33,10 +33,34 @@ function selectedSpeechMode() {
   return r && SPEECH_MODES.includes(r.value) ? r.value : "server";
 }
 
+function normalizedSpeechMode() {
+  return SPEECH_MODES.includes(state.settings.speech_mode) ? state.settings.speech_mode : "server";
+}
+
+function syncSpeechModeRadios() {
+  const mode = normalizedSpeechMode();
+  document.querySelectorAll('input[name="speechMode"]').forEach((r) => {
+    r.checked = r.value === mode;
+  });
+}
+
+// Stand beim Oeffnen des Overlays; Schliessen ohne Speichern stellt ihn wieder her
+let openedSpeechMode = "server";
+
+function closeSettings() {
+  state.settings.speech_mode = openedSpeechMode;
+  syncSpeechModeRadios();
+  document.dispatchEvent(new CustomEvent("leanchat:speech-availability"));
+  $("overlay").classList.remove("open");
+}
+
 export async function updateSpeechStatus() {
   const status = $("speechStatus");
   if (!status) return;
   const mode = selectedSpeechMode();
+  // Auswahl sofort in den State uebernehmen, sonst schalten micBtn/Speaker erst beim Speichern um
+  // (refreshSpeechAvailability feuert leanchat:speech-availability); persistiert wird erst bei Speichern
+  state.settings.speech_mode = mode;
   status.textContent = "Prüfe…";
   status.className = "connStatus";
   await refreshSpeechAvailability();
@@ -46,7 +70,7 @@ export async function updateSpeechStatus() {
 }
 
 export function initSettings() {
-  $("setCancel").onclick = () => $("overlay").classList.remove("open");
+  $("setCancel").onclick = () => closeSettings();
   document.querySelectorAll('input[name="speechMode"]').forEach((r) => {
     r.addEventListener("change", () => updateSpeechStatus());
   });
@@ -76,7 +100,7 @@ export function initSettings() {
     }
   };
   $("overlay").addEventListener("click", (e) => {
-    if (e.target === $("overlay")) $("overlay").classList.remove("open");
+    if (e.target === $("overlay")) closeSettings();
   });
   const updateBasePreview = () => {
     $("setBase").value = buildBaseUrl($("setHost").value, $("setPort").value);
@@ -118,10 +142,8 @@ export function openSettings(tab = "general") {
   $("setSystemPrompt").value = state.settings.system_prompt || "";
   $("setTheme").value = state.settings.theme;
   for (const key of BOOL_SETTING_KEYS) $(CHECK_IDS[key]).checked = state.settings[key] !== false;
-  const mode = SPEECH_MODES.includes(state.settings.speech_mode) ? state.settings.speech_mode : "server";
-  document.querySelectorAll('input[name="speechMode"]').forEach((r) => {
-    r.checked = r.value === mode;
-  });
+  openedSpeechMode = normalizedSpeechMode();
+  syncSpeechModeRadios();
   $("overlay").classList.add("open");
   updateSpeechStatus();
 }

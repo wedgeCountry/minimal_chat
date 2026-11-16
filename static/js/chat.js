@@ -2,7 +2,7 @@ import { api } from "./api.js";
 import { activeSession, normalizeMessage, normalizeMessages, state } from "./state.js";
 import { $, isNearBottom, captureScrollAnchor, restoreScrollAnchor } from "./util.js";
 import { ICONS } from "./icons.js";
-import { bubbleEl, setBubbleText, enterBubbleEdit, exitBubbleEdit, syncBubbleTts } from "./bubbles.js";
+import { bubbleEl, setBubbleText, enterBubbleEdit, exitBubbleEdit, syncBubbleTts, syncBubbleDelete } from "./bubbles.js";
 import { loadSessions, newSession, changed } from "./sessions.js";
 import { uploadPendingAttachments } from "./attachments.js";
 import { confirmModal } from "./confirm.js";
@@ -114,7 +114,13 @@ function updateBubble(b, m, showResend, showEdit) {
   if (resend) resend.style.display = showResend ? "" : "none";
   const edit = b.querySelector(".editBtn");
   if (edit) edit.style.display = showEdit ? "" : "none";
+  syncBubbleDelete(b);
   syncBubbleTts(b);
+}
+
+// Alle gerenderten Bubbles auf die aktuelle Speech-Verfuegbarkeit nachziehen
+export function syncAllBubbleTts() {
+  for (const b of bubbleNodes.values()) syncBubbleTts(b);
 }
 
 export function scrollChatToBottom() {

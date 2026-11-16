@@ -36,7 +36,7 @@ export function renderSessions() {
       <div class="sessionRow" data-testid="session-row-${s.id}">
         <span class="sessionName" data-name="${s.id}" data-testid="session-name-${s.id}">${esc(s.name)}</span>
         <button class="iconBtn editBtn" data-testid="session-rename-btn-${s.id}" title="Umbenennen">${ICONS.edit}</button>
-        <button class="iconBtn delBtn" data-testid="session-delete-btn-${s.id}" title="Löschen">${ICONS.trash}</button>
+        <button class="iconBtn delBtn" data-testid="session-delete-btn-${s.id}" title="Löschen">${ICONS.x}</button>
       </div>`;
     t.onclick = (e) => {
       if (e.target.closest("button")) return;
