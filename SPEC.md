@@ -59,7 +59,7 @@ Eigenschaften je Bubble:
 | Rolle | `user`, `assistant`, `system` |
 | Typ | `message`, `toolcall`, `reasoning` (Thinking), `toolresult` (Tool-Ergebnis) |
 | Sortierung | chronologisch nach Zeitstempel (ms-Aufloesung: jeder Stream-Block erhaelt beim Typwechsel im LLM-Stream seinen Abschluss-Zeitstempel als `created_at`); bei Gleichstand nach Turn (jede User-Message eroeffnet einen neuen Turn); innerhalb eines Turns: Reasoning/Toolcall/Toolresult vor der finalen Assistant-Message, Toolcall vor Toolresult, sonst Einfuegereihenfolge (id) |
-| Dreistufig ausklappbar | Toggle in der Kopfzeile wechselt zyklisch: `normal` (max. 10 **gerenderte GUI-Zeilen** via CSS line-clamp, Rest hinter `[...]`), `full` (kompletter Text), `collapsed` (genau **1 gerenderte GUI-Zeile**, auch bei langer umgebrochener Zeile); Standard: `message` = normal, alle anderen Typen (`reasoning`, `toolcall`, Tool-Ergebnisse) = collapsed |
+| Dreistufig ausklappbar | Toggle in der Kopfzeile wechselt zyklisch: `normal` (max. 10 **gerenderte GUI-Zeilen** via CSS line-clamp, Rest hinter `[...]`), `full` (kompletter Text), `collapsed` (genau **1 gerenderte GUI-Zeile**, auch bei langer umgebrochener Zeile); Standard: `message` = normal, alle anderen Typen (`reasoning`, `toolcall`, Tool-Ergebnisse) = collapsed; im Modus `full` sitzt unten rechts in der Bubble ein Einklapp-Button, der direkt auf `collapsed` wechselt |
 | Mindestzeilenanzahl | Bubbles behalten eine Mindesthöhe, damit kurze Nachrichten das Layout nicht springen lassen |
 | Kopieren | Kopier-Symbol kopiert den Inhalt in die Zwischenablage (`navigator.clipboard`; bei Fehler Fehlermeldung) |
 | Bearbeiten | Stift-Symbol nur auf der letzten Nutzernachricht: Inline-Edit direkt in der Bubble (Textarea in den Bubble-Farben mit X-Button rechts daneben, Enter sendet, Esc bricht ab); beim Senden wird die Nachricht per `PATCH` aktualisiert, alle Nachrichten danach per `DELETE /api/sessions/{id}/messages/after/{mid}` gelöscht und die Antwort neu generiert |
@@ -97,7 +97,7 @@ Dialog (Modal) mit Feldern:
 - **Modell** (freie Texteingabe oder Auswahl aus `/v1/models`, wenn erreichbar)
 - **Theme**: hell / dunkel (Standard hell), umgeschaltet per CSS-Klasse und `prefers-color-scheme` als Initial-Fallback
 
-Speicherung: serverseitig in der verschlüsselten per-user SQLite (`user_settings`); nur UI-Zustand (aktives Panel, Bubble-Breiten) liegt im `localStorage`/`sessionStorage` (Key `leanchat.*`).
+Speicherung: serverseitig in der verschlüsselten per-user SQLite (`user_settings`); nur UI-Zustand (aktives Panel) liegt im `localStorage`/`sessionStorage` (Key `leanchat.*`).
 
 ## 6. Design
 

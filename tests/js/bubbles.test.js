@@ -15,12 +15,14 @@ function makeClassList() {
 function fakeBubble() {
   const chev = { title: "" };
   const body = { textContent: "", classList: makeClassList() };
+  const collapseBtn = { style: {} };
   return {
     classList: makeClassList(),
     dataset: {},
-    querySelector: (sel) => (sel === ".chev" ? chev : sel === ".bubbleBody" ? body : null),
+    querySelector: (sel) => (sel === ".chev" ? chev : sel === ".bubbleBody" ? body : sel === ".collapseBtn" ? collapseBtn : null),
     _body: body,
     _chev: chev,
+    _collapseBtn: collapseBtn,
   };
 }
 
@@ -50,6 +52,17 @@ test("setBubbleMode full shows the complete text, collapsed only the first line"
   setBubbleMode(b, "collapsed");
   assert.equal(b._body.textContent, "Zeile 1 [...]");
   assert.ok(b._body.classList.contains("clamped"));
+});
+
+test("setBubbleMode: collapseBtn nur im full-Modus sichtbar", () => {
+  const b = fakeBubble();
+  b.dataset.mode = "normal";
+  setBubbleMode(b, "full");
+  assert.equal(b._collapseBtn.style.display, "");
+  setBubbleMode(b, "collapsed");
+  assert.equal(b._collapseBtn.style.display, "none");
+  setBubbleMode(b, "normal");
+  assert.equal(b._collapseBtn.style.display, "none");
 });
 
 test("setBubbleMode cycles classes and sets the chevron title", () => {

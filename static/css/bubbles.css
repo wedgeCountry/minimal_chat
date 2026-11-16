@@ -107,9 +107,9 @@
 .bubble.user .bubbleHead button svg{stroke:var(--bubble-user-text)}
 .bubble.user .chk{accent-color:var(--bubble-user-text)}
 .chk{accent-color:var(--accent);width:14px;height:14px;cursor:pointer;flex:none}
-.resizeHandle{position:absolute;right:0;bottom:0;width:16px;height:16px;cursor:nwse-resize;opacity:0;transition:opacity .15s;touch-action:none}
-.bubble:hover .resizeHandle,.resizeHandle.dragging{opacity:.55}
-.resizeHandle::after{content:"";position:absolute;right:3px;bottom:3px;width:8px;height:8px;border-right:2px solid currentColor;border-bottom:2px solid currentColor}
+.collapseBtn{position:absolute;right:2px;bottom:2px;padding:2px;opacity:.55;transition:opacity .15s}
+.bubble:hover .collapseBtn{opacity:.9}
+.collapseBtn svg{width:12px;height:12px;transform:rotate(180deg)} /* Chevron nach oben = Einklappen */
 .bubbleBody{font-size:var(--bubble-body-size);line-height:1.5;white-space:pre-wrap;word-break:break-word;min-height:21px}
 .bubbleBody.clamped{cursor:pointer}
 /* Zeilenlimit bezieht sich auf die gerenderten GUI-Zeilen (CSS line-clamp),
