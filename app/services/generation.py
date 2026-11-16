@@ -212,6 +212,10 @@ async def run_generation(
                     if idx is None:
                         idx = sum(1 for b in blocks if b["kind"] == "toolresult")
                     _touch("toolresult", idx)
+                    if tr.get("signal"):
+                        # Signal-Chunk des LLM-Servers (z. B. "toolcall_done"): schliesst den
+                        # offenen Block, traegt aber keinen Toolresult-Inhalt
+                        continue
                     b = _tool_block("toolresult", idx)
                     fn = tr.get("function") or {}
                     b["name"] += tr.get("name") or fn.get("name") or ""

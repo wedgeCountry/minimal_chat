@@ -163,6 +163,38 @@ def test_run_generation_keeps_repeated_block_cycles_separate_with_switch_timesta
     assert all(a < b for a, b in zip(ts, ts[1:])), f"jeder Block braucht eigenen, steigenden Ts: {ts}"
 
 
+def test_toolcall_done_signal_closes_toolcall_block_without_toolresult_row(db, user, sid, monkeypatch):
+    """Signal-Dummy des LLM-Servers ({"tool_results":[{"index":0,"signal":"toolcall_done"}]}):
+    schliesst den offenen Toolcall-Block sofort (Zeile wird persistiert, bevor das echte
+    Toolresult eintrifft), legt aber keinen Toolresult-Block an."""
+
+    release = asyncio.Event()
+
+    async def fake_stream(*args, **kwargs):
+        yield _sse({"tool_calls": [{"index": 0, "function": {"name": "f", "arguments": "{}"}}]})
+        yield _sse({"tool_results": [{"index": 0, "signal": "toolcall_done"}]})
+        await release.wait()  # serverseitige Tool-Ausfuehrung: keine Chunks
+        yield _sse({"tool_results": [{"index": 0, "name": "f", "result": "42"}]})
+        yield _sse({"content": "Antwort"})
+
+    monkeypatch.setattr("app.services.generation.stream_completion", fake_stream)
+
+    async def main():
+        task = asyncio.create_task(run_generation(db, user, sid, "http://llm.test/v1", "k", {"messages": []}))
+        await asyncio.sleep(0.5)  # Pause wie bei echter Tool-Ausfuehrung
+        with db.user_db(user) as con:
+            during = [(m["type"], m["text"]) for m in dbq.q_get_messages(con, sid) if m["role"] == "assistant"]
+        assert during == [("toolcall", "f({})")], f"Toolcall muss vor dem Toolresult persistiert sein: {during}"
+        release.set()
+        await asyncio.wait_for(task, timeout=5)
+        with db.user_db(user) as con:
+            after = [(m["type"], m["text"]) for m in dbq.q_get_messages(con, sid) if m["role"] == "assistant"]
+        # kein leerer Signal-Block; das echte Toolresult landet in eigener Zeile
+        assert after == [("toolcall", "f({})"), ("toolresult", "f: 42"), ("message", "Antwort")]
+
+    asyncio.run(main())
+
+
 def test_abort_discards_inflight_block_and_clears_generating(db, user, sid, monkeypatch):
     """Abbruch mitten im Stream: bereits abgeschlossene Bloecke bleiben persistiert,
     der offene (in-flight) Block wird verworfen; kein Fehler-System-Message; generating=0."""
