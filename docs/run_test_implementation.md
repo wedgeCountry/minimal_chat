@@ -11,13 +11,11 @@ This document describes how the `run_test` functionality was implemented to matc
 
 ### 1. Auto-Login Feature (`app/config.py` and `app/deps.py`)
 
-Added `LEANCHAT_AUTO_LOGIN` environment variable support:
+Added `LEANCHAT_AUTO_LOGIN` environment variable support as an `AppConfig` field (`auto_login`), loaded from the environment/.env in `load_config()` (`app/config.py`):
 
 ```python
 # In app/config.py
-def is_auto_login_enabled() -> bool:
-    """Check if auto-login mode is enabled (for testing)."""
-    return os.environ.get("LEANCHAT_AUTO_LOGIN", "").lower() in ("1", "true", "yes", "on")
+auto_login: bool = False  # AppConfig-Feld, via load_config() aus LEANCHAT_AUTO_LOGIN
 ```
 
 Modified `get_current_user()` in `app/deps.py` to:

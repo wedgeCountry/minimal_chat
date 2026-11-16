@@ -5,7 +5,7 @@ from fastapi import HTTPException, Request
 from user_registry.web.security import read_session
 
 from .auth import TERMS_VERSION, display_name_from_email, user_identity
-from .config import AppConfig, is_auto_login_enabled
+from .config import AppConfig
 from .db.database import Database
 
 
@@ -23,7 +23,7 @@ def get_session_email(request: Request) -> str | None:
     email = read_session(request, request.app.state.auth_config, request.app.state.auth_serializer)
 
     # Auto-login mode: serve the default test user if no valid session
-    if (not email or not registry.user_exists(email)) and is_auto_login_enabled():
+    if (not email or not registry.user_exists(email)) and request.app.state.config.auto_login:
         email = "testuser@example.com"
         if not registry.user_exists(email):
             registry.create_user(email, "Test-1234", display_name_from_email(email), TERMS_VERSION)

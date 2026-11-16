@@ -10,7 +10,7 @@ Born as a minimalist alternative to OpenWebUI: only the features you actually ne
 app/                  FastAPI backend (uvicorn)
   main.py             App-Factory, Router, StaticFiles + Middleware
                       (Request-Size-Limit fuer /api/*, Security-Header/CSP, HSTS bei TLS)
-  config.py           Konfiguration (Env: LEANCHAT_DATA_DIR, LEANCHAT_SECRET, LEANCHAT_API_KEY, LEANCHAT_LLM_HOST, LEANCHAT_LLM_PORT)
+  config.py           Konfiguration (Env: LEANCHAT_DATA_DIR, LEANCHAT_SECRET, LEANCHAT_API_KEY, LEANCHAT_LLM_HOST, LEANCHAT_LLM_PORT, LEANCHAT_AUTO_LOGIN)
   auth.py             user_registry-Integration: Registry-DB, mount_auth (/auth-Seiten), Session-Cookies
   models.py           Pydantic-Schemas
   deps.py             FastAPI-Dependencies (Auth via signiertem Session-Cookie)
@@ -61,9 +61,9 @@ tests/
 
 ## Configuration (.env)
 
-Beim ersten Programmstart wird automatisch eine **`.env`** aus der gecheckten **`.env.example`** erzeugt (die `.env` selbst ist gitignored). Dort liegen alle globalen Variablen: Data-Root (`LEANCHAT_DATA_DIR`), Datenbankpfade (`LEANCHAT_REGISTRY_PATH`, `LEANCHAT_USERS_DIR`), Server-Secret (`LEANCHAT_SECRET`), LLM-Endpunkt (`LEANCHAT_LLM_HOST`, `LEANCHAT_LLM_PORT`, `LEANCHAT_MODEL`, `LEANCHAT_API_KEY`) sowie Host/Port (`LEANCHAT_HOST`, `LEANCHAT_PORT`). Echte Systemumgebungsvariablen haben Vorrang vor der `.env`.
+Beim ersten Programmstart wird automatisch eine **`.env`** aus der gecheckten **`env-example`** erzeugt (die `.env` selbst ist gitignored; die Example-Datei heisst ohne fuehrenden Punkt, damit `.env*`-Ignore-Regeln sie nicht aus Versehen ausschliessen). Dort liegen alle globalen Variablen: Data-Root (`LEANCHAT_DATA_DIR`), Datenbankpfade (`LEANCHAT_REGISTRY_PATH`, `LEANCHAT_USERS_DIR`), Server-Secret (`LEANCHAT_SECRET`), LLM-Endpunkt (`LEANCHAT_LLM_HOST`, `LEANCHAT_LLM_PORT`, `LEANCHAT_MODEL`, `LEANCHAT_API_KEY`), Host/Port (`LEANCHAT_HOST`, `LEANCHAT_PORT`) und Auto-Login-Testmodus (`LEANCHAT_AUTO_LOGIN`). Alle Variablen werden in `app/config.py` (`AppConfig`) gelesen und liegen in der `.env`. Echte Systemumgebungsvariablen haben Vorrang vor der `.env`.
 
-**Sicherheit/Limits** (ebenfalls in der `.env`, siehe `.env.example`):
+**Sicherheit/Limits** (ebenfalls in der `.env`, siehe `env-example`):
 
 - **SSRF-Schutz**: pro User einstellbare LLM-URLs werden serverseitig validiert (`validate_llm_base_url`): nur `http/https` ohne Credentials; private/Loopback-/Link-Local-/reservierte Ziele (z. B. Cloud-Metadata `169.254.169.254`) werden blockiert, sobald der Server nicht auf Loopback bindet — außer `LEANCHAT_ALLOW_PRIVATE_LLM=1`. Upstream-Fehlermeldungen enthalten nur den HTTP-Status, nie den Response-Body.
 - **DoS-Limits**: Uploads werden gestreamt mit Byte-Cap gelesen (`LEANCHAT_MAX_UPLOAD_BYTES`, 413 bei Ueberschreitung), pro User gilt ein Attachment-Kontingent (`LEANCHAT_MAX_USER_STORAGE_BYTES`), und `/api/*`-Requests werden per Content-Length gedeckelt (`LEANCHAT_MAX_REQUEST_BYTES`, 413).

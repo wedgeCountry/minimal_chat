@@ -79,7 +79,7 @@ def test_load_env_file_does_not_override_existing(monkeypatch, tmp_path):
 
 
 def test_ensure_env_file_copies_example_once(tmp_path):
-    example = tmp_path / ".env.example"
+    example = tmp_path / "env-example"
     example.write_text("A=1\n")
     env = tmp_path / ".env"
     ensure_env_file(env, example)
@@ -158,7 +158,7 @@ def test_load_config_reads_security_limits_and_ssrf_flag(tmp_path, monkeypatch):
 
 
 def test_load_config_env_path_none_means_unset(tmp_path, monkeypatch):
-    # .env.example schreibt "=None" fuer optionale Pfade; das darf nicht als gesetzter Pfad gelten
+    # env-example schreibt "=None" fuer optionale Pfade; das darf nicht als gesetzter Pfad gelten
     # (sonst waere z. B. ssl_certfile gesetzt -> Secure-Cookies auch ohne TLS)
     from app.config import load_config
 
@@ -173,6 +173,15 @@ def test_load_config_env_path_none_means_unset(tmp_path, monkeypatch):
     monkeypatch.setenv("LEANCHAT_SSL_CERTFILE", str(tmp_path / "cert.pem"))
     cfg = load_config(data_dir=tmp_path / "data", secret="s")
     assert cfg.ssl_certfile == tmp_path / "cert.pem"
+
+
+def test_load_config_reads_auto_login_from_env(tmp_path, monkeypatch):
+    monkeypatch.setenv("LEANCHAT_AUTO_LOGIN", "1")
+    cfg = load_config(data_dir=tmp_path / "data", secret="s")
+    assert cfg.auto_login is True
+    assert cfg.to_dict()["auto_login"] is True
+    monkeypatch.setenv("LEANCHAT_AUTO_LOGIN", "0")
+    assert load_config(data_dir=tmp_path / "data", secret="s").auto_login is False
 
 
 def test_loopback_host_auto_enables_private_llm(tmp_path, monkeypatch):

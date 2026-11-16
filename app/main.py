@@ -9,7 +9,7 @@ from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 from .auth import init_auth
-from .config import LOOPBACK_HOSTS, AppConfig, bootstrap_env, is_auto_login_enabled, load_config
+from .config import LOOPBACK_HOSTS, AppConfig, bootstrap_env, load_config
 from .db.database import Database
 from .deps import get_session_email
 from .routers import auth, chat, log, meta, sessions, settings, voice
@@ -38,7 +38,7 @@ def create_app(
     secret: str | None = None,
 ) -> FastAPI:
     cfg = config or load_config(data_dir=data_dir, secret=secret)
-    if is_auto_login_enabled():
+    if cfg.auto_login:
         # Auto-Login ist ein Test-Hilfsmodus und darf nie auf einem oeffentlich
         # erreichbaren Host laufen.
         if cfg.host not in LOOPBACK_HOSTS:
