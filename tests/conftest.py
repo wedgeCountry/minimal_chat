@@ -1,9 +1,14 @@
 from __future__ import annotations
 
+import os
 import re
 
 import pytest
 from fastapi.testclient import TestClient
+
+# Test-KEK der vendored user_registry-Bibliothek: key_mode "server" (Default von
+# create_user) verlangt USER_REGISTRY_SERVER_KEK (32 Bytes hex), sonst ValueError.
+os.environ.setdefault("USER_REGISTRY_SERVER_KEK", "ab" * 32)
 
 from app.auth import TERMS_VERSION, display_name_from_email
 from app.config import AppConfig

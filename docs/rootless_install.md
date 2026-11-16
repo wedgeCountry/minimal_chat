@@ -12,7 +12,7 @@ Voraussetzung: Netzwerkzugriff auf PyPI und die apt-Repositories (Debian/Ubuntu)
 ```bash
 pip install -e ".[dev]"
 python3 -m playwright install chromium   # laedt das Browser-Binary nach ~/.cache/ms-playwright
-./scripts/setup_rootless_e2e.sh          # idempotent, siehe unten
+./scripts/setup_rootless_e2e.sh          # installiert vendors/*.whl + Chromium-Libs, idempotent, siehe unten
 . /tmp/e2e-env.sh                         # FONTCONFIG_FILE + LD_LIBRARY_PATH setzen
 python3 -m pytest -m e2e tests/e2e
 ```
@@ -27,8 +27,12 @@ ueberschreibbar (`LIBS_DIR`, `DEBS_DIR`, `FONTS_CONF`, `ENV_FILE`, ...).
 
 ```bash
 pip install -e ".[dev]"   # installiert u. a. pytest, playwright, fastapi, uvicorn
+pip install vendors/user_registry-*.whl vendors/trixie_ai-*.whl vendors/voice_companion-*.whl
 python3 -m playwright install chromium   # laedt das Browser-Binary nach ~/.cache/ms-playwright
 ```
+
+Die vendored Wheels (`user_registry`, `trixie_ai`, `voice_companion`) sind nicht auf
+PyPI; `scripts/setup_rootless_e2e.sh` installiert sie ebenfalls (Schritt 0).
 
 ## 2. System-Bibliotheken ohne root laden
 

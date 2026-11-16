@@ -1,12 +1,18 @@
 #!/usr/bin/env bash
 # Rootless e2e-Testumgebung aufsetzen (Details: docs/rootless_install.md).
 #
-# Laedt die Chromium-Systembibliotheken ohne root/sudo per apt-get download
+# Installiert die vendored Wheels (user_registry, trixie_ai, voice_companion),
+# laedt die Chromium-Systembibliotheken ohne root/sudo per apt-get download
 # nach $LIBS_DIR, richtet fontconfig ein und schreibt die benoetigten
 # Umgebungsvariablen nach $ENV_FILE (sourcen mit: source "$ENV_FILE").
 #
 # Voraussetzung: pip install -e ".[dev]" und python3 -m playwright install chromium
 set -euo pipefail
+
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+echo "== vendored Wheels installieren (user_registry, trixie_ai, voice_companion)"
+python3 -m pip install "$REPO_ROOT"/vendors/*.whl
 
 LIBS_DIR="${LIBS_DIR:-/tmp/libs}"
 DEBS_DIR="${DEBS_DIR:-/tmp/debs}"
