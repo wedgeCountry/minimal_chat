@@ -6,6 +6,10 @@ export const state = {
   appName: "LeanChat",
   sessions: [],
   activeId: _ss?.getItem("leanchat.active") || null,
+  // Gecachte History der aktiven Session (zu messagesSid gehoerend); Mutationen werden
+  // lokal aus den Endpoint-Antworten uebernommen, Poll/Fetch bleibt Quelle der Wahrheit
+  messages: [],
+  messagesSid: null,
   settings: {
     base: "",
     host: "",

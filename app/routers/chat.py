@@ -11,7 +11,7 @@ from ..deps import get_config, get_current_user, get_db
 from ..models import ChatAbortRequest, ChatRequest
 from ..services.ssrf import validate_llm_base_url
 from ..services.context import build_llm_context
-from ..services.generation import request_abort, run_generation
+from ..services.generation import forget_abort_if_idle, is_running, request_abort, run_generation
 from ..services.settings import BOOL_SETTINGS, resolve_base_url, stored_bool
 
 router = APIRouter(prefix="/api/chat", tags=["chat"])
@@ -36,6 +36,16 @@ def _load_chat_context(db: Database, user: dict, session_id: str):
 def _session_exists(db: Database, user: dict, session_id: str) -> bool:
     with db.user_db(user) as con:
         return dbq.q_get_session(con, session_id) is not None
+
+
+def _clear_generating_if_idle(db: Database, user: dict, session_id: str) -> None:
+    # Ohne laufende Task ist generating verwaist (z. B. Server-Neustart mitten in einer
+    # Generierung): Abbrechen setzt das Flag zurueck, sonst pollt der Client endlos.
+    # Bei laufender Task setzt der finale Flush der Task das Flag (q_set_generating False).
+    with db.user_db(user) as con:
+        if dbq.q_get_session(con, session_id) and not is_running(user, session_id):
+            dbq.q_set_generating(con, session_id, False)
+            forget_abort_if_idle(user, session_id)
 
 
 def _try_start_generation(db: Database, user: dict, session_id: str) -> str:
@@ -97,4 +107,5 @@ async def abort(
     if not exists:
         raise HTTPException(status_code=404, detail="Session nicht gefunden")
     request_abort(user, req.session_id)
+    await asyncio.to_thread(_clear_generating_if_idle, db, user, req.session_id)
     return {"status": "aborted"}

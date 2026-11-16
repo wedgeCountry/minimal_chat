@@ -1,6 +1,6 @@
 import { api } from "./api.js";
-import { activeSession, normalizeMessages, state } from "./state.js";
-import { $, isNearBottom } from "./util.js";
+import { activeSession, normalizeMessage, normalizeMessages, state } from "./state.js";
+import { $, isNearBottom, captureScrollAnchor, restoreScrollAnchor } from "./util.js";
 import { ICONS } from "./icons.js";
 import { bubbleEl, setBubbleText, enterBubbleEdit, exitBubbleEdit, syncBubbleTts, syncBubbleDelete } from "./bubbles.js";
 import { loadSessions, newSession, changed } from "./sessions.js";
@@ -72,6 +72,24 @@ export function hasMessagesAfter(messages, id) {
 
 let lastMessages = [];
 
+// Lokales Uebernehmen einer erfolgreichen Mutation (keyed by id; ids sind AUTOINCREMENT-
+// monoton pro Session). Der naechste Poll/Fetch ueberschreibt mit dem serverseitigen Stand.
+export function applyLocalMessage(m) {
+  const n = normalizeMessage(m);
+  const i = state.messages.findIndex((x) => x.id === n.id);
+  if (i >= 0) state.messages[i] = n;
+  else state.messages.push(n);
+}
+
+export function removeLocalMessage(mid) {
+  state.messages = state.messages.filter((x) => x.id !== mid);
+}
+
+export function removeLocalMessagesAfter(mid) {
+  // id > mid ist genau die serverseitig geloeschte Menge (q_delete_messages_after)
+  state.messages = state.messages.filter((x) => x.id <= mid);
+}
+
 // Keyed reconciliation: Bubbles werden pro Nachricht wiederverwendet und nur
 // bei Aenderung aktualisiert, statt das gesamte Chat-DOM bei jedem Poll neu zu bauen.
 const bubbleNodes = new Map();
@@ -113,9 +131,6 @@ export function scrollChatToBottom() {
 export function renderChat(messages) {
   const chat = $("chat");
   const s = activeSession();
-  // nur ans Ende scrollen, wenn der Nutzer bereits unten ist (Refresh/Poll
-  // darf nicht hochgescrolltes Lesen unterbrechen)
-  const pinToBottom = s != null && isNearBottom(chat);
   if (!s || !messages?.length) {
     lastMessages = [];
     cancelEdit();
@@ -129,6 +144,12 @@ export function renderChat(messages) {
     return;
   }
   chat.querySelector('[data-testid="chat-empty"]')?.remove();
+  // nur ans Ende scrollen, wenn der Nutzer bereits unten ist (Refresh/Poll
+  // darf nicht hochgescrolltes Lesen unterbrechen); sonst die sichtbare
+  // Position ueber einen Anker exakt halten, auch wenn Bubbles oberhalb des
+  // Views durch den Stream wachsen oder neu hinzukommen
+  const pinToBottom = isNearBottom(chat);
+  const anchor = pinToBottom ? null : captureScrollAnchor(chat);
   const sortedMessages = sortMessagesForRender(messages);
   lastMessages = sortedMessages;
   if (editingMessageId != null && !sortedMessages.some((m) => m.id === editingMessageId)) cancelEdit();
@@ -161,6 +182,7 @@ export function renderChat(messages) {
     }
   }
   if (pinToBottom) chat.scrollTop = chat.scrollHeight;
+  else restoreScrollAnchor(chat, anchor);
 }
 
 // Edit-Modus: id der Nutzernachricht, die gerade inline in ihrer Bubble bearbeitet wird
@@ -176,8 +198,12 @@ export function cancelEdit() {
 
 // Bearbeiten und Erneut-senden teilen sich diesen Pfad: patchen, alles danach loeschen
 async function resubmitMessage(s, mid, text, attachments) {
-  await api.patch(`/sessions/${s.id}/messages/${mid}`, { text, attachments });
-  await api.del(`/sessions/${s.id}/messages/after/${mid}`).catch(() => {});
+  const updated = await api.patch(`/sessions/${s.id}/messages/${mid}`, { text, attachments });
+  applyLocalMessage(updated);
+  try {
+    await api.del(`/sessions/${s.id}/messages/after/${mid}`);
+    removeLocalMessagesAfter(mid);
+  } catch {}
 }
 
 async function resendMessage(m) {
@@ -191,16 +217,15 @@ async function resendMessage(m) {
 
 // Generierung nach dem Senden/Bearbeiten anstossen (serverseitige Hintergrund-Task).
 async function triggerGeneration(s) {
-  const detail = await api.get(`/sessions/${s.id}`);
-  const messages = normalizeMessages(detail.messages);
-  renderChat(messages);
+  renderChat(state.messages); // lokal gepflegte History (send/resubmit) direkt rendern
   scrollChatToBottom(); // nach dem Absenden direkt zur neuen Nachricht/Antwort springen
   try {
     // Chat-History baut der Server aus der Session-DB (gueltiges LLM-Format inkl. Tool-Calls)
     await api.post("/chat", { session_id: s.id, model: state.settings.model });
   } catch (err) {
     const em = { role: "system", type: "message", text: "Fehler: " + err.message, in_context: false };
-    await api.post(`/sessions/${s.id}/messages`, em).catch(() => {});
+    const stored = await api.post(`/sessions/${s.id}/messages`, em).catch(() => null);
+    if (stored) applyLocalMessage(stored);
     await loadSessions();
     changed();
     return;
@@ -256,13 +281,21 @@ const handlers = {
   onToggleContext: (m) => {
     const s = activeSession();
     if (m.id != null && s)
-      api.patch(`/sessions/${s.id}/messages/${m.id}`, { in_context: m.inContext }).catch(() => {});
+      api
+        .patch(`/sessions/${s.id}/messages/${m.id}`, { in_context: m.inContext })
+        .then((updated) => applyLocalMessage(updated))
+        .catch(() => {});
   },
   onDelete: async (m) => {
     const ok = await confirmModal({ title: "Nachricht löschen", text: "Diese Nachricht löschen?" });
     if (!ok) return;
     const s = activeSession();
-    if (m.id != null && s) await api.del(`/sessions/${s.id}/messages/${m.id}`).catch(() => {});
+    if (m.id != null && s) {
+      try {
+        await api.del(`/sessions/${s.id}/messages/${m.id}`);
+        removeLocalMessage(m.id);
+      } catch {}
+    }
     changed();
   },
   onResend: (m) => {
@@ -287,6 +320,8 @@ export async function pollOnce() {
       try {
         const detail = await api.get(`/sessions/${s.id}`);
         const msgs = normalizeMessages(detail.messages);
+        state.messages = msgs;
+        state.messagesSid = s.id;
         if (JSON.stringify(msgs) !== JSON.stringify(lastMessages)) renderChat(msgs);
       } catch {}
     }
@@ -310,7 +345,8 @@ export function stopPolling() {
 }
 
 export async function send() {
-  if (state.streaming) {
+  // auch serverseitig laufendes generating (z. B. nach Reload) zeigt Abbrechen statt Senden
+  if (state.streaming || activeSession()?.generating) {
     abortStream();
     return;
   }
@@ -325,13 +361,14 @@ export async function send() {
     s = activeSession();
   }
   const attachments = await uploadPendingAttachments(s.id);
-  await api.post(`/sessions/${s.id}/messages`, {
+  const created = await api.post(`/sessions/${s.id}/messages`, {
     role: "user",
     type: "message",
     text,
     in_context: true,
     attachments,
   });
+  applyLocalMessage(created);
   await loadSessions();
   input.value = "";
   input.style.height = "auto";

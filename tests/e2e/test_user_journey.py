@@ -7,6 +7,8 @@ from __future__ import annotations
 
 import json
 import re
+import time
+import urllib.request
 
 import httpx
 import pytest
@@ -38,6 +40,8 @@ T = {
     "logout_btn": '[data-testid="logout-btn"]',
     "settings_overlay": '[data-testid="settings-overlay"]',
     "set_show_system": '[data-testid="set-show-system"]',
+    "set_show_tool": '[data-testid="set-show-tool"]',
+    "set_show_reasoning": '[data-testid="set-show-reasoning"]',
     "set_save": '[data-testid="set-save"]',
     "confirm_overlay": '[data-testid="confirm-overlay"]',
     "confirm_ok": '[data-testid="confirm-ok"]',
@@ -465,6 +469,85 @@ def test_toolcall_and_toolresult_bubbles_are_collapsed_by_default(page, base_url
     assert order == ["user:message", "assistant:reasoning", "assistant:toolcall", "assistant:toolresult", "assistant:message"], order
 
 
+def test_show_tool_output_and_reasoning_toggles_redraw_chat(page, base_url, llm_expect):
+    """Einstellungen 'Tool-Ausgabe anzeigen'/'Reasoning anzeigen': Abwahlen + Speichern zeichnet
+    den Chat sofort neu (Tool- bzw. Reasoning-Bubbles verschwinden aus dem Canvas); serverseitig
+    persistiert und nach Reload weiterhin wirksam, erneutes Aktivieren holt die Bubbles zurueck."""
+    email = "visibility-toggle-user@example.com"
+    api_client = _register_client(base_url, email, "Geheim-123")
+    _login(page, base_url, email, "Geheim-123")
+    _open_panel(page)
+    page.click(T["new_session"])
+    page.wait_for_selector(f'{T["session_tile"]}.active')
+
+    # Mock-LLM streamt reasoning, toolcall, toolresult und message
+    page.fill(T["chat_input"], "Wetter in Berlin?")
+    page.click(T["send_btn"])
+    for type_ in ("reasoning", "toolcall", "toolresult"):
+        page.wait_for_function(
+            f'() => document.querySelectorAll(\'[data-testid="chat"] .bubble[data-type="{type_}"]\').length === 1',
+            timeout=llm_expect["timeout_ms"],
+        )
+    page.wait_for_function(
+        '() => !document.querySelector(\'[data-testid="send-btn"]\').classList.contains("abort")',
+        timeout=llm_expect["timeout_ms"],
+    )
+
+    def chat_count(type_):
+        return page.locator(f'{T["chat"]} .bubble[data-type="{type_}"]').count()
+
+    def set_bool_setting(testid, checked):
+        page.click(T["burger_btn"])
+        page.click(T["settings_btn"])
+        page.wait_for_selector(f'{T["settings_overlay"]}.open')
+        (page.check if checked else page.uncheck)(testid)
+        page.click(T["set_save"])
+        page.wait_for_selector(f'{T["settings_overlay"]}:not(.open)', state="attached")
+
+    # 'Tool-Ausgabe anzeigen' abwahlen -> Toolcall/Toolresult-Bubbles muessen sofort verschwinden
+    set_bool_setting(T["set_show_tool"], False)
+    page.wait_for_function(
+        '() => document.querySelectorAll(\'[data-testid="chat"] .bubble[data-type="toolcall"]\').length === 0'
+        ' && document.querySelectorAll(\'[data-testid="chat"] .bubble[data-type="toolresult"]\').length === 0',
+        timeout=llm_expect["timeout_ms"],
+    )
+    assert chat_count("reasoning") == 1
+    assert chat_count("message") == 2  # User- + Assistant-Message
+    assert api_client.get("/api/settings").json()["show_tool_output"] is False
+
+    # Wieder aktivieren -> Tool-Bubbles erscheinen wieder
+    set_bool_setting(T["set_show_tool"], True)
+    page.wait_for_function(
+        '() => document.querySelectorAll(\'[data-testid="chat"] .bubble[data-type="toolcall"]\').length === 1'
+        ' && document.querySelectorAll(\'[data-testid="chat"] .bubble[data-type="toolresult"]\').length === 1',
+        timeout=llm_expect["timeout_ms"],
+    )
+
+    # 'Reasoning anzeigen' abwahlen -> Reasoning-Bubble verschwindet, Tool-Bubbles bleiben
+    set_bool_setting(T["set_show_reasoning"], False)
+    page.wait_for_function(
+        '() => document.querySelectorAll(\'[data-testid="chat"] .bubble[data-type="reasoning"]\').length === 0',
+        timeout=llm_expect["timeout_ms"],
+    )
+    assert chat_count("toolcall") == 1
+    assert chat_count("toolresult") == 1
+    assert api_client.get("/api/settings").json()["show_reasoning"] is False
+
+    # Nach Reload: serverseitig gespeichert, Reasoning bleibt ausgeblendet, Tool wieder sichtbar
+    page.reload()
+    page.wait_for_selector(f'{T["session_tile"]}.active')
+    page.wait_for_function(
+        '() => document.querySelectorAll(\'[data-testid="chat"] .bubble[data-type="message"]\').length === 2',
+        timeout=llm_expect["timeout_ms"],
+    )
+    assert chat_count("reasoning") == 0
+    assert chat_count("toolcall") == 1
+    assert chat_count("toolresult") == 1
+    settings = api_client.get("/api/settings").json()
+    assert settings["show_tool_output"] is True
+    assert settings["show_reasoning"] is False
+
+
 def test_double_reasoning_toolcall_cycle_renders_each_block_separately_in_order(page, base_url, llm_expect, server_data_dir):
     """LLM antwortet in einem Stream mit Reasoning -> Toolcall -> Toolresult -> Message, dann
     nochmals Reasoning -> Toolcall -> Toolresult -> Message. Erwartet: je 2 Bubbles pro Typ,
@@ -583,18 +666,20 @@ def test_session_db_updated_immediately_when_user_message_sent(page, base_url, l
     assert session2[2] >= session1[2]
 
 
-def test_bubble_width_resizable_and_persisted(page, base_url, llm_expect):
-    """Bubbles haben einen Drag-Griff zum Aendern der Breite; die Breite wird
-    pro Message persistiert. Ausserdem: Kontext-Checkbox auch in Assistant-Bubbles."""
-    email = "resize-user@example.com"
+def test_bubble_collapse_button_only_in_full_mode(page, base_url, llm_expect):
+    """Kein Resize-Griff mehr; im Modus 'full' sitzt unten rechts in der Bubble ein
+    Einklapp-Button, der auf 'collapsed' wechselt. Ausserdem: Kontext-Checkbox auch
+    in Assistant-Bubbles."""
+    if llm_expect["default"] is None:
+        pytest.skip("braucht den Mock-LLM (lange 'lang'-Antwort)")
+    email = "collapse-user@example.com"
     _register_client(base_url, email, "Geheim-123")
     _login(page, base_url, email, "Geheim-123")
     _open_panel(page)
     page.click(T["new_session"])
     page.wait_for_selector(f'{T["session_tile"]}.active')
 
-    long_text = "Hallo, das ist eine deutlich laengere Nachricht, damit die Bubble breit genug zum Ziehen ist"
-    page.fill(T["chat_input"], long_text)
+    page.fill(T["chat_input"], "lang")
     page.click(T["send_btn"])
     page.wait_for_function(
         "() => document.querySelectorAll('[data-testid=\"chat\"] .bubble[data-role=\"assistant\"][data-type=\"message\"]').length === 1"
@@ -607,25 +692,29 @@ def test_bubble_width_resizable_and_persisted(page, base_url, llm_expect):
     ai_bubble = page.locator(_bubble("assistant", "message")).first
     assert ai_bubble.locator('[data-testid="bubble-context-chk"]').is_visible()
 
-    # Breite per Drag am Griff aendern (User-Bubble ist rechtsbuendig -> nach links ziehen)
-    user_bubble = page.locator(_bubble("user")).first
-    w0 = user_bubble.bounding_box()["width"]
-    handle = user_bubble.locator('[data-testid="bubble-resize-handle"]')
-    hb = handle.bounding_box()
-    page.mouse.move(hb["x"] + hb["width"] / 2, hb["y"] + hb["height"] / 2)
-    page.mouse.down()
-    page.mouse.move(hb["x"] + hb["width"] / 2 - 200, hb["y"] + hb["height"] / 2, steps=10)
-    page.mouse.up()
-    page.wait_for_timeout(300)
-    w1 = user_bubble.bounding_box()["width"]
-    assert w1 < w0, f"Bubble sollte nach dem Drag schmaler sein ({w0} -> {w1})"
+    # Resize-Griff ist komplett entfernt
+    assert page.locator('[data-testid="bubble-resize-handle"]').count() == 0
 
-    # Breite bleibt nach Reload erhalten (sessionStorage pro Message-id)
-    page.reload()
-    page.wait_for_selector(_bubble("user"), timeout=llm_expect["timeout_ms"])
-    page.wait_for_timeout(500)
-    w2 = page.locator(_bubble("user")).first.bounding_box()["width"]
-    assert abs(w2 - w1) < 5, f"Breite nach Reload soll erhalten bleiben ({w1} vs {w2})"
+    bubble = ai_bubble
+    collapse_btn = bubble.locator('[data-testid="bubble-collapse-btn"]')
+    toggle = bubble.locator('[data-testid="bubble-toggle-btn"]')
+
+    # normal: Einklapp-Button nicht sichtbar
+    assert bubble.get_attribute("data-mode") == "normal"
+    assert not collapse_btn.is_visible()
+
+    toggle.click()  # -> full
+    page.wait_for_function(
+        f"() => document.querySelector('{_bubble('assistant', 'message')}').getAttribute('data-mode') === 'full'"
+    )
+    assert collapse_btn.is_visible()
+
+    # Einklapp-Button unten rechts klappt direkt auf collapsed zurueck
+    collapse_btn.click()
+    page.wait_for_function(
+        f"() => document.querySelector('{_bubble('assistant', 'message')}').getAttribute('data-mode') === 'collapsed'"
+    )
+    assert not collapse_btn.is_visible()
 
 
 def test_startup_side_panel_collapsed_and_new_session_on_first_start(page, base_url, llm_expect):
@@ -766,6 +855,18 @@ def _new_named_session(page, api_client):
     return api_client.get("/api/sessions").json()[0]["id"]
 
 
+def _llm_clear(port):
+    """Leert die Request-Aufzeichnung des Mock-LLM (POST /received/clear)."""
+    req = urllib.request.Request(f"http://127.0.0.1:{port}/received/clear", method="POST", data=b"")
+    urllib.request.urlopen(req, timeout=5).read()
+
+
+def _llm_received(port):
+    """Alle vom Mock-LLM aufgezeichneten POST /chat/completions-Bodies (GET /received)."""
+    with urllib.request.urlopen(f"http://127.0.0.1:{port}/received", timeout=5) as res:
+        return json.loads(res.read().decode())
+
+
 def test_abort_preserves_partial_output(page, base_url, llm_expect, server_data_dir):
     """Abbruch waehrend des Streams (Mock-LLM 'langsam'): Teilausgabe bleibt in UI und DB."""
     if llm_expect["default"] is None:
@@ -868,6 +969,170 @@ def test_context_checkbox_persisted_across_reload(page, base_url, llm_expect):
     page.reload()
     page.wait_for_selector(_bubble("user"), timeout=llm_expect["timeout_ms"])
     assert not page.locator(_bubble("user")).first.locator('[data-testid="bubble-context-chk"]').is_checked()
+
+
+def test_context_checkbox_excludes_unselected_from_llm_request(page, base_url, llm_expect, mock_llm_port):
+    """Kontext-Checkbox abwaehlen (User-Message, Assistant-Message, Toolcall, Toolresult):
+    abwaehlte Nachrichten duerfen im naechsten LLM-Request nicht mehr vorkommen. Der Mock-LLM
+    zeichnet die Request-Bodies auf (GET /received) - gegen ein echtes LLM nicht testbar."""
+    if mock_llm_port is None:
+        pytest.skip("Request-Aufzeichnung nur beim Mock-LLM (Real-LLM-Lauf aktiv)")
+    email = "ctx-llm-user@example.com"
+    api_client = _register_client(base_url, email, "Geheim-123")
+    _login(page, base_url, email, "Geheim-123")
+    sid = _new_named_session(page, api_client)
+
+    _llm_clear(mock_llm_port)
+    # Erste Runde: Mock-Default streamt reasoning + toolcall + toolresult + message
+    _chat_once(page, "Erste Frage", 1, llm_expect["default"], llm_expect["timeout_ms"])
+
+    # User-Message, Assistant-Message, Toolcall und Toolresult abwaehlen (eigenstaendige ids/Checkboxen)
+    for role, type_ in [("user", "message"), ("assistant", "message"), ("assistant", "toolcall"), ("assistant", "toolresult")]:
+        chk = page.locator(_bubble(role, type_)).first.locator('[data-testid="bubble-context-chk"]')
+        assert chk.is_checked(), f"Checkbox {role}/{type_} soll initial aktiv sein"
+        chk.uncheck()
+
+    # PATCH ist clientseitig fire-and-forget -> auf serverseitige Persistenz warten
+    deadline = time.time() + 10
+    while time.time() < deadline:
+        msgs = api_client.get(f"/api/sessions/{sid}").json()["messages"]
+        if all(m["in_context"] is False for m in msgs if m["type"] != "reasoning"):
+            break
+        time.sleep(0.2)
+    else:
+        raise AssertionError("in_context=false wurde nicht serverseitig persistiert")
+
+    # Zweite Runde: der naechste LLM-Request darf nur noch die neue User-Message enthalten
+    _chat_once(page, "Zweite Frage", 2, llm_expect["default"], llm_expect["timeout_ms"])
+    wire = _llm_received(mock_llm_port)[-1]["messages"]
+    assert wire == [{"role": "user", "content": "Zweite Frage"}], wire
+    joined = json.dumps(wire)
+    for absent in ("Erste Frage", "Hallo Welt", "get_weather", "Z1"):
+        assert absent not in joined
+
+
+def test_delete_message_via_ui_persists_server_side_and_across_reload(page, base_url, llm_expect, server_data_dir):
+    """Nachricht per Muellimer loeschen: Bubble sofort weg, serverseitig geloescht (API und
+    per-user DB) und nach Reload weiterhin weg."""
+    email = "del-user@example.com"
+    api_client = _register_client(base_url, email, "Geheim-123")
+    _login(page, base_url, email, "Geheim-123")
+    sid = _new_named_session(page, api_client)
+    _chat_once(page, "Loesch mich", 1, llm_expect["default"], llm_expect["timeout_ms"])
+
+    page.locator(_bubble("user")).first.locator('[data-testid="bubble-delete-btn"]').click()
+    _confirm_delete(page)
+    page.wait_for_function(
+        "() => document.querySelectorAll('[data-testid=\"chat\"] .bubble[data-role=\"user\"]').length === 0",
+        timeout=llm_expect["timeout_ms"],
+    )
+
+    def _no_user_msg():
+        msgs = api_client.get(f"/api/sessions/{sid}").json()["messages"]
+        return not any(m["role"] == "user" for m in msgs)
+
+    # DELETE wird im Client awaited -> nur noch auf serverseitige Persistenz warten
+    deadline = time.time() + 10
+    while time.time() < deadline and not _no_user_msg():
+        time.sleep(0.2)
+    assert _no_user_msg(), "DELETE muss serverseitig persistiert sein"
+
+    _, db_msgs = _db_session_state(server_data_dir, email, sid)
+    assert not any(r == "user" for r, _, _ in db_msgs), "per-user DB darf die Nachricht nicht mehr enthalten"
+
+    page.reload()
+    page.wait_for_selector(_bubble("assistant", "message"), timeout=llm_expect["timeout_ms"])
+    assert page.locator(_bubble("user")).count() == 0
+    assert _no_user_msg()
+
+
+def test_deleted_messages_excluded_from_llm_request(page, base_url, llm_expect, mock_llm_port):
+    """Geloeschte Nachrichten (User-Message + Assistant-Message) duerfen im naechsten LLM-Request
+    nicht mehr vorkommen; das Toolcall/Toolresult-Paar und die neue Nachricht bleiben erhalten."""
+    if mock_llm_port is None:
+        pytest.skip("Request-Aufzeichnung nur beim Mock-LLM (Real-LLM-Lauf aktiv)")
+    email = "del-llm-user@example.com"
+    api_client = _register_client(base_url, email, "Geheim-123")
+    _login(page, base_url, email, "Geheim-123")
+    sid = _new_named_session(page, api_client)
+
+    _llm_clear(mock_llm_port)
+    _chat_once(page, "Erste Frage", 1, llm_expect["default"], llm_expect["timeout_ms"])
+
+    # User-Message und Assistant-Message per UI loeschen
+    for role, type_ in [("user", "message"), ("assistant", "message")]:
+        page.locator(_bubble(role, type_)).first.locator('[data-testid="bubble-delete-btn"]').click()
+        _confirm_delete(page)
+
+    deadline = time.time() + 10
+    while time.time() < deadline:
+        msgs = api_client.get(f"/api/sessions/{sid}").json()["messages"]
+        if not any(m["role"] == "user" or (m["role"] == "assistant" and m["type"] == "message") for m in msgs):
+            break
+        time.sleep(0.2)
+    else:
+        raise AssertionError("DELETE wurde nicht serverseitig persistiert")
+
+    # Zweite Runde senden (User-Bubbles 0 -> 1, Assistant-Messages 0 -> 1)
+    page.fill(T["chat_input"], "Zweite Frage")
+    page.click(T["send_btn"])
+    page.wait_for_function(
+        "() => document.querySelectorAll('[data-testid=\"chat\"] .bubble[data-role=\"user\"]').length === 1"
+        " && document.querySelectorAll('[data-testid=\"chat\"] .bubble[data-role=\"assistant\"][data-type=\"message\"]').length === 1"
+        " && !document.querySelector('[data-testid=\"send-btn\"]').classList.contains('abort')",
+        timeout=llm_expect["timeout_ms"],
+    )
+
+    wire = _llm_received(mock_llm_port)[-1]["messages"]
+    joined = json.dumps(wire)
+    assert "Zweite Frage" in joined
+    assert "Erste Frage" not in joined, "geloeschte User-Message darf nicht im LLM-Request stehen"
+    assert "Hallo Welt" not in joined, "geloeschte Assistant-Message darf nicht im LLM-Request stehen"
+    # nicht geloeschtes Toolcall/Toolresult-Paar der ersten Runde bleibt im Request erhalten
+    assert any(m.get("tool_calls") for m in wire)
+    assert any(m.get("role") == "tool" for m in wire)
+
+
+def test_reload_during_generation_shows_abort_and_cancel_clears_flag(page, base_url, llm_expect, mock_llm_port):
+    """Reload mitten in der Generierung (Mock-LLM 'langsam'): Abbrechen-Button statt Senden-Button
+    muss sichtbar sein (send-btn traegt die Klasse 'abort'); Abbrechen setzt serverseitig generating=0."""
+    if mock_llm_port is None:
+        pytest.skip("langsamer Stream nur beim Mock-LLM (Real-LLM-Lauf aktiv)")
+    email = "reload-abort-user@example.com"
+    api_client = _register_client(base_url, email, "Geheim-123")
+    _login(page, base_url, email, "Geheim-123")
+    sid = _new_named_session(page, api_client)
+
+    page.fill(T["chat_input"], "langsam bitte")
+    page.click(T["send_btn"])
+    page.wait_for_function(
+        "() => document.querySelector('[data-testid=\"send-btn\"]').classList.contains('abort')",
+        timeout=llm_expect["timeout_ms"],
+    )
+    assert api_client.get(f"/api/sessions/{sid}").json()["generating"] is True
+
+    # Reload mitten im Stream: Generierung laeuft serverseitig weiter, Abbrechen statt Senden sichtbar
+    page.reload()
+    page.wait_for_selector(T["chat_input"], timeout=llm_expect["timeout_ms"])
+    page.wait_for_function(
+        "() => document.querySelector('[data-testid=\"send-btn\"]').classList.contains('abort')",
+        timeout=llm_expect["timeout_ms"],
+    )
+    assert page.locator('[data-testid="progress"]').is_visible()
+    _open_panel(page)
+    assert page.locator('[data-testid="abort-side-btn"]').is_visible()
+    assert api_client.get(f"/api/sessions/{sid}").json()["generating"] is True
+
+    # Abbrechen (send-btn ist im Abort-Modus) -> generating=0 serverseitig
+    page.click(T["send_btn"])
+    page.wait_for_function(
+        "() => !document.querySelector('[data-testid=\"send-btn\"]').classList.contains('abort')",
+        timeout=llm_expect["timeout_ms"],
+    )
+    deadline = time.time() + 10
+    while time.time() < deadline and api_client.get(f"/api/sessions/{sid}").json()["generating"]:
+        time.sleep(0.2)
+    assert api_client.get(f"/api/sessions/{sid}").json()["generating"] is False
 
 
 def test_theme_setting_persists_across_reload(page, base_url, llm_expect):
