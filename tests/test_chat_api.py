@@ -6,6 +6,7 @@ import time
 
 import httpx
 
+from app.auth import user_identity
 from app.db import database as dbq
 from app.services import generation
 
@@ -189,6 +190,37 @@ def test_chat_abort_endpoint(client, auth_headers, monkeypatch):
 def test_chat_abort_unknown_session_404(client, auth_headers):
     res = client.post("/api/chat/abort", json={"session_id": "nope"}, headers=auth_headers)
     assert res.status_code == 404
+
+
+def test_chat_abort_clears_stale_generating_flag(client, app, auth_headers, monkeypatch):
+    """Verwaistes generating=1 ohne laufende Task (z. B. Server-Neustart mitten in der
+    Generierung): Abort setzt das Flag auf 0, sonst pollt der Client endlos. Der verworfene
+    Abort-Request darf eine spaetere Generierung derselben Session nicht sofort abbrechen."""
+    sid = _new_session(client, auth_headers)
+    _post_user_message(client, auth_headers, sid)
+    user = user_identity("test-secret", "alice@example.com")
+    with app.state.db.user_db(user) as con:
+        dbq.q_set_generating(con, sid, True)
+    assert client.get(f"/api/sessions/{sid}", headers=auth_headers).json()["generating"] is True
+    assert generation._running == set()
+
+    res = client.post("/api/chat/abort", json={"session_id": sid}, headers=auth_headers)
+    assert res.status_code == 200
+    assert client.get(f"/api/sessions/{sid}", headers=auth_headers).json()["generating"] is False
+    assert generation._abort_requested == set()
+
+    # neue Generierung derselben Session laeuft normal durch (kein verwaister Abort-Request)
+    _mock_llm(monkeypatch)
+    assert _start_chat(client, auth_headers, sid).status_code == 202
+    detail = _wait_generation(client, auth_headers, sid)
+    assert any(m["text"] == "Hallo Welt" for m in detail["messages"])
+
+
+def test_chat_abort_without_generating_keeps_flag_zero(client, auth_headers):
+    sid = _new_session(client, auth_headers)
+    res = client.post("/api/chat/abort", json={"session_id": sid}, headers=auth_headers)
+    assert res.status_code == 200
+    assert client.get(f"/api/sessions/{sid}", headers=auth_headers).json()["generating"] is False
 
 
 def test_chat_abort_cancels_stalled_upstream_stream(client, auth_headers, monkeypatch):

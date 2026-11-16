@@ -6,12 +6,30 @@ Antwortet auf ``POST /v1/chat/completions`` mit einem SSE-Stream. Standard-Antwo
 Trigger im Text der letzten User-Message: "doppelzyklus" (zwei volle
 Reasoning/Toolcall/Toolresult/Message-Zyklen in einem Stream), "langsam" (Abbruch-Test),
 "lang" (lange Antwort), "oneline" (eine lange Zeile), Dateiinhalt -> Datei-Antwort.
+
+Ausserdem zeichnet der Mock jeden Request-Body auf: ``GET /received`` liefert die Liste aller
+aufgezeichneten ``POST /chat/completions``-Bodies (JSON), ``POST /received/clear`` leert sie -
+fuer e2e-Assertions auf den an das LLM gesendeten Kontext.
 """
 
 from __future__ import annotations
 
 import asyncio
 import json
+
+# Aufgezeichnete Request-Bodies (nur /chat/completions), siehe GET /received
+_received: list[dict] = []
+
+
+async def _json_response(send, payload: bytes, status: int = 200) -> None:
+    await send(
+        {
+            "type": "http.response.start",
+            "status": status,
+            "headers": [(b"content-type", b"application/json")],
+        }
+    )
+    await send({"type": "http.response.body", "body": payload, "more_body": False})
 
 
 async def app(scope, receive, send):
@@ -25,7 +43,20 @@ async def app(scope, receive, send):
         if not message.get("more_body"):
             break
 
+    if scope["method"] == "GET" and scope["path"] == "/received":
+        await _json_response(send, json.dumps(_received).encode())
+        return
+    if scope["method"] == "POST" and scope["path"] == "/received/clear":
+        _received.clear()
+        await _json_response(send, b'{"ok":true}')
+        return
+
     if scope["path"].endswith("/chat/completions"):
+        try:
+            req = json.loads(body)
+        except Exception:
+            req = {}
+        _received.append(req)
         await send(
             {
                 "type": "http.response.start",
@@ -36,17 +67,12 @@ async def app(scope, receive, send):
                 ],
             }
         )
-        try:
-            req = json.loads(body)
-            last = req.get("messages", [])[-1] if req.get("messages") else {}
-            content = last.get("content", "")
-            if isinstance(content, list):
-                content = " ".join(str(p.get("text", "")) for p in content)
-            file_read = "Krokodil-Ledertasche" in str(content)
-            lorem_read = "Lorem ipsum dolor sit amet" in str(content)
-        except Exception:
-            file_read = False
-            lorem_read = False
+        last = req.get("messages", [])[-1] if req.get("messages") else {}
+        content = last.get("content", "")
+        if isinstance(content, list):
+            content = " ".join(str(p.get("text", "")) for p in content)
+        file_read = "Krokodil-Ledertasche" in str(content)
+        lorem_read = "Lorem ipsum dolor sit amet" in str(content)
         if file_read:
             # Der Datei-Anhang der letzten Nachricht wurde als Text mitgeschickt:
             # das LLM "liest" ihn und antwortet mit dem geheimen Wort.

@@ -37,6 +37,15 @@ def request_abort(user: dict, sid: str) -> bool:
     return False
 
 
+def forget_abort_if_idle(user: dict, sid: str) -> None:
+    """Abort-Request verwerfen, wenn keine Task laeuft (verwaistes generating-Flag nach
+    Server-Neustart): eine spaeter gestartete Generierung derselben Session darf nicht
+    durch den alten Request sofort abbrechen."""
+    key = _key(user, sid)
+    if key not in _running:
+        _abort_requested.discard(key)
+
+
 def is_running(user: dict, sid: str) -> bool:
     return _key(user, sid) in _running
 
