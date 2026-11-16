@@ -867,8 +867,9 @@ def _llm_received(port):
         return json.loads(res.read().decode())
 
 
-def test_abort_preserves_partial_output(page, base_url, llm_expect, server_data_dir):
-    """Abbruch waehrend des Streams (Mock-LLM 'langsam'): Teilausgabe bleibt in UI und DB."""
+def test_abort_discards_inflight_block(page, base_url, llm_expect, server_data_dir):
+    """Abbruch waehrend des Streams (Mock-LLM 'langsam'): der offene (in-flight) Block wird
+    verworfen und landet nicht in UI/DB; kein Fehler-System-Message; generating=0."""
     if llm_expect["default"] is None:
         pytest.skip("Abbruch-Test braucht den Mock-LLM (langsame Antwort)")
     email = "abort-user@example.com"
@@ -878,13 +879,6 @@ def test_abort_preserves_partial_output(page, base_url, llm_expect, server_data_
 
     page.fill(T["chat_input"], "langsam bitte")
     page.click(T["send_btn"])
-
-    # Teilausgabe erscheint dank periodischem Flush (~0.25 s) ohne weiteren Chunk
-    page.wait_for_function(
-        """() => [...document.querySelectorAll('[data-testid="chat"] .bubble[data-role="assistant"][data-type="message"]')]
-              .some(b => b.querySelector('[data-testid="bubble-body"]').textContent.includes('Teil A'))""",
-        timeout=llm_expect["timeout_ms"],
-    )
     # Abbrechen, solange der zweite Mock-Chunk (10 s Pause) noch nicht da ist
     page.wait_for_function(
         "() => document.querySelector('[data-testid=\"send-btn\"]').classList.contains('abort')",
@@ -898,14 +892,13 @@ def test_abort_preserves_partial_output(page, base_url, llm_expect, server_data_
     # Sicherstellen, dass "Teil B" nicht mehr nachgereicht wird
     page.wait_for_timeout(3000)
 
-    body = page.locator(_bubble("assistant", "message")).first.locator('[data-testid="bubble-body"]').inner_text()
-    assert "Teil A" in body
-    assert "Teil B" not in body
+    # offener Message-Block ("Teil A ") wurde verworfen: keine Assistant-Bubble in der UI
+    assert page.locator(_bubble("assistant", "message")).count() == 0
 
     _, messages = _db_session_state(server_data_dir, email, sid)
-    texts = [(r, t, x) for r, t, x in messages]
-    assert ("assistant", "message", "Teil A ") in texts
-    assert not any(r == "system" for r, _, _ in texts), "Abbruch darf keine Fehlermeldung erzeugen"
+    assert not any(r == "assistant" for r, _, _ in messages), "in-flight Block darf nicht persistiert werden"
+    assert not any(r == "system" for r, _, _ in messages), "Abbruch darf keine Fehlermeldung erzeugen"
+    assert api_client.get(f"/api/sessions/{sid}").json()["generating"] is False
 
 
 def test_rename_empty_keeps_name_and_escape_cancels(page, base_url, llm_expect):

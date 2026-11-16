@@ -224,14 +224,16 @@ def test_chat_abort_without_generating_keeps_flag_zero(client, auth_headers):
 
 
 def test_chat_abort_cancels_stalled_upstream_stream(client, auth_headers, monkeypatch):
-    """Abort muss auch wirken, wenn das LLM (noch) keine Chunks liefert: der
-    haengende Upstream-Read wird gecancelt, die Teilausgabe bleibt erhalten."""
+    """Abort muss auch wirken, wenn das LLM (noch) keine Chunks liefert: der haengende
+    Upstream-Read wird gecancelt. Bereits abgeschlossene Bloecke bleiben persistiert,
+    der offene (in-flight) Block wird verworfen."""
     pause_s = 30.0
 
     async def handler(request: httpx.Request) -> httpx.Response:
         async def body():
-            yield b'data: {"choices":[{"delta":{"content":"Teil A "}}]}\n\n'
-            await asyncio.sleep(pause_s)
+            yield b'data: {"choices":[{"delta":{"reasoning_content":"denke"}}]}\n\n'
+            yield b'data: {"choices":[{"delta":{"content":"Teil A "}}]}\n\n'  # schliesst reasoning-Block
+            await asyncio.sleep(pause_s)  # haengender Read: message-Block bleibt offen
             yield b'data: {"choices":[{"delta":{"content":"Teil B"}}]}\n\n'
             yield b"data: [DONE]\n\n"
 
@@ -246,14 +248,16 @@ def test_chat_abort_cancels_stalled_upstream_stream(client, auth_headers, monkey
     _post_user_message(client, auth_headers, sid, "langsam")
     assert _start_chat(client, auth_headers, sid).status_code == 202
 
+    # warten, bis der reasoning-Block abgeschlossen und persistiert ist (message-Block offen)
     deadline = time.time() + 5
     while time.time() < deadline:
         detail = client.get(f"/api/sessions/{sid}", headers=auth_headers).json()
-        if any(m["text"] == "Teil A " for m in detail["messages"]):
+        if detail["generating"] and any(m["type"] == "reasoning" for m in detail["messages"]):
             break
         time.sleep(0.05)
     assert detail["generating"] is True
-    assert any(m["text"] == "Teil A " for m in detail["messages"])
+    assert any(m["text"] == "denke" for m in detail["messages"])
+    assert not any(m["type"] == "message" and m["role"] == "assistant" for m in detail["messages"])
 
     t0 = time.time()
     res = client.post("/api/chat/abort", json={"session_id": sid}, headers=auth_headers)
@@ -261,8 +265,8 @@ def test_chat_abort_cancels_stalled_upstream_stream(client, auth_headers, monkey
     detail = _wait_generation(client, auth_headers, sid, timeout=5)
     assert time.time() - t0 < pause_s  # Abort wirkt sofort, nicht erst nach der Pause
     texts = [m["text"] for m in detail["messages"]]
-    assert "Teil A " in texts
-    assert not any("Teil B" in t for t in texts)
+    assert "denke" in texts  # abgeschlossener Block bleibt erhalten
+    assert not any("Teil A" in t or "Teil B" in t for t in texts)  # in-flight Block verworfen
     assert not any(m["role"] == "system" for m in detail["messages"]), "Abbruch darf keine Fehlermeldung erzeugen"
     assert generation._running == set()
     assert generation._abort_events == {}
