@@ -10,73 +10,15 @@ const typeLabels = { message: "", toolcall: "Tool-Call", toolresult: "Tool-Resul
 
 let tmpBubbleSeq = 0;
 
-const MIN_BUBBLE_WIDTH = 260;
-const _ss = typeof sessionStorage !== "undefined" ? sessionStorage : null;
-
-function _widthKey(id) {
-  return `leanchat.bubblew-${id}`;
-}
-
-function _widthCap(b) {
-  // nie breiter als die CSS-Maximalbreite der Rolle (z. B. system 88%)
-  // und nie breiter als das Chat-Fenster
-  const chat = document.getElementById("chat");
-  const chatW = chat ? chat.getBoundingClientRect().width : 0;
-  const cssMax = getComputedStyle(b).maxWidth;
-  let cap = chatW > 0 ? chatW * 0.95 : Infinity;
-  if (cssMax.endsWith("%")) cap = Math.min(cap, chatW > 0 ? (parseFloat(cssMax) / 100) * chatW : Infinity);
-  else if (cssMax && cssMax !== "none") cap = Math.min(cap, parseFloat(cssMax));
-  return cap;
-}
-
-function _applySavedWidth(b, m) {
-  if (m.id == null || !_ss) return;
-  const w = parseInt(_ss.getItem(_widthKey(m.id)), 10);
-  if (w <= 0) return;
-  b.style.maxWidth = `${w}px`;
-  // im naechsten Frame (Element attached) gegen Rollen-CSS-Maxbreite clampen
-  requestAnimationFrame(() => {
-    if (b.isConnected) b.style.maxWidth = `${Math.min(w, _widthCap(b))}px`;
-  });
-}
-
-function _makeResizable(b, m) {
-  const handle = document.createElement("div");
-  handle.className = "resizeHandle";
-  handle.dataset.testid = "bubble-resize-handle";
-  handle.title = "Breite per Drag anpassen";
-  b.appendChild(handle);
-  handle.addEventListener("pointerdown", (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    handle.setPointerCapture(e.pointerId);
-    handle.classList.add("dragging");
-    const startX = e.clientX;
-    const startW = b.getBoundingClientRect().width;
-    // Griff sitzt unten rechts: Drag nach rechts = breiter, nach links = schmaler
-    const maxW = _widthCap(b);
-    const onMove = (ev) => {
-      const w = Math.min(Math.max(startW + (ev.clientX - startX), MIN_BUBBLE_WIDTH), maxW);
-      b.style.maxWidth = `${Math.round(w)}px`;
-    };
-    const onUp = (ev) => {
-      handle.removeEventListener("pointermove", onMove);
-      handle.removeEventListener("pointerup", onUp);
-      handle.classList.remove("dragging");
-      onMove(ev);
-      if (m.id != null && _ss) _ss.setItem(_widthKey(m.id), b.style.maxWidth);
-    };
-    handle.addEventListener("pointermove", onMove);
-    handle.addEventListener("pointerup", onUp);
-  });
-}
-
 export function setBubbleMode(b, mode) {
   for (const m of BUBBLE_MODES) b.classList.remove(m);
   b.classList.add(mode);
   b.dataset.mode = mode;
   const chev = b.querySelector(".chev");
   if (chev) chev.title = bubbleModeTitle(mode);
+  // Einklapp-Button unten rechts nur im voll ausgeklappten Zustand anbieten
+  const collapseBtn = b.querySelector(".collapseBtn");
+  if (collapseBtn) collapseBtn.style.display = mode === "full" ? "" : "none";
   renderBubbleBody(b);
 }
 
@@ -200,8 +142,14 @@ export function bubbleEl(m, handlers = {}, opts = {}) {
   if (resendBtn) resendBtn.onclick = () => handlers.onResend?.(b._msg);
   const editBtn = b.querySelector(".editBtn");
   if (editBtn) editBtn.onclick = () => handlers.onEdit?.(b._msg, b);
-  _applySavedWidth(b, m);
-  _makeResizable(b, m);
+  const collapseBtn = document.createElement("button");
+  collapseBtn.className = "iconBtn collapseBtn";
+  collapseBtn.dataset.testid = "bubble-collapse-btn";
+  collapseBtn.title = "Einklappen";
+  collapseBtn.innerHTML = ICONS.chev;
+  collapseBtn.style.display = mode === "full" ? "" : "none";
+  collapseBtn.onclick = () => setBubbleMode(b, "collapsed");
+  b.appendChild(collapseBtn);
   const tts = b.querySelector(".ttsBtn");
   if (tts) wireTtsButton(b, tts);
   return b;
