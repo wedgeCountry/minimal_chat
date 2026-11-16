@@ -7,8 +7,10 @@ Zwei Daten:
   (siehe app/auth.py) und liegt bewusst getrennt von den App-Daten.
 - **Pro-User-Datenbank** (``<data_dir>/users/<uid>.db.enc``): Sessions,
   Messages und ``user_settings`` (Schema: ``schema.sql``), verschluesselt
-  mit einem Schluessel, der aus dem Server-Secret und der E-Mail abgeleitet
-  wird (``app/auth.py:user_identity``) - es gibt keine lokale User-Tabelle.
+  mit einem zufaelligen pro-User DEK, der nur gewrappt im Keystore liegt
+  (``app/db/keystore.py``) und erst beim Login mit dem Passwort des Users
+  serverseitig ausgepackt wird (``app/auth.py:user_identity``) - es gibt
+  keine lokale User-Tabelle.
 
 Zum Zugriff auf eine per-user DB wird die jeweilige Datei entschluesselt,
 in eine In-Memory-Datenbank geladen und nach dem Schreiben wieder
@@ -124,23 +126,9 @@ class Database:
             try:
                 if path.exists():
                     token = path.read_bytes()
-                    plain = None
-                    last_error: ValueError | None = None
-                    # Primaeren (Argon2id-)Schluessel versuchen, bei Bedarf den
-                    # Legacy-Schluessel (alte SHA-256-Ableitung): erfolgreiche
-                    # Migration wird beim naechsten Schreibzugriff mit dem
-                    # neuen Schluessel persistiert.
-                    for key_b64 in (user.get("key"), user.get("legacy_key")):
-                        if not key_b64:
-                            continue
-                        try:
-                            plain = crypto.decrypt(crypto.normalize_key(key_b64), token)
-                            break
-                        except ValueError as exc:
-                            last_error = exc
-                    if plain is None:
-                        raise last_error or ValueError("Entschluesselung fehlgeschlagen")
-                    con.deserialize(plain)
+                    # Schluessel aus user_identity (Argon2id ueber das Passwort); ohne
+                    # das Passwort des Users ist die Datei nicht entschluesselbar
+                    con.deserialize(crypto.decrypt(crypto.normalize_key(user["key"]), token))
                 con.executescript(_SCHEMA_SQL)
                 # Migration fuer bestehende DBs: generating-Spalte nachziehen
                 cols = {r[1] for r in con.execute("PRAGMA table_info(sessions)").fetchall()}

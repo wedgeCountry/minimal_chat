@@ -113,36 +113,19 @@ def test_wrong_key_cannot_decrypt(db):
             pass
 
 
-def test_user_identity_is_derived_from_secret_and_email():
+def test_user_identity_unwraps_dek_via_keystore_and_password(tmp_path):
     from app.auth import user_identity
+    from app.db.keystore import KeyStore
 
-    a = user_identity("secret-1", "Alice@Example.com")
-    b = user_identity("secret-1", "alice@example.com")
-    c = user_identity("secret-2", "alice@example.com")
-    assert a["uid"] == b["uid"] and a["key"] == b["key"]  # E-Mail case-insensitive, Ableitung deterministisch
-    assert a["uid"] == c["uid"] and a["key"] != c["key"]  # uid aus E-Mail, Schluessel aus Secret + E-Mail
+    ks = KeyStore(tmp_path / "keystore.db")
+    a = user_identity("Alice@Example.com", "pw-1", ks)
+    b = user_identity("alice@example.com", "pw-1", ks)
+    assert a["uid"] == b["uid"] and a["key"] == b["key"]  # E-Mail case-insensitive, gleicher DEK
     assert a["email"] == "alice@example.com"
     assert a["username"] == "alice"
     assert len(base64.urlsafe_b64decode(a["key"])) == 32
-
-
-def test_user_db_migrates_legacy_key_on_write(db):
-    """Mit der alten SHA-256-Ableitung verschluesselte DBs werden per Legacy-Fallback
-    gelesen und beim naechsten Schreibzugriff mit dem neuen Argon2id-Schluessel persistiert."""
-    from app.auth import legacy_key, user_identity
-
-    secret = "migrations-secret"
-    email = "migrate@example.com"
-    identity = user_identity(secret, email)
-    legacy_user = {"uid": identity["uid"], "email": email, "username": email, "key": legacy_key(secret, email)}
-    with db.user_db(legacy_user) as con:
-        s = q_create_session(con, "Alt")
-    with db.user_db(identity) as con:
-        assert q_get_session(con, s["id"])["name"] == "Alt"
-        q_set_user_setting(con, "theme", "dark")
-    token = (db.users_dir / f"{identity['uid']}.db.enc").read_bytes()
-    plain = crypto.decrypt(crypto.normalize_key(identity["key"]), token)
-    assert b"dark" in plain
+    with pytest.raises(ValueError):  # falsches Passwort bei vorhandenem Keystore-Eintrag
+        user_identity("alice@example.com", "pw-falsch", ks)
 
 
 def test_user_db_migrates_messages_type_check_for_toolresult(db):

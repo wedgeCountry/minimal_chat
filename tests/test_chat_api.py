@@ -9,6 +9,7 @@ import httpx
 from app.auth import user_identity
 from app.db import database as dbq
 from app.services import generation
+from tests.conftest import TEST_PASSWORD
 
 RealAsyncClient = httpx.AsyncClient
 
@@ -198,7 +199,7 @@ def test_chat_abort_clears_stale_generating_flag(client, app, auth_headers, monk
     Abort-Request darf eine spaetere Generierung derselben Session nicht sofort abbrechen."""
     sid = _new_session(client, auth_headers)
     _post_user_message(client, auth_headers, sid)
-    user = user_identity("test-secret", "alice@example.com")
+    user = user_identity("alice@example.com", TEST_PASSWORD, app.state.keystore)
     with app.state.db.user_db(user) as con:
         dbq.q_set_generating(con, sid, True)
     assert client.get(f"/api/sessions/{sid}", headers=auth_headers).json()["generating"] is True

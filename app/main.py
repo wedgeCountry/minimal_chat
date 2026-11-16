@@ -11,6 +11,7 @@ from fastapi.staticfiles import StaticFiles
 from .auth import init_auth
 from .config import LOOPBACK_HOSTS, AppConfig, bootstrap_env, is_auto_login_enabled, load_config
 from .db.database import Database
+from .db.keystore import KeyStore
 from .deps import get_session_email
 from .routers import auth, chat, log, meta, sessions, settings, voice
 
@@ -50,6 +51,7 @@ def create_app(
     app = FastAPI(title="LeanChat")
     app.state.config = cfg
     app.state.db = Database(cfg.data_dir, cfg.users_dir)
+    app.state.keystore = KeyStore(cfg.data_dir / "keystore.db")
     init_auth(app, cfg)
 
     @app.middleware("http")

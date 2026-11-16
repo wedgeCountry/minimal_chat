@@ -78,9 +78,10 @@ def test_legacy_user_setting_keys_fall_back_to_default(client, auth_headers, app
     Default greift (bubbles_checkable/bubbles_deletable default True)."""
     from app.auth import user_identity
     from app.db import database as dbq
+    from tests.conftest import TEST_PASSWORD
 
     db = app.state.db
-    user = user_identity(app.state.config.secret, "alice@example.com")
+    user = user_identity("alice@example.com", TEST_PASSWORD, app.state.keystore)
     with db.user_db(user) as con:
         dbq.q_set_user_setting(con, "bubbles_user_checkable", "0")
         dbq.q_set_user_setting(con, "bubbles_user_deletable", "0")

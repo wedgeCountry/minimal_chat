@@ -15,7 +15,7 @@ import pytest
 
 from app.auth import user_identity
 from app.db import crypto
-from tests.e2e.conftest import E2E_SECRET, REPO_ROOT
+from tests.e2e.conftest import REPO_ROOT
 
 pytestmark = pytest.mark.e2e
 
@@ -69,7 +69,9 @@ def _open_user_db(data_dir, email):
 
     from cryptography.fernet import Fernet
 
-    user = user_identity(E2E_SECRET, email)
+    from app.db.keystore import KeyStore
+
+    user = user_identity(email, "Geheim-123", KeyStore(data_dir / "keystore.db"))
     token = (data_dir / "users" / f"{user['uid']}.db.enc").read_bytes()
     con = sqlite3.connect(":memory:")
     con.deserialize(Fernet(crypto.normalize_key(user["key"])).decrypt(token))

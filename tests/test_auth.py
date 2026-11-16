@@ -88,3 +88,51 @@ def test_logout_clears_session(client, auth_headers):
 def test_auth_pages_mounted(client):
     for path in ("/auth/login", "/auth/register", "/auth/terms", "/auth/impressum"):
         assert client.get(path).status_code == 200, path
+
+
+def test_login_stores_dek_server_side_only(client, app):
+    """Beim Login wird der DEK serverseitig pro Session gehalten; das Cookie enthaelt keinen Schluessel."""
+    _register(client, "carol@example.com")
+    assert client.get("/api/sessions").status_code == 200
+    assert app.state.session_keys
+    cookie = client.cookies.get("auth_session")
+    assert cookie and "key" not in cookie.lower()
+
+
+def test_api_after_server_restart_requires_login(client, app):
+    """Neustart simulieren (session_keys leer): das signierte Cookie allein genuegt nicht -> 401."""
+    _register(client, "dave@example.com")
+    assert client.get("/api/sessions").status_code == 200
+    app.state.session_keys.clear()
+    assert client.get("/api/sessions").status_code == 401
+
+
+def test_wrong_password_login_stores_no_key(client, app):
+    _register(client, "frank@example.com")
+    app.state.session_keys.clear()
+    res = _login(client, "frank@example.com", "falsch")
+    assert res.status_code == 401
+    assert not app.state.session_keys
+
+
+def test_change_password_rewraps_dek_and_db_stays_readable(client, app):
+    """Passwort-Wechsel (mit altem Passwort) re-wrapt den DEK: nach erneutem Login mit dem
+    neuen Passwort ist die bestehende per-user DB weiterhin lesbar."""
+    _register(client, "erin@example.com")
+    client.post("/api/sessions", json={"name": "S1"})
+    sid = client.get("/api/sessions").json()[0]["id"]
+    client.post(f"/api/sessions/{sid}/messages", json={"role": "user", "text": "geheim"})
+
+    token = _csrf_token(client, "/auth/change-password")
+    res = client.post(
+        "/auth/api/change-password",
+        json={"old_password": TEST_PASSWORD, "new_password": "Neu-4567"},
+        headers={"X-CSRF-Token": token},
+    )
+    assert res.status_code == 200, res.text
+    assert client.get("/api/sessions").status_code == 401  # alte Session wurde verworfen
+
+    _login(client, "erin@example.com", "Neu-4567")
+    assert client.get("/api/sessions").status_code == 200
+    msgs = client.get(f"/api/sessions/{sid}").json()["messages"]
+    assert any(m["text"] == "geheim" for m in msgs)

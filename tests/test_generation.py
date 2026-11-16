@@ -19,11 +19,19 @@ from app.services.generation import is_running, request_abort, run_generation
 
 SECRET = "test-secret"
 EMAIL = "gen@example.com"
+PASSWORD = "gen-pw"
 
 
 @pytest.fixture()
-def user():
-    return user_identity(SECRET, EMAIL)
+def keystore(tmp_path):
+    from app.db.keystore import KeyStore
+
+    return KeyStore(tmp_path / "keystore.db")
+
+
+@pytest.fixture()
+def user(keystore):
+    return user_identity(EMAIL, PASSWORD, keystore)
 
 
 @pytest.fixture()
@@ -88,8 +96,8 @@ def test_request_abort_sets_registered_event(user):
         generation._running.discard(key)
 
 
-def test_abort_key_is_scoped_per_user(user):
-    other = user_identity(SECRET, "other@example.com")
+def test_abort_key_is_scoped_per_user(user, keystore):
+    other = user_identity("other@example.com", PASSWORD, keystore)
     key = generation._key(user, "sid-3")
     generation._abort_events[key] = asyncio.Event()
     try:

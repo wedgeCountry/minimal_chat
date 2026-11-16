@@ -132,7 +132,9 @@ def test_delete_session_cascades_messages_and_attachments(client, auth_headers, 
 
     assert client.delete(f"/api/sessions/{s['id']}", headers=auth_headers).status_code == 204
 
-    user = user_identity(config.secret, "alice@example.com")
+    from tests.conftest import TEST_PASSWORD
+
+    user = user_identity("alice@example.com", TEST_PASSWORD, app.state.keystore)
     with app.state.db.user_db(user) as con:
         assert dbq.q_get_session(con, s["id"]) is None
         assert con.execute("SELECT COUNT(*) FROM messages").fetchone()[0] == 0

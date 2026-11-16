@@ -28,8 +28,9 @@ E2E_DIR = REPO_ROOT / "tests" / "e2e"
 
 def _init_test_database(data_dir: Path) -> None:
     """Initialize the per-user test database with sample data for testing."""
-    from app.auth import user_identity
+    from app.auth import AUTO_LOGIN_PASSWORD, user_identity
     from app.db.database import Database
+    from app.db.keystore import KeyStore
 
     print(f"Initializing test database in {data_dir}", flush=True)
 
@@ -39,16 +40,16 @@ def _init_test_database(data_dir: Path) -> None:
 
     # Note: We don't create the user_registry.db here - the user_registry library
     # will create it with the correct schema when init_db() is called, and the
-    # auto-login flow registers the test user on first request. The per-user DB
-    # identity is derived from secret + e-mail, no local users table needed.
+    # auto-login flow registers the test user on first request. The per-user DB key
+    # (DEK) lives wrapped in the keystore and is unwrapped with the auto-login
+    # password, no local users table needed.
     (data_dir / "user_registry.db").parent.mkdir(parents=True, exist_ok=True)
 
     db = Database(data_dir, users_dir=users_dir)
 
     # Use the same email that the auto-login system expects
-    secret = "test-secret"
     test_email = "testuser@example.com"
-    user = user_identity(secret, test_email)
+    user = user_identity(test_email, AUTO_LOGIN_PASSWORD, KeyStore(data_dir / "keystore.db"))
 
     with db.user_db(user) as con:
         existing = con.execute("SELECT COUNT(*) FROM user_settings").fetchone()[0]
