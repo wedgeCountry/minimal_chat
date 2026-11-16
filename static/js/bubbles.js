@@ -153,7 +153,7 @@ export function bubbleEl(m, handlers = {}, opts = {}) {
     .join("");
   b.innerHTML = `
     <div class="bubbleHead" data-testid="bubble-head">
-      ${showDel ? `<button class="iconBtn delBtn" data-testid="bubble-delete-btn" title="Löschen">${ICONS.trash}</button>` : ""}
+      ${showDel ? `<button class="iconBtn delBtn" data-testid="bubble-delete-btn" title="Löschen">${ICONS.x}</button>` : ""}
       <span class="role" data-testid="bubble-role">${esc(label)}</span>
       <span class="grow"></span>
       ${showChk ? `<input type="checkbox" class="chk" data-testid="bubble-context-chk" ${m.inContext !== false ? "checked" : ""} title="Im Kontext senden" />` : ""}
@@ -221,7 +221,7 @@ export function syncBubbleDelete(b) {
     del.className = "iconBtn delBtn";
     del.dataset.testid = "bubble-delete-btn";
     del.title = "Löschen";
-    del.innerHTML = ICONS.trash;
+    del.innerHTML = ICONS.x;
     wireDelButton(b, del);
     const head = b.querySelector(".bubbleHead");
     if (head) head.insertBefore(del, head.firstChild);

@@ -179,7 +179,6 @@ test("syncBubbleDelete: Muelleimer-Button folgt dem Setting auch bei wiederverwe
     const added = syncBubbleDelete(b);
     assert.ok(added, "wird eingefuegt wenn bubbles_deletable aktiv ist");
     assert.equal(b._del(), added);
-    assert.ok(added.innerHTML.includes("polyline"), "Muelleimer-SVG (ICONS.trash) statt X");
     assert.equal(added.dataset.testid, "bubble-delete-btn");
     added.onclick();
     assert.equal(deletedWith, b._msg, "onDelete-Handler ist verdrahtet");
