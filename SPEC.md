@@ -80,11 +80,13 @@ Darstellung nach Typ:
 
 - Die Generierung läuft **serverseitig** in einer Hintergrund-Task (`POST /api/chat` → `202`, Task persistiert den LLM-SSE-Stream chunk-weise in die Session-DB); das Session-Feld `generating` signalisiert den laufenden Stand
 - Der Client hält **keinen** LLM-Stream mehr, sondern pollt `GET /api/sessions/{id}` und rendert die persistierten Nachrichten (live im Vordergrund, nach App-Wechsel/Re-Attach per `visibilitychange`/`pageshow` sofort)
+- Client-seitige Mutationen (Senden, Bearbeiten/Erneut senden, Löschen, Kontext-Checkbox) werden nach erfolgreicher Endpoint-Antwort lokal auf die gecachte History der aktiven Session angewendet (keyed by message id, `state.messages` in `state.js`); das Session-Detail wird nur noch bei Session-Wechsel und per Poll geladen — der Poll bleibt Quelle der Wahrheit und überschreibt den lokalen Stand
 - `delta.content` landet in der Assistant-Message, `delta.reasoning_content` / `reasoning` in einer separaten Thinking-Bubble, `tool_calls` als Toolcall-Bubbles, `tool_results` als Toolresult-Bubbles — serverseitig persistiert; **jeder Block-Folge im Stream (z. B. Reasoning → Toolcall → Toolresult → Message → Reasoning → …) wird eine eigene Message-Zeile** zugewiesen (keine Akkumulation ueber den Stream), mit Abschluss-Zeitstempel (ms) beim Typwechsel bzw. am Stream-Ende
 - Die Chat-History wird **serverseitig aus der Session-DB** gebaut (`build_llm_context`, trixie `LlmContext`): System-Prompt zuerst, dann Nachrichten in Reihenfolge; Toolcalls als `assistant`-Message mit `tool_calls`, Tool-Ergebnisse als gepaarte `tool`-Message (`tool_call_id`) — das Modell kann so Tool-Calls von normalem Text unterscheiden; Nachrichten mit `in_context=false` (z. B. Reasoning, Fehler) werden nicht gesendet
 - Leerer System-Prompt: keine System-Bubble im Chat und keine leere `system`-Message im LLM-Request (sonst HTTP 422 vom LLM)
 - Während der Generierung: dezente **Progress-Anzeige** (Ladebalken), angesteuert über das serverseitige `generating`-Flag
 - Abbrechen per X-Symbol (Header/Side-Panel und Composer) via `POST /api/chat/abort`: das Abort-Event wird in der Generierungs-Task gegen den Upstream-Read geracet, die LLM-Verbindung wird sofort geschlossen (auch wenn keine Chunks mehr eintreffen); die bis dahin generierte Antwort bleibt in der Session erhalten
+- Abbrechen setzt `generating` serverseitig auf 0 — sofort im Endpoint, wenn keine Generierungs-Task läuft (verwaistes Flag, z. B. nach Server-Neustart mitten im Stream), sonst beim finalen Flush der Task; der Client zeigt den Abbrechen-Button statt des Senden-Buttons, solange die aktive Session `generating=1` meldet (auch nach Reload)
 
 ## 5. Einstellungen
 

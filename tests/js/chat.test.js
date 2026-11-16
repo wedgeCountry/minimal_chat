@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { sortMessagesForRender, findLastUserMessage, hasMessagesAfter } from "../../static/js/chat.js";
+import { sortMessagesForRender, findLastUserMessage, hasMessagesAfter, applyLocalMessage, removeLocalMessage, removeLocalMessagesAfter } from "../../static/js/chat.js";
+import { state } from "../../static/js/state.js";
 
 test("sortMessagesForRender: chronological by ts", () => {
   const messages = [
@@ -162,6 +163,31 @@ test("findLastUserMessage: ignores reasoning/toolcall/system, null when none", (
   assert.equal(findLastUserMessage(messages).id, 1);
   assert.equal(findLastUserMessage([{ role: "assistant", type: "message", text: "A", ts: 1, id: 1 }]), null);
   assert.equal(findLastUserMessage([]), null);
+});
+
+test("applyLocalMessage: upsert by id, in_context wird zu inContext normalisiert", () => {
+  state.messages = [];
+  applyLocalMessage({ id: 5, role: "user", type: "message", text: "hi", in_context: true, ts: 1 });
+  assert.equal(state.messages.length, 1);
+  assert.equal(state.messages[0].inContext, true);
+  applyLocalMessage({ id: 5, role: "user", type: "message", text: "hi edited", in_context: false, ts: 1 });
+  assert.equal(state.messages.length, 1);
+  assert.equal(state.messages[0].text, "hi edited");
+  assert.equal(state.messages[0].inContext, false);
+  applyLocalMessage({ id: 6, role: "assistant", type: "message", text: "yo", ts: 2 });
+  assert.deepEqual(state.messages.map((m) => m.id), [5, 6]);
+});
+
+test("removeLocalMessage: entfernt genau die angegebene id", () => {
+  state.messages = [{ id: 1 }, { id: 2 }, { id: 3 }];
+  removeLocalMessage(2);
+  assert.deepEqual(state.messages.map((m) => m.id), [1, 3]);
+});
+
+test("removeLocalMessagesAfter: behaelt id <= mid (AUTOINCREMENT-monoton = serverseitige Loeschmenge)", () => {
+  state.messages = [{ id: 1 }, { id: 2 }, { id: 3 }, { id: 4 }];
+  removeLocalMessagesAfter(2);
+  assert.deepEqual(state.messages.map((m) => m.id), [1, 2]);
 });
 
 test("hasMessagesAfter: true only when messages follow the given id (edit-truncate check)", () => {
