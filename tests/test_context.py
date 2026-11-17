@@ -212,6 +212,51 @@ def test_partially_deselected_results_keep_only_complete_pairs():
     assert tool_res[0]["content"] == "search: ERGEBNIS A"
 
 
+def test_tool_call_assistant_message_omits_content_key():
+    """Reine tool_call-assistant-Messages senden KEIN "content": null - manche strikten
+    LLM-Server lehnen null ab (422)."""
+    rows = [
+        _db_row(1, "user", "message", "Wetter?"),
+        _db_row(2, "assistant", "toolcall", 'get_weather({"city":"Berlin"})'),
+        _db_row(3, "assistant", "toolresult", "get_weather: 21C"),
+    ]
+    wire = build_llm_context(rows).compile()
+    tc_msg = next(m for m in wire if m.get("tool_calls"))
+    assert "content" not in tc_msg
+    assert tc_msg["tool_calls"][0]["id"] == "call_2"
+    assert wire[wire.index(tc_msg) + 1] == {"role": "tool", "tool_call_id": "call_2", "content": "get_weather: 21C"}
+
+
+def test_tool_calls_merge_into_preceding_assistant_content_message():
+    """assistant-Content direkt vor Toolcalls wird mit den tool_calls zu EINEM
+    assistant-Message gemerged - zwei assistant-Messages hintereinander liefern bei
+    strikten LLM-Servern 422."""
+    rows = [
+        _db_row(1, "user", "message", "Recherchiere X"),
+        _db_row(2, "assistant", "message", "Ich recherchiere das fuer dich ..."),
+        _db_row(3, "assistant", "toolcall", 'search({"q":"a"})'),
+        _db_row(4, "assistant", "toolcall", 'search({"q":"b"})'),
+        _db_row(5, "assistant", "toolresult", "search: ERG A"),
+        _db_row(6, "assistant", "toolresult", "search: ERG B"),
+        _db_row(7, "user", "message", "Danke"),
+    ]
+    wire = build_llm_context(rows).compile()
+    # keine zwei assistant-Messages hintereinander
+    for i in range(1, len(wire)):
+        assert not (wire[i]["role"] == "assistant" and wire[i - 1]["role"] == "assistant"), f"consecutive assistant at {i}"
+    assistant_msgs = [m for m in wire if m["role"] == "assistant"]
+    assert len(assistant_msgs) == 2
+    # erstes Paar: tool_call landet im vorausgehenden assistant-Content-Message
+    assert assistant_msgs[0]["content"] == "Ich recherchiere das fuer dich ..."
+    assert [c["id"] for c in assistant_msgs[0]["tool_calls"]] == ["call_3"]
+    # zweites Paar: eigenes assistant-Message ohne content-Key
+    assert "content" not in assistant_msgs[1]
+    assert [c["id"] for c in assistant_msgs[1]["tool_calls"]] == ["call_4"]
+    tool_res = [m for m in wire if m["role"] == "tool"]
+    assert [r["tool_call_id"] for r in tool_res] == ["call_3", "call_4"]
+    assert wire[-1] == {"role": "user", "content": "Danke"}
+
+
 def test_toolresult_without_preceding_toolcall_is_skipped():
     """Eine tool-Message ohne passenden tool_call ist ungueltig (422 bei strikten Servern)."""
     rows = [

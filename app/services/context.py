@@ -53,16 +53,25 @@ def build_llm_context(
     pending_results: list[str] = []  # gepufferte tool_results der aktuellen Tool-Gruppe
     tool_seq = 0
 
+    def _append_tool_pair(call: dict[str, Any], text: str) -> None:
+        # Pro Paar ein assistant-Message mit dem tool_call, direkt gefolgt von seiner
+        # tool-Message. Dabei zwei 422-Fallen bei strikten Servern vermeiden:
+        # - "content": null wird bei reinen tool_call-Messages ganz weggelassen
+        # - ein tool_call direkt nach einer assistant-Content-Message wird in diese
+        #   gemerged statt ein zweites assistant-Message hintereinander zu erzeugen
+        if wire and wire[-1]["role"] == "assistant":
+            wire[-1].setdefault("tool_calls", []).append(call)
+        else:
+            wire.append({"role": "assistant", "tool_calls": [call]})
+        wire.append({"role": "tool", "tool_call_id": call["id"], "content": text})
+
     def _flush_tool_group() -> None:
-        # Nur vollstaendige Paare senden, 1:1 wie die Bubbles: pro Paar ein eigenes
-        # assistant-Message mit genau einem tool_call, direkt gefolgt von seiner
-        # tool-Message (klassische Tool-Loop-Form, gueltig bei strikten LLM-Servern).
-        # Ein tool_call ohne tool_result (z. B. Result per Kontext-Checkbox abwaehlt)
-        # wuerde das Request ungueltig machen (422) und wird daher verworfen.
+        # Nur vollstaendige Paare senden (1:1 wie die Bubbles); ein tool_call ohne
+        # tool_result (z. B. Result per Kontext-Checkbox abwaehlt) wuerde das Request
+        # ungueltig machen (422) und wird daher verworfen.
         n = min(len(pending_calls), len(pending_results))
         for call, text in zip(pending_calls[:n], pending_results[:n]):
-            wire.append({"role": "assistant", "content": None, "tool_calls": [call]})
-            wire.append({"role": "tool", "tool_call_id": call["id"], "content": text})
+            _append_tool_pair(call, text)
         pending_calls.clear()
         pending_results.clear()
 
