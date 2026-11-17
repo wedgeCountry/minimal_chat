@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { isBubbleDeletable, isBubbleCheckable, isBubbleContextToggleable, isBubbleSpeaker, isBubbleVisible } from "../../static/js/visibility.js";
+import { isBubbleDeletable, isBubbleCheckable, isBubbleContextToggleable, isBubbleSpeaker, isBubbleVisible, isDuplicateSystemPrompt } from "../../static/js/visibility.js";
 
 const allOn = {
   bubbles_deletable: true,
@@ -63,4 +63,13 @@ test("bubbles_deletable=false sperrt den Loeschen-Button fuer alle Bubbles", () 
   assert.ok(isBubbleDeletable(allOn));
   assert.equal(isBubbleDeletable({ ...allOn, bubbles_deletable: false }), false);
   assert.equal(isBubbleDeletable({}), true);
+});
+
+test("isDuplicateSystemPrompt: nur identische System-Messages zum Settings-Prompt", () => {
+  const prompt = "Du bist nett.";
+  assert.ok(isDuplicateSystemPrompt({ role: "system", type: "message", text: "Du bist nett." }, prompt));
+  assert.ok(isDuplicateSystemPrompt({ role: "system", type: "message", text: "  Du bist nett. \n" }, prompt));
+  assert.equal(isDuplicateSystemPrompt({ role: "system", type: "message", text: "Anderer Prompt" }, prompt), false);
+  assert.equal(isDuplicateSystemPrompt({ role: "system", type: "message", text: "Du bist nett." }, ""), false);
+  assert.equal(isDuplicateSystemPrompt({ role: "user", type: "message", text: "Du bist nett." }, prompt), false);
 });

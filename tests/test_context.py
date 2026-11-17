@@ -243,6 +243,34 @@ def test_empty_system_message_is_never_sent_to_llm():
     assert wire == [{"role": "user", "content": "Hallo"}]
 
 
+def test_whitespace_only_system_prompt_setting_is_not_sent():
+    """Whitespace-only-Prompt aus den Settings darf nicht als leere system-Message raus
+    (UI blendet die Bubble aus; strikte LLM-Server wuerden sonst 422 liefern)."""
+    wire = build_llm_context([_msg(1, "user", "message", "Hallo")], system_prompt="   ").compile()
+    assert wire == [{"role": "user", "content": "Hallo"}]
+
+
+def test_session_system_message_identical_to_settings_prompt_is_not_duplicated():
+    """Settings-Prompt + identische System-Message in der Session -> Prompt nur einmal im
+    Request (sonst steht er zweimal im Wire und die Bubble doppelt in der UI)."""
+    rows = [
+        _db_row(1, "system", "message", "Du bist nett."),
+        _db_row(2, "user", "message", "Hallo"),
+    ]
+    wire = build_llm_context(rows, system_prompt="Du bist nett.").compile()
+    assert [m for m in wire if m["role"] == "system"] == [{"role": "system", "content": "Du bist nett."}]
+    assert wire[-1] == {"role": "user", "content": "Hallo"}
+
+
+def test_session_system_message_different_from_settings_prompt_is_kept():
+    rows = [
+        _db_row(1, "system", "message", "Sei kurz."),
+        _db_row(2, "user", "message", "Hallo"),
+    ]
+    wire = build_llm_context(rows, system_prompt="Du bist nett.").compile()
+    assert [m["content"] for m in wire if m["role"] == "system"] == ["Du bist nett.", "Sei kurz."]
+
+
 def test_db_session_messages_roundtrip_through_api(client, auth_headers, monkeypatch):
     """End-to-end: Toolcall/Toolresult landen in der DB und werden beim naechsten
     Request als gueltige tool_calls-/tool-Messages an das LLM geschickt."""

@@ -44,7 +44,9 @@ def build_llm_context(
 ) -> LlmContext:
     """Session-Nachrichten (DB-Format) -> LlmContext; ``compile()`` liefert die Wire-Messages."""
     ctx = LlmContext()
-    if system_prompt:
+    # Whitespace-only-Prompt nicht senden (UI blendet ihn ebenso aus; sonst 422 vom LLM-Server)
+    prompt = (system_prompt or "").strip()
+    if prompt:
         ctx.add_system_prompt(system_prompt)
     wire: list[dict[str, Any]] = []
     pending_calls: list[dict[str, Any]] = []  # gepufferte tool_calls der aktuellen Tool-Gruppe
@@ -85,6 +87,10 @@ def build_llm_context(
             _flush_tool_group()
             # leere System-Nachricht nicht an das LLM senden (sonst 422) und nie anzeigen
             if role == "system" and not text.strip():
+                continue
+            # System-Message aus der Session, die identisch mit dem Settings-Prompt ist,
+            # nicht doppelt senden (sonst steht der Prompt zweimal im Request)
+            if role == "system" and prompt and text.strip() == prompt:
                 continue
             content: Any = text
             atts = m.get("attachments") or []

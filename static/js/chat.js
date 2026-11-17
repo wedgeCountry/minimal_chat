@@ -6,7 +6,7 @@ import { bubbleEl, setBubbleText, enterBubbleEdit, exitBubbleEdit, syncBubbleTts
 import { loadSessions, newSession, changed } from "./sessions.js";
 import { uploadPendingAttachments } from "./attachments.js";
 import { confirmModal } from "./confirm.js";
-import { isBubbleVisible } from "./visibility.js";
+import { isBubbleVisible, isDuplicateSystemPrompt } from "./visibility.js";
 import { stopRecording } from "./ttsDetectionService.js";
 
 export function setStreamingUI(on) {
@@ -215,10 +215,13 @@ export function renderChat(messages) {
   const lastUser = findLastUserMessage(sortedMessages);
   const items = [];
   const sysPrompt = state.settings.system_prompt;
-  if (sysPrompt && sysPrompt.trim() && state.settings.show_system_prompt !== false) {
+  const sysShown = !!(sysPrompt && sysPrompt.trim() && state.settings.show_system_prompt !== false);
+  if (sysShown) {
     items.push({ m: { role: "system", type: "message", text: sysPrompt, in_context: true }, showResend: false, showEdit: false });
   }
   for (const m of sortedMessages.filter((m) => isBubbleVisible(m, state.settings))) {
+    // Session-System-Message identisch zum Settings-Prompt nicht doppelt rendern
+    if (sysShown && isDuplicateSystemPrompt(m, sysPrompt)) continue;
     items.push({ m, showResend: m === lastUser, showEdit: m === lastUser });
   }
   const seen = new Set();
@@ -267,7 +270,7 @@ async function resubmitMessage(s, mid, text, attachments) {
 
 async function resendMessage(m) {
   const s = activeSession();
-  if (!s || state.streaming || m.id == null) return;
+  if (!s || state.streaming || s.generating || m.id == null) return;
   await resubmitMessage(s, m.id, m.text || "", m.attachments || []);
   await loadSessions();
   changed();
@@ -282,6 +285,15 @@ async function triggerGeneration(s) {
     // Chat-History baut der Server aus der Session-DB (gueltiges LLM-Format inkl. Tool-Calls)
     await api.post("/chat", { session_id: s.id, model: state.settings.model });
   } catch (err) {
+    if (err.status === 409) {
+      // Es laeuft bereits eine Generierung (z. B. Doppel-POST): kein Fehler persistieren,
+      // sondern an den laufenden Stream anhaengen
+      setStreamingUI(true);
+      openLiveStream(s);
+      await pollOnce();
+      ensurePolling();
+      return;
+    }
     const em = { role: "system", type: "message", text: "Fehler: " + err.message, in_context: false };
     const stored = await api.post(`/sessions/${s.id}/messages`, em).catch(() => null);
     if (stored) applyLocalMessage(stored);
@@ -298,7 +310,7 @@ async function triggerGeneration(s) {
 // Speichern aus dem Inline-Edit der Bubble (Save-Button oder Enter)
 async function submitEdit(mid, rawText) {
   const s = activeSession();
-  if (!s || state.streaming || editingMessageId !== mid) return;
+  if (!s || state.streaming || s.generating || editingMessageId !== mid) return;
   const text = (rawText || "").trim();
   if (!text) {
     cancelEdit();
