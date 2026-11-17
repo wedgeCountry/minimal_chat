@@ -84,23 +84,23 @@ def test_is_text_file_detection():
 def test_process_upload_reads_text_file_utf8_untruncated():
     content = FIXTURE.read_text(encoding="utf-8")
     att = process_upload("lorem_ipsum.txt", "text/plain", content.encode("utf-8"))
-    assert att["kind"] == "text"
-    assert att["content"] == content
-    assert len(att["content"].splitlines()) == 20
+    assert att.kind == "text"
+    assert att.content == content
+    assert len(att.content.splitlines()) == 20
 
 
 def test_process_upload_marks_oversized_text_explicitly():
     att = process_upload("gross.txt", "text/plain", ("x" * 100_001).encode("utf-8"))
-    assert att["kind"] == "text"
-    assert len(att["content"]) == 100_000 + len("\n[… gekürzt: Datei zu lang für Inline-Übertragung]")
-    assert att["content"].endswith("[… gekürzt: Datei zu lang für Inline-Übertragung]")
+    assert att.kind == "text"
+    assert len(att.content) == 100_000 + len("\n[… gekürzt: Datei zu lang für Inline-Übertragung]")
+    assert att.content.endswith("[… gekürzt: Datei zu lang für Inline-Übertragung]")
 
 
 def test_process_upload_binary_gets_explicit_note():
     att = process_upload("doc.pdf", "application/pdf", b"%PDF-1.4 fake")
-    assert att["kind"] == "binary"
-    assert "Binärdatei" in att["content"] and "13 Bytes" in att["content"]
-    assert "%PDF" not in att["content"]
+    assert att.kind == "binary"
+    assert "Binärdatei" in att.content and "13 Bytes" in att.content
+    assert "%PDF" not in att.content
 
 
 def test_process_upload_too_large_raises_upload_too_large():
@@ -133,7 +133,9 @@ def test_expand_attachment_parts_tolerates_malformed_attachment_id():
 
 
 def test_expand_attachment_parts_expands_known_attachment_id():
-    atts = {1: {"kind": "text", "name": "a.txt", "content": "INHALT"}}
+    from app.domain import Attachment
+
+    atts = {1: Attachment(kind="text", name="a.txt", mime="text/plain", size=6, content="INHALT")}
     messages = [{"role": "user", "content": [{"type": "text", "text": "hi", "attachment_id": 1}]}]
     out = expand_attachment_parts(messages, atts)
     assert out[0]["content"] == "[Datei: a.txt]\nINHALT"

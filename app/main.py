@@ -15,7 +15,7 @@ from .db.database import Database
 from .deps import get_session_email
 from .routers import auth, chat, log, meta, sessions, settings, voice
 from .services.chat import MessageService
-from .services.store import UserStore
+from .services.store import SqliteUserStore
 
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
 
@@ -53,8 +53,8 @@ def create_app(
     app = FastAPI(title="LeanChat")
     app.state.config = cfg
     app.state.db = Database(cfg.data_dir, cfg.users_dir)
-    app.state.store = UserStore(app.state.db)
-    app.state.message_service = MessageService(app.state.store)
+    app.state.store = SqliteUserStore(app.state.db)
+    app.state.message_service = MessageService(app.state.store, hot_ttl_s=cfg.hot_session_ttl_s)
     init_auth(app, cfg)
 
     @app.middleware("http")

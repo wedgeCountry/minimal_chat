@@ -13,7 +13,7 @@ import base64
 from collections.abc import Mapping
 from typing import Any, Protocol
 
-from ..types import AttachmentContent
+from ..domain import Attachment
 
 MAX_TEXT_CHARS = 100_000
 MAX_UPLOAD_BYTES = 20 * 1024 * 1024
@@ -69,37 +69,37 @@ def is_text_file(name: str, mime: str) -> bool:
     return False
 
 
-def process_upload(name: str, mime: str, raw: bytes, max_bytes: int = MAX_UPLOAD_BYTES) -> AttachmentContent:
+def process_upload(name: str, mime: str, raw: bytes, max_bytes: int = MAX_UPLOAD_BYTES) -> Attachment:
     """Bereitet eine hochgeladene Datei fuer die Speicherung und den LLM-Request auf."""
     mime = (mime or "").lower() or "application/octet-stream"
     if len(raw) > max_bytes:
         raise UploadTooLarge(f"Datei zu gross ({len(raw)} Bytes, Limit {max_bytes})")
     if mime.startswith("image/"):
         data_url = "data:%s;base64,%s" % (mime, base64.b64encode(raw).decode("ascii"))
-        return {"name": name, "mime": mime, "kind": "image", "size": len(raw), "content": data_url}
+        return Attachment(name=name, mime=mime, kind="image", size=len(raw), content=data_url)
     if is_text_file(name, mime):
         text = raw.decode("utf-8", errors="replace")
         if len(text) > MAX_TEXT_CHARS:
             text = text[:MAX_TEXT_CHARS] + "\n[… gekürzt: Datei zu lang für Inline-Übertragung]"
-        return {"name": name, "mime": mime, "kind": "text", "size": len(raw), "content": text}
-    return {
-        "name": name,
-        "mime": mime,
-        "kind": "binary",
-        "size": len(raw),
-        "content": f"(Binärdatei, {len(raw)} Bytes – wird nicht als Text übertragen)",
-    }
+        return Attachment(name=name, mime=mime, kind="text", size=len(raw), content=text)
+    return Attachment(
+        name=name,
+        mime=mime,
+        kind="binary",
+        size=len(raw),
+        content=f"(Binärdatei, {len(raw)} Bytes – wird nicht als Text übertragen)",
+    )
 
 
-def _attachment_part(att: AttachmentContent) -> dict[str, Any]:
-    if att["kind"] == "image":
-        return {"type": "image_url", "image_url": {"url": att["content"]}}
-    return {"type": "text", "text": f"[Datei: {att['name']}]\n{att['content']}"}
+def _attachment_part(att: Attachment) -> dict[str, Any]:
+    if att.kind == "image":
+        return {"type": "image_url", "image_url": {"url": att.content}}
+    return {"type": "text", "text": f"[Datei: {att.name}]\n{att.content}"}
 
 
 def expand_attachment_parts(
     messages: list[dict[str, Any]],
-    attachments_by_id: Mapping[int, AttachmentContent],
+    attachments_by_id: Mapping[int, Attachment],
 ) -> list[dict[str, Any]]:
     """Ersetzt Content-Parts mit ``attachment_id`` durch die serverseitig aufbereiteten Parts.
 

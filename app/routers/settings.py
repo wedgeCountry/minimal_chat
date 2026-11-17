@@ -10,7 +10,7 @@ from ..models import SettingsIn, SettingsOut, SettingsTestIn
 from ..services.llm import check_llm_connection
 from ..services.ssrf import validate_llm_base_url
 from ..services.settings import BOOL_SETTINGS, resolve_base_url, stored_bool, stored_speech_mode, to_db
-from ..services.store import UserStore
+from ..services.store import UserStoreProtocol
 from ..types import UserIdentity
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
@@ -39,7 +39,7 @@ def _settings_out(stored: dict[str, str], config: AppConfig) -> SettingsOut:
 @router.get("", response_model=SettingsOut)
 async def get_settings(
     user: UserIdentity = Depends(get_current_user),
-    store: UserStore = Depends(get_store),
+    store: UserStoreProtocol = Depends(get_store),
     config: AppConfig = Depends(get_config),
 ) -> SettingsOut:
     stored = await store.get_user_settings(user)
@@ -50,7 +50,7 @@ async def get_settings(
 async def test_connection(
     body: SettingsTestIn,
     user: UserIdentity = Depends(get_current_user),
-    store: UserStore = Depends(get_store),
+    store: UserStoreProtocol = Depends(get_store),
     config: AppConfig = Depends(get_config),
 ) -> dict[str, object]:
     stored = await store.get_user_settings(user)
@@ -69,7 +69,7 @@ async def test_connection(
 async def put_settings(
     body: SettingsIn,
     user: UserIdentity = Depends(get_current_user),
-    store: UserStore = Depends(get_store),
+    store: UserStoreProtocol = Depends(get_store),
     config: AppConfig = Depends(get_config),
 ) -> SettingsOut:
     values: dict[str, str] = {}

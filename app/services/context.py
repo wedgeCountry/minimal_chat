@@ -14,7 +14,7 @@ from typing import Any
 
 from trixie_ai.context import LlmContext
 
-from ..types import AttachmentContent
+from ..domain import Attachment
 from .files import expand_attachment_parts
 
 
@@ -40,7 +40,7 @@ def build_llm_context(
     messages: Sequence[Mapping[str, Any]],
     *,
     system_prompt: str = "",
-    attachments_by_id: Mapping[int, AttachmentContent] | None = None,
+    attachments_by_id: Mapping[int, Attachment] | None = None,
 ) -> LlmContext:
     """Session-Nachrichten (DB-Format) -> LlmContext; ``compile()`` liefert die Wire-Messages."""
     ctx = LlmContext()

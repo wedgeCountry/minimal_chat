@@ -28,7 +28,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
-from ..types import AttachmentContent, AttachmentRow, MessageRow, SessionRow, UserIdentity
+from ..types import AttachmentRow, MessageRow, SessionRow, UserIdentity
 from . import crypto
 
 SCHEMA_PATH = Path(__file__).with_name("schema.sql")
@@ -306,7 +306,7 @@ def _row_to_attachment(row: sqlite3.Row) -> AttachmentRow:
     }
 
 
-def q_add_attachment(con: sqlite3.Connection, sid: str, att: AttachmentContent) -> AttachmentRow:
+def q_add_attachment(con: sqlite3.Connection, sid: str, att: Mapping[str, Any]) -> AttachmentRow:
     cur = con.execute(
         "INSERT INTO attachments (session_id, name, mime, kind, size, content) VALUES (?, ?, ?, ?, ?, ?)",
         (sid, att["name"], att["mime"], att["kind"], att["size"], att["content"]),

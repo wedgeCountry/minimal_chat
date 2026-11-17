@@ -14,7 +14,7 @@ from ..services.context import build_llm_context
 from ..services.settings import BOOL_SETTINGS, resolve_base_url, stored_bool
 from ..services.sse import sse_event
 from ..services.ssrf import validate_llm_base_url
-from ..services.store import UserStore
+from ..services.store import UserStoreProtocol
 from ..types import UserIdentity
 
 router = APIRouter(prefix="/api/chat", tags=["chat"])
@@ -24,7 +24,7 @@ router = APIRouter(prefix="/api/chat", tags=["chat"])
 async def chat(
     req: ChatRequest,
     user: UserIdentity = Depends(get_current_user),
-    store: UserStore = Depends(get_store),
+    store: UserStoreProtocol = Depends(get_store),
     service: MessageService = Depends(get_message_service),
     config: AppConfig = Depends(get_config),
 ) -> dict[str, str]:
@@ -54,13 +54,13 @@ async def chat(
     flags = {key: stored_bool(stored, key) for key in BOOL_SETTINGS}
     # Chat-History serverseitig aus der DB bauen (gueltiges Format inkl. Tool-Calls),
     # nicht aus dem Client-Request uebernehmen
-    llm_ctx = build_llm_context(session_messages, system_prompt=stored.get("system_prompt") or "", attachments_by_id=attachments)
+    llm_ctx = build_llm_context([m.model_dump() for m in session_messages], system_prompt=stored.get("system_prompt") or "", attachments_by_id=attachments)
     payload = {
         "model": req.model,
         "stream": True,
         "messages": llm_ctx.compile(),
     }
-    service.start_generation(user, req.session_id, base_url, api_key, payload, flags)
+    await service.start_generation(user, req.session_id, base_url, api_key, payload, flags)
     return {"status": "started"}
 
 
@@ -68,14 +68,14 @@ async def chat(
 async def chat_stream(
     sid: str,
     user: UserIdentity = Depends(get_current_user),
-    store: UserStore = Depends(get_store),
+    store: UserStoreProtocol = Depends(get_store),
     service: MessageService = Depends(get_message_service),
 ) -> StreamingResponse:
-    """SSE-Stream der Live-Chunks aus dem In-Memory-State des MessageService.
+    """SSE-Stream der Live-Daten aus dem In-Memory-State des MessageService.
 
-    Events: ``snapshot``/``blocks`` ( Liste der offenen/abgeschlossenen Bloecke mit
-    bid/id/kind/text), ``done`` (Generierung beendet), ``idle`` (laeuft gerade nicht -
-    Client liest den Stand ueber GET /api/sessions/{sid}).
+    Events: ``state`` (versioniert: seq + vollstaendige Message-Liste inkl. Live-Messages
+    mit id=null), ``done`` (Generierung beendet), ``idle`` (Session nicht hot / keine
+    laufende Generierung - Client liest den Stand ueber GET /api/sessions/{sid}).
     """
     if not await store.session_exists(user, sid):
         raise HTTPException(status_code=404, detail="Session nicht gefunden")
@@ -95,7 +95,7 @@ async def chat_stream(
 async def abort(
     req: ChatAbortRequest,
     user: UserIdentity = Depends(get_current_user),
-    store: UserStore = Depends(get_store),
+    store: UserStoreProtocol = Depends(get_store),
     service: MessageService = Depends(get_message_service),
 ) -> dict[str, str]:
     if not await store.session_exists(user, req.session_id):

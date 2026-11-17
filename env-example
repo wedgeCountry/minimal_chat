@@ -53,6 +53,11 @@ LEANCHAT_ALLOW_PRIVATE_LLM=1
 # Max. Request-Body-Groesse fuer /api/* in Bytes (Content-Length-Check per Middleware, 413)
 # LEANCHAT_MAX_REQUEST_BYTES=26214400
 
+# --- MessageService: TTL (Sekunden) fuer den In-Memory-Session-State ---
+# Heisse Sessions (volles Message-Memory) werden nach dieser Zeit ohne Aktivitaet
+# evictiert und beim naechsten Zugriff aus der DB neu geladen (Default 300).
+# LEANCHAT_HOT_SESSION_TTL_S=300
+
 # --- Voice Companion (STT/TTS-Server aus vendors/voice_companion-*.whl) ---
 # Laeuft der Voice-Companion auf einem anderen Port, hier anpassen.
 # LEANCHAT_VOICE_BASE=http://127.0.0.1:8001

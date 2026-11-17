@@ -56,21 +56,16 @@ class MessageInput(_MessageInputBase, total=False):
     created_at: int
 
 
-class AttachmentContent(TypedDict):
-    """Serverseitig aufbereiteter Anhang (app/services/files.py:process_upload), noch ohne DB-Ids."""
+class AttachmentRow(TypedDict):
+    """Eine Zeile aus ``attachments`` (DB-Format)."""
 
+    id: int
+    session_id: str
     name: str
     mime: str
     kind: str
     size: int
     content: str
-
-
-class AttachmentRow(AttachmentContent):
-    """Eine Zeile aus ``attachments`` (DB-Format)."""
-
-    id: int
-    session_id: str
 
 
 class StreamBlock(TypedDict, total=False):

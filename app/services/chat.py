@@ -1,56 +1,78 @@
-"""Service-Layer fuer Message-Content: die einzige Quelle, aus der das Frontend
-seine Chunks und Messages bekommt.
+"""Service-Layer fuer Message-Content: einzige Quelle, aus der das Frontend seine
+Chunks und Messages bekommt, und einziger Schreib-Funnel (Single Write Funnel).
 
-``MessageService`` haelt den In-Memory-Zustand der laufenden Generierungen
-(offene Stream-Bloecke, Abort-Event, Subscriber) und orchestriert die Persistenz
-ueber ``UserStore``: abgeschlossene Bloecke werden blockweise in die per-user DB
-geschrieben, der finale Flush setzt ``generating=0``. Das Frontend streamt die
-Live-Chunks per SSE (``GET /api/chat/stream/{sid}``, Events siehe ``stream()``);
-die persistierten Messages kommen weiterhin ueber ``GET /api/sessions/{sid}``
-(Poll bleibt Quelle der Wahrheit und ueberschreibt den lokalen Stand).
+``MessageService`` haelt pro "heisser" Session den vollstaendigen In-Memory-Zustand
+(``_SessionState``: Message-Liste + seq + Lock + SSE-Subscriber + laufende Generierung).
+Regel: jede Mutation wird zuerst auf den In-Memory-Messages ausgefuehrt (unter dem
+per-session Lock), dann via ``UserStoreProtocol`` persistiert (Write-Through: die
+HTTP-Antwort kommt erst nach erfolgreichem Persistieren) und dann als versioniertes
+SSE-Event (``state`` mit seq) publiziert. Umgekehrt ist die Datenbank "at rest" die
+Quelle der Wahrheit: beim ersten Touch wird der Zustand aus dem Store geladen
+(``_hot``), nach dem TTL ohne Aktivitaet wird er evicted.
+
+Das Frontend streamt die Live-Daten per SSE (``GET /api/chat/stream/{sid}``, Events
+``state``/``done``/``idle``); die persistierten Messages kommen weiterhin ueber
+``GET /api/sessions/{sid}`` (Poll bleibt Quelle der Wahrheit fuer den persistierten Stand).
 """
 
 from __future__ import annotations
 
 import asyncio
+import time
 from collections.abc import AsyncIterator
 from typing import Any
 
 from ..db.database import now_ms
-from ..types import MessageInput, StreamBlock, UserIdentity
+from ..domain import Message, MessageType
+from ..models import MessageIn, MessagePatch
+from ..types import MessageInput, UserIdentity
 from .llm import stream_completion
 from .sse import SseParser
-from .store import UserStore
+from .store import MessageNotFound, SessionNotFound, UserStoreProtocol
+
+DEFAULT_HOT_TTL_S = 300.0
+
+# Puffer pro SSE-Subscriber (Voll-Snapshot-Events); bei Ueberlauf Drop-Oldest, siehe _put
+_SUBSCRIBER_QUEUE_MAX = 8
 
 
-def _block_text(b: StreamBlock) -> str:
-    if b["kind"] == "toolcall":
-        # Argumente sind JSON-String-Literale: literale "\n" als echte Umbrueche speichern
-        return f"{b.get('name') or 'tool'}({b.get('args') or ''})".replace("\\n", "\n")
-    if b["kind"] == "toolresult":
-        name = b.get("name") or ""
-        result = b.get("result") or ""
-        text = f"{name}: {result}" if name else result
-        return text.replace("\\n", "\n")
-    return b.get("text") or ""
+def _render_toolcall(a: dict[str, Any]) -> str:
+    # Argumente sind JSON-String-Literale: literale "\n" als echte Umbrueche speichern
+    return f"{a['name'] or 'tool'}({a['args']})".replace("\\n", "\n")
+
+
+def _render_toolresult(a: dict[str, Any]) -> str:
+    text = f"{a['name']}: {a['result']}" if a["name"] else a["result"]
+    return text.replace("\\n", "\n")
 
 
 class _ActiveGeneration:
-    """In-Memory-Zustand einer laufenden Generierung (pro user:session)."""
+    """Laufende Generierung innerhalb eines _SessionState (Tool-Akkumulatoren + Abort)."""
 
     def __init__(self) -> None:
-        self.blocks: list[StreamBlock] = []
-        self.tool_blocks: dict[tuple[str, int], StreamBlock] = {}
+        self.tool_acc: dict[tuple[str, int], dict[str, Any]] = {}
         self.abort = asyncio.Event()
+
+
+class _SessionState:
+    """In-Memory-Zustand einer heissen Session (Quelle der Wahrheit, solange hot)."""
+
+    def __init__(self, messages: list[Message]) -> None:
+        self.messages = messages
+        self.seq = 0
+        self.lock = asyncio.Lock()
         self.subscribers: set[asyncio.Queue[dict[str, Any] | None]] = set()
+        self.generation: _ActiveGeneration | None = None
+        self.last_touch = time.monotonic()
 
 
 class MessageService:
-    """In-Memory-Message-Store + Persistenz-Orchestrierung fuer laufende Generierungen."""
+    """In-Memory-Message-Store + Schreib-Funnel + Persistenz-Orchestrierung."""
 
-    def __init__(self, store: UserStore) -> None:
+    def __init__(self, store: UserStoreProtocol, hot_ttl_s: float = DEFAULT_HOT_TTL_S) -> None:
         self._store = store
-        self._active: dict[str, _ActiveGeneration] = {}
+        self._hot_ttl_s = hot_ttl_s
+        self._sessions: dict[str, _SessionState] = {}
         self._abort_requested: set[str] = set()
         # Starke Referenzen auf laufende Hintergrund-Tasks, damit der GC sie nicht killt
         self._tasks: set[asyncio.Task[None]] = set()
@@ -59,32 +81,166 @@ class MessageService:
     def _key(user: UserIdentity, sid: str) -> str:
         return f"{user['uid']}:{sid}"
 
+    # --- Hot-State-Lifecycle ---
+
+    def _evict_idle(self) -> None:
+        """Heisse Sessions ohne laufende Generierung, ohne Subscriber und abgelaufenem TTL evictieren."""
+        now = time.monotonic()
+        stale = [
+            key
+            for key, st in self._sessions.items()
+            if st.generation is None and not st.subscribers and now - st.last_touch > self._hot_ttl_s
+        ]
+        for key in stale:
+            del self._sessions[key]
+
+    async def _hot(self, user: UserIdentity, sid: str) -> _SessionState:
+        """Heissen Zustand liefern; beim ersten Touch aus dem Store (DB = truth at rest) laden."""
+        self._evict_idle()
+        key = self._key(user, sid)
+        state = self._sessions.get(key)
+        if state is None:
+            detail = await self._store.get_session_detail(user, sid)
+            if detail is None:
+                raise SessionNotFound(sid)
+            _session, messages = detail
+            state = _SessionState(messages)
+            self._sessions[key] = state
+        state.last_touch = time.monotonic()
+        return state
+
+    def _state_event(self, state: _SessionState) -> dict[str, Any]:
+        return {"type": "state", "seq": state.seq, "messages": [m.model_dump() for m in state.messages]}
+
+    @staticmethod
+    def _put(q: asyncio.Queue[dict[str, Any] | None], item: dict[str, Any] | None) -> None:
+        """In die begrenzte Subscriber-Queue legen; bei Ueberlauf das aelteste state-Event
+        verwerfen (Voll-Snapshot: das neueste genuegt, der Client merged per seq).
+        Der None-Sentinel ('done') wird nie verworfen."""
+        try:
+            q.put_nowait(item)
+            return
+        except asyncio.QueueFull:
+            rest: list[dict[str, Any] | None] = []
+            dropped = False
+            while not q.empty():
+                old = q.get_nowait()
+                if old is not None and not dropped:
+                    dropped = True
+                else:
+                    rest.append(old)
+            for old in rest:
+                q.put_nowait(old)
+            q.put_nowait(item)
+
+    def _publish(self, state: _SessionState) -> None:
+        """Aktuellen In-Memory-Zustand als versioniertes state-Event an alle SSE-Subscriber."""
+        state.last_touch = time.monotonic()
+        ev = self._state_event(state)
+        for q in state.subscribers:
+            self._put(q, ev)
+
     # --- Status / Abort ---
 
     def is_running(self, user: UserIdentity, sid: str) -> bool:
-        return self._key(user, sid) in self._active
+        state = self._sessions.get(self._key(user, sid))
+        return state is not None and state.generation is not None
 
     def request_abort(self, user: UserIdentity, sid: str) -> bool:
-        key = self._key(user, sid)
-        active = self._active.get(key)
-        if active is not None:
-            active.abort.set()
+        state = self._sessions.get(self._key(user, sid))
+        if state is not None and state.generation is not None:
+            state.generation.abort.set()
             return True
-        # Task hat ihr Event evtl. noch nicht registriert (Race direkt nach POST /api/chat)
-        self._abort_requested.add(key)
+        # Generierung hat ihr Event evtl. noch nicht registriert (Race direkt nach POST /api/chat)
+        self._abort_requested.add(self._key(user, sid))
         return False
 
     def forget_abort_if_idle(self, user: UserIdentity, sid: str) -> None:
         """Abort-Request verwerfen, wenn keine Generierung laeuft (verwaistes
         generating-Flag nach Server-Neustart): eine spaeter gestartete Generierung
         derselben Session darf nicht durch den alten Request sofort abbrechen."""
-        key = self._key(user, sid)
-        if key not in self._active:
-            self._abort_requested.discard(key)
+        if not self.is_running(user, sid):
+            self._abort_requested.discard(self._key(user, sid))
 
-    # --- Start / Lauf ---
+    # --- Schreib-Funnel: Mutationen (Memory zuerst, dann persistieren, dann publishen) ---
 
-    def start_generation(
+    async def add_message(self, user: UserIdentity, sid: str, msg: MessageIn) -> Message:
+        state = await self._hot(user, sid)
+        async with state.lock:
+            live = Message(
+                id=None, role=msg.role, type=msg.type, text=msg.text,
+                in_context=msg.in_context, attachments=msg.attachments, ts=0,
+            )
+            state.messages.append(live)
+            try:
+                stored = await self._store.add_message(user, sid, msg.model_dump())
+            except Exception:
+                state.messages.remove(live)
+                raise
+            live.id = stored.id
+            live.ts = stored.ts
+            state.seq += 1
+            self._publish(state)
+            return stored
+
+    async def update_message(self, user: UserIdentity, sid: str, mid: int, patch: MessagePatch) -> Message:
+        state = await self._hot(user, sid)
+        async with state.lock:
+            idx = next((i for i, m in enumerate(state.messages) if m.id == mid), None)
+            if idx is None:
+                raise MessageNotFound(mid)
+            m = state.messages[idx]
+            backup = m.model_copy()
+            if patch.in_context is not None:
+                m.in_context = patch.in_context
+            if patch.text is not None:
+                m.text = patch.text
+            if patch.attachments is not None:
+                m.attachments = patch.attachments
+            try:
+                stored = await self._store.update_message(user, sid, mid, patch.model_dump(exclude_none=True))
+            except Exception:
+                state.messages[idx] = backup
+                raise
+            state.messages[idx] = stored
+            state.seq += 1
+            self._publish(state)
+            return stored
+
+    async def delete_message(self, user: UserIdentity, sid: str, mid: int) -> None:
+        state = await self._hot(user, sid)
+        async with state.lock:
+            idx = next((i for i, m in enumerate(state.messages) if m.id == mid), None)
+            if idx is None:
+                raise MessageNotFound(mid)
+            removed = state.messages.pop(idx)
+            try:
+                await self._store.delete_message(user, sid, mid)
+            except Exception:
+                state.messages.insert(idx, removed)
+                raise
+            state.seq += 1
+            self._publish(state)
+
+    async def delete_messages_after(self, user: UserIdentity, sid: str, mid: int) -> None:
+        state = await self._hot(user, sid)
+        async with state.lock:
+            idx = next((i for i, m in enumerate(state.messages) if m.id == mid), None)
+            if idx is None:
+                raise MessageNotFound(mid)
+            removed = state.messages[idx + 1 :]
+            del state.messages[idx + 1 :]
+            try:
+                await self._store.delete_messages_after(user, sid, mid)
+            except Exception:
+                state.messages.extend(removed)
+                raise
+            state.seq += 1
+            self._publish(state)
+
+    # --- Start / Lauf der Generierung ---
+
+    async def start_generation(
         self,
         user: UserIdentity,
         sid: str,
@@ -93,16 +249,20 @@ class MessageService:
         payload: dict[str, Any],
         settings: dict[str, bool] | None = None,
     ) -> None:
-        """Registriert die Generierung (In-Memory) und startet die Hintergrund-Task."""
+        """Heissen Zustand anlegen und die Generierung als Hintergrund-Task starten."""
+        state = await self._hot(user, sid)  # SessionNotFound -> Router mappt auf 404
         key = self._key(user, sid)
-        active = _ActiveGeneration()
-        self._active[key] = active
-        if key in self._abort_requested:
-            self._abort_requested.discard(key)
-            active.abort.set()
-        task = asyncio.create_task(self._run_task(user, sid, key, active, base_url, api_key, payload, settings))
-        self._tasks.add(task)
-        task.add_done_callback(self._tasks.discard)
+        async with state.lock:
+            if state.generation is not None:
+                return  # busy (Router prueft vorher atomar per try_start_generating)
+            active = _ActiveGeneration()
+            state.generation = active
+            if key in self._abort_requested:
+                self._abort_requested.discard(key)
+                active.abort.set()
+            task = asyncio.create_task(self._run_task(user, sid, key, state, active, base_url, api_key, payload, settings))
+            self._tasks.add(task)
+            task.add_done_callback(self._tasks.discard)
 
     async def generate(
         self,
@@ -113,22 +273,29 @@ class MessageService:
         payload: dict[str, Any],
         settings: dict[str, bool] | None = None,
     ) -> None:
-        """Direkter Lauf ohne Task-Registrierung (Tests)."""
+        """Direkter Lauf ohne Task-Registrierung (Tests). Unbekannte Session = No-Op."""
+        try:
+            state = await self._hot(user, sid)
+        except SessionNotFound:
+            return
         key = self._key(user, sid)
-        active = self._active.setdefault(key, _ActiveGeneration())
+        active = _ActiveGeneration()
+        state.generation = active
         if key in self._abort_requested:
             self._abort_requested.discard(key)
             active.abort.set()
         try:
-            await self._generate(user, sid, active, base_url, api_key, payload, settings)
+            await self._generate(user, sid, state, active, base_url, api_key, payload, settings)
         finally:
-            self._finish(key, active)
+            state.generation = None
+            self._finish(key, state)
 
     async def _run_task(
         self,
         user: UserIdentity,
         sid: str,
         key: str,
+        state: _SessionState,
         active: _ActiveGeneration,
         base_url: str,
         api_key: str,
@@ -136,45 +303,35 @@ class MessageService:
         settings: dict[str, bool] | None,
     ) -> None:
         try:
-            await self._generate(user, sid, active, base_url, api_key, payload, settings)
+            await self._generate(user, sid, state, active, base_url, api_key, payload, settings)
         finally:
-            self._finish(key, active)
+            state.generation = None
+            self._finish(key, state)
 
-    def _finish(self, key: str, active: _ActiveGeneration) -> None:
-        self._active.pop(key, None)
+    def _finish(self, key: str, state: _SessionState) -> None:
         self._abort_requested.discard(key)
         # None-Sentinel -> stream() schickt 'done' und beendet den SSE-Stream
-        for q in active.subscribers:
-            q.put_nowait(None)
+        for q in state.subscribers:
+            self._put(q, None)
 
-    def _publish(self, active: _ActiveGeneration) -> None:
-        """Aktuellen In-Memory-Blockstand an alle SSE-Subscriber schicken."""
-        ev: dict[str, Any] = {"type": "blocks", "blocks": self._blocks_payload(active.blocks)}
-        for q in active.subscribers:
-            q.put_nowait(ev)
-
-    @staticmethod
-    def _blocks_payload(blocks: list[StreamBlock]) -> list[dict[str, Any]]:
-        return [
-            {"bid": i, "id": b.get("id"), "kind": b["kind"], "text": _block_text(b)}
-            for i, b in enumerate(blocks)
-            if _block_text(b)
-        ]
+    # --- SSE-Stream an das Frontend ---
 
     async def stream(self, user: UserIdentity, sid: str) -> AsyncIterator[dict[str, Any]]:
-        """SSE-Event-Stream einer Session: snapshot + blocks bis done/idle.
+        """SSE-Event-Stream einer Session aus dem In-Memory-State.
 
-        ``idle``: keine laufende Generierung (Client faellt auf GET /api/sessions/{sid} zurueck).
+        ``state`` (seq + vollstaendige Message-Liste inkl. Live-Messages mit id=null),
+        ``done`` (Generierung beendet), ``idle`` (Session nicht hot / keine laufende
+        Generierung - Client faellt auf GET /api/sessions/{sid} zurueck).
         """
-        key = self._key(user, sid)
-        active = self._active.get(key)
-        if active is None:
+        state = self._sessions.get(self._key(user, sid))
+        if state is None or state.generation is None:
             yield {"type": "idle"}
             return
-        q: asyncio.Queue[dict[str, Any] | None] = asyncio.Queue()
-        active.subscribers.add(q)
+        q: asyncio.Queue[dict[str, Any] | None] = asyncio.Queue(maxsize=_SUBSCRIBER_QUEUE_MAX)
+        state.subscribers.add(q)
+        state.last_touch = time.monotonic()
         try:
-            yield {"type": "snapshot", "blocks": self._blocks_payload(active.blocks)}
+            yield self._state_event(state)
             while True:
                 ev = await q.get()
                 if ev is None:
@@ -182,31 +339,32 @@ class MessageService:
                     return
                 yield ev
         finally:
-            active.subscribers.discard(q)
+            state.subscribers.discard(q)
 
-    # --- Generierungs-Loop (vormals run_generation) ---
+    # --- Generierungs-Loop ---
 
     async def _generate(
         self,
         user: UserIdentity,
         sid: str,
+        state: _SessionState,
         active: _ActiveGeneration,
         base_url: str,
         api_key: str,
         payload: dict[str, Any],
         settings: dict[str, bool] | None,
     ) -> None:
-        """Streamt eine Chat-Completion, haelt die Bloecke im Speicher (SSE-Quelle)
-        und persistiert abgeschlossene Bloecke ueber den UserStore in die User-DB.
+        """Streamt eine Chat-Completion in den In-Memory-State (Live-Messages mit id=None,
+        SSE-Quelle) und persistiert abgeschlossene Bloecke write-through ueber den Store.
 
         Laeuft als asyncio-Task unabhaengig von der HTTP-Verbindung des Clients. Nur
         abgeschlossene Bloecke werden geschrieben (ein DB-Oeffnen pro Block-Abschluss plus
         eins am Ende); der offene Block bleibt im Speicher und wird bei Abort/Fehler
-        verworfen.
+        verworfen (aus dem Memory entfernt, nie persistiert).
         """
         ev = active.abort
-        blocks = active.blocks
-        tool_blocks = active.tool_blocks
+        msgs = state.messages
+        block_msgs: list[Message] = []  # Live-Messages in Stream-Reihenfolge (Refs in msgs)
         last_kind: tuple[str, int | None] | None = None
         last_ts = 0
         error: str | None = None
@@ -217,67 +375,79 @@ class MessageService:
             last_ts = max(now_ms(), last_ts + 1)
             return last_ts
 
-        def _touch(kind: str, idx: int | None = None) -> None:
+        def _touch(kind: MessageType, idx: int | None = None) -> None:
             # Typwechsel im Chunk-Stream: der bisher aktive Block ist abgeschlossen
             nonlocal last_kind
             if last_kind is not None and last_kind != (kind, idx):
-                for b in blocks:
-                    if b["ts"] is None:
-                        b["ts"] = _next_ts()
+                for m in block_msgs:
+                    if m.ts == 0:
+                        m.ts = _next_ts()
             last_kind = (kind, idx)
 
-        def _text_block(kind: str) -> StreamBlock:
-            if blocks and blocks[-1]["kind"] == kind and blocks[-1]["ts"] is None:
-                return blocks[-1]
-            b: StreamBlock = {"kind": kind, "ts": None, "id": None, "text": ""}
-            blocks.append(b)
-            return b
+        def _live(kind: MessageType) -> Message:
+            m = Message(id=None, role="assistant", type=kind, text="", in_context=kind != "reasoning")
+            msgs.append(m)
+            block_msgs.append(m)
+            return m
 
-        def _tool_block(kind: str, idx: int) -> StreamBlock:
-            b = tool_blocks.get((kind, idx))
-            if b is None:
-                b = {"kind": kind, "ts": None, "id": None, "name": "", "args": "", "result": ""}
-                tool_blocks[(kind, idx)] = b
-                blocks.append(b)
-            return b
+        def _text_block(kind: MessageType) -> Message:
+            if block_msgs and block_msgs[-1].type == kind and block_msgs[-1].ts == 0:
+                return block_msgs[-1]
+            return _live(kind)
 
-        def _message_row(b: StreamBlock) -> MessageInput:
-            return {
-                "role": "assistant",
-                "type": b["kind"],
-                "text": _block_text(b),
-                "in_context": b["kind"] != "reasoning",
-                "created_at": b["ts"] if b["ts"] is not None else _next_ts(),
-            }
+        def _tool_block(kind: MessageType, idx: int) -> dict[str, Any]:
+            a = active.tool_acc.get((kind, idx))
+            if a is None:
+                m = _live(kind)
+                a = {"kind": kind, "name": "", "args": "", "result": "", "msg": m}
+                active.tool_acc[(kind, idx)] = a
+            return a
 
-        async def _persist_closed_blocks() -> None:
+        def _sync_tool(a: dict[str, Any]) -> None:
+            a["msg"].text = _render_toolcall(a) if a["kind"] == "toolcall" else _render_toolresult(a)
+
+        def _to_input(m: Message) -> MessageInput:
+            return {"role": m.role, "type": m.type, "text": m.text, "in_context": m.in_context, "created_at": m.ts}
+
+        async def _persist_closed() -> None:
             """Persistiert abgeschlossene Bloecke sofort (beim Typwechsel im Stream).
             Der offene Block wird nie geschrieben. Pro Batch genau ein DB-Oeffnen."""
-            closed = [b for b in blocks if b["ts"] is not None and b["id"] is None and _block_text(b)]
+            closed = [m for m in block_msgs if m.ts != 0 and m.id is None and m.text]
             if not closed:
                 return
-            stored = await self._store.add_messages(user, sid, [_message_row(b) for b in closed])
-            for b, row in zip(closed, stored):
-                b["id"] = row["id"]
+            stored = await self._store.add_messages(user, sid, [_to_input(m) for m in closed])
+            for m, s in zip(closed, stored):
+                m.id = s.id
+                m.ts = s.ts
 
         async def _final_flush() -> None:
             """Ein einziges DB-Oeffnen am Stream-Ende: bei normalem Ende wird der letzte
-            offene Block abgeschlossen und persistiert; bei Abort/Fehler wird er verworfen.
-            Ausserdem Fehler-System-Message (falls error) und generating=0."""
+            offene Block abgeschlossen und persistiert; bei Abort/Fehler werden die
+            verworfenen Live-Messages aus dem Memory entfernt. Ausserdem Fehler-System-
+            Message (falls error) und generating=0."""
             discard_open = ev.is_set() or error is not None
+            targets: list[Message] = []
             rows: list[MessageInput] = []
             if not discard_open:
-                for b in blocks:
-                    if b["ts"] is None:
-                        b["ts"] = _next_ts()
-                rows = [_message_row(b) for b in blocks if b["id"] is None and _block_text(b)]
-            await self._store.finalize_generation(user, sid, rows, error)
+                for m in block_msgs:
+                    if m.ts == 0:
+                        m.ts = _next_ts()
+                targets = [m for m in block_msgs if m.id is None and m.text]
+                rows = [_to_input(m) for m in targets]
+            stored = await self._store.finalize_generation(user, sid, rows, error)
+            if discard_open:
+                state.messages[:] = [m for m in msgs if m.id is not None]
+            for m, s in zip(targets, stored[: len(targets)]):
+                m.id = s.id
+                m.ts = s.ts
+            for s in stored[len(targets):]:  # Fehler-System-Message uebernehmen
+                state.messages.append(s)
+            state.seq += 1
+            self._publish(state)
 
         try:
-            # nur Lesezugriff (kein Schreibzugriff -> Datei wird nicht neu verschluesselt);
-            # das generating-Flag setzt bereits der Router atomar (try_start_generating)
-            if not await self._store.session_exists(user, sid):
-                return
+            # Existenz ist ueber _hot beim Start geprueft; das generating-Flag setzt
+            # der Router atomar (try_start_generating)
             async for chunk in stream_completion(base_url, api_key, payload, settings=settings, abort=ev):
                 if ev.is_set():
                     break
@@ -292,41 +462,43 @@ class MessageService:
                         reasoning = delta.get("reasoning")
                     if reasoning:
                         _touch("reasoning")
-                        _text_block("reasoning")["text"] += reasoning
+                        _text_block("reasoning").text += reasoning
                     if delta.get("content"):
                         _touch("message")
-                        _text_block("message")["text"] += delta["content"]
+                        _text_block("message").text += delta["content"]
                     for tc in delta.get("tool_calls") or []:
                         idx = tc.get("index")
                         if idx is None:
-                            idx = sum(1 for b in blocks if b["kind"] == "toolcall")
+                            idx = sum(1 for m in block_msgs if m.type == "toolcall")
                         _touch("toolcall", idx)
-                        b = _tool_block("toolcall", idx)
+                        a = _tool_block("toolcall", idx)
                         fn = tc.get("function") or {}
-                        b["name"] += fn.get("name") or ""
-                        b["args"] += fn.get("arguments") or ""
+                        a["name"] += fn.get("name") or ""
+                        a["args"] += fn.get("arguments") or ""
+                        _sync_tool(a)
                     for tr in delta.get("tool_results") or []:
                         idx = tr.get("index")
                         if idx is None:
-                            idx = sum(1 for b in blocks if b["kind"] == "toolresult")
+                            idx = sum(1 for m in block_msgs if m.type == "toolresult")
                         _touch("toolresult", idx)
                         if tr.get("signal"):
                             # Signal-Chunk des LLM-Servers (z. B. "toolcall_done"): schliesst den
                             # offenen Block, traegt aber keinen Toolresult-Inhalt
                             continue
-                        b = _tool_block("toolresult", idx)
+                        a = _tool_block("toolresult", idx)
                         fn = tr.get("function") or {}
-                        b["name"] += tr.get("name") or fn.get("name") or ""
-                        b["result"] += (
+                        a["name"] += tr.get("name") or fn.get("name") or ""
+                        a["result"] += (
                             tr.get("result") or tr.get("content") or tr.get("output") or tr.get("text")
                             or fn.get("result") or fn.get("arguments") or ""
                         )
-                self._publish(active)
-                await _persist_closed_blocks()
+                        _sync_tool(a)
+                state.seq += 1
+                self._publish(state)
+                await _persist_closed()
         except asyncio.CancelledError:
             raise
         except Exception as exc:  # noqa: BLE001 - Fehler wird als System-Message persistiert
             error = error or str(exc)
         finally:
             await _final_flush()
-            self._publish(active)

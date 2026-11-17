@@ -1363,3 +1363,38 @@ def test_collapsed_bubble_caps_single_long_line_at_one_rendered_row(page, base_u
            }"""
     )
     assert one_row, "collapsed darf auch bei einer langen Einzeiler nur eine GUI-Zeile zeigen"
+
+
+def test_llm_streaming_is_visible_bit_by_bit_in_ui(page, base_url, llm_expect):
+    """Streaming-Nachweis End-to-End im Browser: der Mock-LLM sendet 4 Chunks mit je 0.4 s
+    Pause ('chunky'); die Assistant-Bubble muss den Text stufenweise aufbauen — der Nutzer
+    sieht den Stream fortschreiten, nicht erst das Endergebnis."""
+    if llm_expect["default"] is None:
+        pytest.skip("Chunky-Streaming-Test braucht den Mock-LLM")
+    email = "chunky-user@example.com"
+    api_client = _register_client(base_url, email, "Geheim-123")
+    _login(page, base_url, email, "Geheim-123")
+    _new_named_session(page, api_client)
+
+    page.fill(T["chat_input"], "chunky bitte")
+    page.click(T["send_btn"])
+
+    # Assistant-Bubble erscheint, sobald der erste Chunk da ist
+    page.wait_for_selector(_bubble("assistant", "message"), timeout=llm_expect["timeout_ms"])
+    body = page.locator(_bubble("assistant", "message")).first.locator('[data-testid="bubble-body"]')
+    seen = set()
+    deadline = time.time() + llm_expect["timeout_ms"] / 1000
+    while time.time() < deadline:
+        txt = body.inner_text()
+        seen.add(txt)
+        if "Delta" in txt:
+            break
+        if not page.locator(T["send_btn"]).evaluate("el => el.classList.contains('abort')"):
+            seen.add(body.inner_text())  # finaler Stand nach Generierungsende
+            break
+        time.sleep(0.05)
+
+    intermediate = sorted(t for t in seen if t and "Delta" not in t)
+    assert len(intermediate) >= 2, f"kein stufenweises Streaming im UI sichtbar: {sorted(seen)}"
+    assert any("Alpha" in t and "Beta" not in t for t in intermediate), f"erster Chunk allein sichtbar: {intermediate}"
+    assert "Alpha Beta Gamma Delta" in seen, f"Endstand fehlt: {sorted(seen)}"

@@ -8,7 +8,6 @@ import httpx
 from fastapi.testclient import TestClient
 
 from app.auth import user_identity
-from app.db import database as dbq
 from app.services.chat import MessageService
 
 RealAsyncClient = httpx.AsyncClient
@@ -112,7 +111,7 @@ def test_chat_starts_background_generation_and_persists(client, auth_headers, mo
 def test_chat_marks_session_generating_while_running(client, auth_headers, monkeypatch):
     release = asyncio.Event()
 
-    async def fake_generate(self, user, sid, active, *args, **kwargs):
+    async def fake_generate(self, user, sid, state, active, *args, **kwargs):
         await self._store.set_generating(user, sid, True)
         try:
             await asyncio.wait_for(release.wait(), timeout=10)
@@ -156,7 +155,7 @@ def test_chat_unknown_session_404(client, auth_headers):
 def test_chat_abort_endpoint(client, app, auth_headers, monkeypatch):
     observed = {}
 
-    async def fake_generate(self, user, sid, active, *args, **kwargs):
+    async def fake_generate(self, user, sid, state, active, *args, **kwargs):
         observed["active"] = active
         await asyncio.wait_for(active.abort.wait(), timeout=10)
         observed["aborted"] = True
@@ -167,9 +166,12 @@ def test_chat_abort_endpoint(client, app, auth_headers, monkeypatch):
     assert _start_chat(client, auth_headers, sid).status_code == 202
 
     deadline = time.time() + 5
-    while time.time() < deadline and not any(k.endswith(":" + sid) for k in app.state.message_service._active):
+    svc = app.state.message_service
+    while time.time() < deadline and not any(
+        k.endswith(":" + sid) and st.generation is not None for k, st in svc._sessions.items()
+    ):
         time.sleep(0.05)
-    assert any(k.endswith(":" + sid) for k in app.state.message_service._active)
+    assert any(k.endswith(":" + sid) and st.generation is not None for k, st in svc._sessions.items())
 
     res = client.post("/api/chat/abort", json={"session_id": sid}, headers=auth_headers)
     assert res.status_code == 200
@@ -193,10 +195,9 @@ def test_chat_abort_clears_stale_generating_flag(client, app, auth_headers, monk
     sid = _new_session(client, auth_headers)
     _post_user_message(client, auth_headers, sid)
     user = user_identity("test-secret", "alice@example.com")
-    with app.state.db.user_db(user) as con:
-        dbq.q_set_generating(con, sid, True)
+    asyncio.run(app.state.store.set_generating(user, sid, True))
     assert client.get(f"/api/sessions/{sid}", headers=auth_headers).json()["generating"] is True
-    assert app.state.message_service._active == {}
+    assert not any(st.generation for st in app.state.message_service._sessions.values())
 
     res = client.post("/api/chat/abort", json={"session_id": sid}, headers=auth_headers)
     assert res.status_code == 200
@@ -263,7 +264,7 @@ def test_chat_abort_cancels_stalled_upstream_stream(client, app, auth_headers, m
     assert not any("Teil A" in t or "Teil B" in t for t in texts)  # in-flight Block verworfen
     assert not any(m["role"] == "system" for m in detail["messages"]), "Abbruch darf keine Fehlermeldung erzeugen"
     svc = app.state.message_service
-    assert svc._active == {}
+    assert not any(st.generation for st in svc._sessions.values())
     assert svc._abort_requested == set()
 
 
@@ -465,16 +466,19 @@ def _parse_sse_events(body: str) -> list[dict]:
     return [json.loads(line[len("data: "):]) for line in body.splitlines() if line.startswith("data: ")]
 
 
-def test_chat_stream_sse_emits_snapshot_blocks_and_done(client, auth_headers, monkeypatch):
-    """GET /api/chat/stream/{sid}: SSE-Events aus dem In-Memory-State des MessageService
-    (snapshot -> blocks -> done)."""
+def test_chat_stream_sse_emits_state_events_and_done(client, auth_headers, monkeypatch):
+    """GET /api/chat/stream/{sid}: versionierte state-Events aus dem In-Memory-State
+    des MessageService (state mit seq + messages inkl. Live-Messages -> done)."""
+    from app.domain import Message
 
-    async def fake_generate(self, user, sid, active, *args, **kwargs):
-        active.blocks.append({"kind": "message", "ts": None, "id": None, "text": "Hallo"})
-        self._publish(active)
+    async def fake_generate(self, user, sid, state, active, *args, **kwargs):
+        state.messages.append(Message(id=None, role="assistant", type="message", text="Hallo"))
+        state.seq += 1
+        self._publish(state)
         await asyncio.sleep(0.05)
-        active.blocks[-1]["text"] = "Hallo Welt"
-        self._publish(active)
+        state.messages[-1].text = "Hallo Welt"
+        state.seq += 1
+        self._publish(state)
 
     monkeypatch.setattr(MessageService, "_generate", fake_generate)
     sid = _new_session(client, auth_headers)
@@ -487,10 +491,12 @@ def test_chat_stream_sse_emits_snapshot_blocks_and_done(client, auth_headers, mo
         body = res.read().decode("utf-8")
 
     events = _parse_sse_events(body)
-    assert events[0]["type"] == "snapshot"
-    blocks_events = [e for e in events if e["type"] == "blocks"]
-    assert blocks_events, "mindestens ein blocks-Event erwartet"
-    assert blocks_events[-1]["blocks"][-1] == {"bid": 0, "id": None, "kind": "message", "text": "Hallo Welt"}
+    state_events = [e for e in events if e["type"] == "state"]
+    assert events[0]["type"] == "state"
+    assert [e["seq"] for e in state_events] == sorted(e["seq"] for e in state_events), "seq muss steigen"
+    last = state_events[-1]
+    live = [m for m in last["messages"] if m["id"] is None]
+    assert live and live[-1]["text"] == "Hallo Welt" and live[-1]["role"] == "assistant"
     assert events[-1]["type"] == "done"
 
 
@@ -506,3 +512,38 @@ def test_chat_stream_requires_auth_and_known_session(client, app, auth_headers):
     anon = TestClient(app)  # kein Session-Cookie -> 401
     assert anon.get("/api/chat/stream/x").status_code == 401
     assert client.get("/api/chat/stream/does-not-exist", headers=auth_headers).status_code == 404
+
+
+def test_chat_stream_publishes_each_chunk_progressively_before_done(client, auth_headers, monkeypatch):
+    """Streaming-Nachweis serverseitig: jeder LLM-Chunk erzeugt ein eigenes state-Event
+    (wachsender Text) — bevor das finale done-Event kommt."""
+    from app.domain import Message
+
+    async def fake_generate(self, user, sid, state, active, *args, **kwargs):
+        m = Message(id=None, role="assistant", type="message", text="")
+        state.messages.append(m)
+        for part in ("Ha", "llo ", "Welt"):
+            m.text += part
+            state.seq += 1
+            self._publish(state)
+            await asyncio.sleep(0.02)
+
+    monkeypatch.setattr(MessageService, "_generate", fake_generate)
+    sid = _new_session(client, auth_headers)
+    _post_user_message(client, auth_headers, sid)
+    assert _start_chat(client, auth_headers, sid).status_code == 202
+
+    with client.stream("GET", f"/api/chat/stream/{sid}", headers=auth_headers) as res:
+        assert res.status_code == 200
+        body = res.read().decode("utf-8")
+
+    events = _parse_sse_events(body)
+    assert events[-1]["type"] == "done", "Stream endet mit done"
+    state_events = [e for e in events if e["type"] == "state"]
+    # Live-Message (id=None) wuchs in jedem Event um genau einen Chunk
+    live_texts = [
+        m["text"] for e in state_events for m in e["messages"] if m["id"] is None and m["role"] == "assistant"
+    ]
+    assert live_texts == ["Ha", "Hallo ", "Hallo Welt"], f"jeder Chunk einzeln publiziert: {live_texts}"
+    seqs = [e["seq"] for e in state_events]
+    assert seqs == sorted(seqs) and len(set(seqs)) == len(seqs), "seq steigt pro Event"

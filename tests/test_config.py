@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import pytest
+from pydantic import ValidationError
+
 from app.config import AppConfig, ensure_env_file, load_config, load_env_file, parse_env_text
 from app.main import create_app
 
@@ -207,9 +210,6 @@ def test_public_host_blocks_private_llm_by_default_with_limit_defaults(tmp_path,
 
 
 def test_app_config_rejects_invalid_port(tmp_path):
-    import pytest
-    from pydantic import ValidationError
-
     with pytest.raises(ValidationError):
         AppConfig(data_dir=tmp_path, secret="s", registry_path=tmp_path / "r.db", users_dir=tmp_path / "u", port=0)
     with pytest.raises(ValidationError):
@@ -217,9 +217,6 @@ def test_app_config_rejects_invalid_port(tmp_path):
 
 
 def test_app_config_rejects_non_positive_limits(tmp_path):
-    import pytest
-    from pydantic import ValidationError
-
     with pytest.raises(ValidationError):
         AppConfig(data_dir=tmp_path, secret="s", registry_path=tmp_path / "r.db", users_dir=tmp_path / "u", max_upload_bytes=0)
     with pytest.raises(ValidationError):
@@ -227,8 +224,17 @@ def test_app_config_rejects_non_positive_limits(tmp_path):
 
 
 def test_app_config_from_dict_rejects_unknown_keys(tmp_path):
-    import pytest
-    from pydantic import ValidationError
-
     with pytest.raises(ValidationError):
         AppConfig.from_dict({"data_dir": str(tmp_path), "secret": "s", "registry_path": "r.db", "users_dir": "u", "typo_key": 1})
+
+
+def test_load_config_reads_hot_session_ttl_and_validates_it(tmp_path, monkeypatch):
+    monkeypatch.setenv("LEANCHAT_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("LEANCHAT_SECRET", "s")
+    monkeypatch.setenv("LEANCHAT_HOT_SESSION_TTL_S", "12.5")
+    cfg = load_config()
+    assert cfg.hot_session_ttl_s == 12.5
+    assert cfg.to_dict()["hot_session_ttl_s"] == 12.5
+    monkeypatch.setenv("LEANCHAT_HOT_SESSION_TTL_S", "-1")
+    with pytest.raises(ValidationError):
+        load_config()

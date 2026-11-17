@@ -13,16 +13,19 @@ app/                  FastAPI backend (uvicorn)
   config.py           Konfiguration (Pydantic-Model mit Validierung; Env: LEANCHAT_DATA_DIR, LEANCHAT_SECRET, LEANCHAT_API_KEY, LEANCHAT_LLM_HOST, LEANCHAT_LLM_PORT, LEANCHAT_AUTO_LOGIN)
   types.py            TypedDicts fuer interne dict-Daten (DB-Zeilen, User-Identitaet, Stream-Bloecke)
   auth.py             user_registry-Integration: Registry-DB, mount_auth (/auth-Seiten), Session-Cookies
-  models.py           Pydantic-Schemas
+  domain.py           Kanonische Domain-Models (Message/Session/Attachment) fuer Memory, SSE, API und Store-Mapping
+  models.py           Pydantic-API-Models (Request/Response), abgeleitet von domain.py
   deps.py             FastAPI-Dependencies (Auth via signiertem Session-Cookie)
   db/
     schema.sql        SQL-Schema der pro-User-DB (eigene Datei, inkl. user_settings)
     crypto.py         Fernet-Ver-/Entschluesselung
     database.py       Low-Level-Persistenz: verschluesselte per-user SQLite-Dateien (einzige Stelle mit SQLite/Crypto)
-  services/store.py   UserStore (Repository): einziger DB-Zugriff fuer Router/Generierung, kapselt asyncio.to_thread
   routers/            auth.py, sessions.py, settings.py, chat.py (serverseitige Generierung)
-  services/chat.py    MessageService: In-Memory-Stream-State + SSE an den Client (GET /api/chat/stream/{sid}),
-                      orchestriert die Persistenz ueber UserStore
+  services/chat.py    MessageService: Single Write Funnel — haelt pro heisser Session das volle In-Memory-Message-Memory,
+                      SSE-Live-Stream an den Client (GET /api/chat/stream/{sid}), persistiert write-through ueber den Store
+  services/store.py   UserStoreProtocol (Persistenz-Gateway): einziger DB-Zugriff fuer Router/Service
+                      (SqliteUserStore = verschluesselte per-user SQLite-Dateien, kapselt asyncio.to_thread)
+  services/memory_store.py  InMemoryUserStore (Test-Double)
   services/llm.py     LLM-Client (LlmClient: stream_completion mit Abort-Race, check_llm_connection)
   services/context.py LLM-Kontext aus der Session-DB via trixie_ai.LlmContext (vendored Wheel,
                       inkl. Tool-Calls als assistant/tool-Messages)

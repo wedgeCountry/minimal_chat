@@ -78,7 +78,8 @@ def test_reasoning_and_in_context_false_are_excluded():
 
 
 def test_attachments_become_content_parts_and_expand():
-    att = {"id": 5, "name": "geheim.txt", "mime": "text/plain", "kind": "text", "size": 3, "content": "abc"}
+    from app.domain import Attachment
+    att = Attachment(id=5, name="geheim.txt", mime="text/plain", kind="text", size=3, content="abc")
     msgs = [_msg(1, "user", "message", "lies die Datei", attachments=[{"id": 5, "name": "geheim.txt"}])]
     wire = build_llm_context(msgs, attachments_by_id={5: att}).compile()
     content = wire[0]["content"]

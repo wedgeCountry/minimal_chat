@@ -7,7 +7,7 @@ from user_registry.web.security import read_session
 from .auth import TERMS_VERSION, display_name_from_email, user_identity
 from .config import AppConfig
 from .services.chat import MessageService
-from .services.store import UserStore
+from .services.store import UserStoreProtocol
 from .types import UserIdentity
 
 
@@ -16,8 +16,8 @@ def get_config(request: Request) -> AppConfig:
     return config
 
 
-def get_store(request: Request) -> UserStore:
-    store: UserStore = request.app.state.store
+def get_store(request: Request) -> UserStoreProtocol:
+    store: UserStoreProtocol = request.app.state.store
     return store
 
 
