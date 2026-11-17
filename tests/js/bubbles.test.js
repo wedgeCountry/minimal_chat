@@ -76,6 +76,56 @@ test("setBubbleMode cycles classes and sets the chevron title", () => {
   assert.equal(b._chev.title, "Ausklappen");
 });
 
+function fakeChat(scrollTop, top = 100) {
+  return { scrollTop, getBoundingClientRect: () => ({ top, bottom: top + 600 }) };
+}
+
+function fakeScrollBubble(chat, top, heights) {
+  // getBoundingClientRect spiegelt die Hoehe des jeweiligen Modus (CSS line-clamp etc.)
+  const b = fakeBubble();
+  b.getBoundingClientRect = () => {
+    const h = heights[b.dataset.mode] ?? 0;
+    return { top, bottom: top + h, height: h };
+  };
+  b.closest = (sel) => (sel === "#chat" ? chat : null);
+  return b;
+}
+
+test("setBubbleMode kollabiert oberhalb des Viewports ohne Scroll-Sprung", () => {
+  // Bubble komplett oberhalb des Viewports: Inhalt an der Viewport-Kante rueckt um
+  // die volle Schrumpfung hoch -> scrollTop korrigiert mit (Browser-Clamp wird ueberschrieben)
+  const chat = fakeChat(1000);
+  const b = fakeScrollBubble(chat, -400, { full: 500, collapsed: 40 });
+  b.dataset.mode = "full";
+  setBubbleMode(b, "collapsed");
+  assert.equal(chat.scrollTop, 540); // 1000 - (500-40)
+});
+
+test("setBubbleMode: Bubble schneidet die obere Viewport-Kante -> Anker an der kollabierten Kante", () => {
+  const chat = fakeChat(300);
+  const b = fakeScrollBubble(chat, -100, { full: 500, collapsed: 40 });
+  b.dataset.mode = "full";
+  setBubbleMode(b, "collapsed");
+  // untere Kante nach Kollaps: 300 + (-100 + 500 - 100) - 460 = 140 -> scrollTop landet darauf
+  assert.equal(chat.scrollTop, 140);
+});
+
+test("setBubbleMode: Bubble vollstaendig im Viewport -> scrollTop bleibt stehen", () => {
+  const chat = fakeChat(300);
+  const b = fakeScrollBubble(chat, 150, { full: 500, collapsed: 40 });
+  b.dataset.mode = "full";
+  setBubbleMode(b, "collapsed");
+  assert.equal(chat.scrollTop, 300);
+});
+
+test("setBubbleMode: Aufklappen oberhalb des Viewports -> scrollTop folgt nach unten", () => {
+  const chat = fakeChat(1000);
+  const b = fakeScrollBubble(chat, -400, { full: 500, collapsed: 40 });
+  b.dataset.mode = "collapsed";
+  setBubbleMode(b, "full");
+  assert.equal(chat.scrollTop, 1460); // 1000 + (500-40)
+});
+
 test("setBubbleText with short text is not clamped", () => {
   const b = fakeBubble();
   b.dataset.mode = "normal";

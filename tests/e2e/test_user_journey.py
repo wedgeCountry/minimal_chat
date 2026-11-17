@@ -1365,6 +1365,59 @@ def test_collapsed_bubble_caps_single_long_line_at_one_rendered_row(page, base_u
     assert one_row, "collapsed darf auch bei einer langen Einzeiler nur eine GUI-Zeile zeigen"
 
 
+def test_collapse_keeps_scroll_position_when_scrolled_up(page, base_url, llm_expect):
+    """Hochgescrollt eine lange Bubble einklappen: die Ansicht darf nicht ans untere
+    Ende springen, sondern bleibt an der oberen Viewport-Kante stehen (bzw. landet an
+    der kollabierten Bubble, wenn die Kante mitten in der Bubble war)."""
+    if llm_expect["default"] is None:
+        pytest.skip("braucht den Mock-LLM (lange Antworten)")
+    email = "scroll-collapse-user@example.com"
+    api_client = _register_client(base_url, email, "Geheim-123")
+    _login(page, base_url, email, "Geheim-123")
+    _new_named_session(page, api_client)
+
+    # vier lange Antworten -> Chat hoch genug zum Scrollen
+    n_assist = "document.querySelectorAll('[data-testid=\"chat\"] .bubble[data-role=\"assistant\"][data-type=\"message\"]').length"
+    for i in range(1, 5):
+        page.fill(T["chat_input"], "lang")
+        page.click(T["send_btn"])
+        page.wait_for_function(
+            f"() => {n_assist} === {i}"
+            " && !document.querySelector('[data-testid=\"send-btn\"]').classList.contains('abort')",
+            timeout=llm_expect["timeout_ms"],
+        )
+
+    # erste Assistant-Bubble voll ausklappen (normal -> full), dann hochscrollen
+    first = f"document.querySelectorAll('{_bubble('assistant', 'message')}')[0]"
+    page.locator(_bubble("assistant", "message")).first.locator('[data-testid="bubble-toggle-btn"]').click()
+    page.wait_for_function(f"() => {first}.getAttribute('data-mode') === 'full'")
+    st0 = page.evaluate(
+        """() => {
+             const c = document.querySelector('[data-testid="chat"]');
+             c.scrollTop = c.scrollHeight - c.clientHeight - 150;
+             return c.scrollTop;
+           }"""
+    )
+    assert st0 > 400, "Chat muss hoch genug sein, dass die erste Bubble voll oberhalb des Viewports liegt"
+    h0 = page.evaluate(f"() => {first}.getBoundingClientRect().height")
+
+    # Kollaps per DOM-Click ausloesen (Playwright-Click wuerde scrollIntoView -> scrollTop veraendern)
+    page.evaluate(f"() => {first}.querySelector('[data-testid=\"bubble-toggle-btn\"]').click()")
+    page.wait_for_function(f"() => {first}.getAttribute('data-mode') === 'collapsed'")
+    page.wait_for_timeout(250)  # CSS-Transition (min-height/padding, 150ms) abwarten
+
+    res = page.evaluate(
+        f"""() => {{
+             const c = document.querySelector('[data-testid="chat"]');
+             const b = {first};
+             return {{ st: c.scrollTop, max: c.scrollHeight - c.clientHeight, h: b.getBoundingClientRect().height }};
+           }}"""
+    )
+    assert res["h"] < h0 - 100, "Bubble muss kollabiert (deutlich kleiner) sein"
+    assert res["st"] <= st0, "Ansicht darf nicht nach unten springen"
+    assert res["st"] < res["max"] - 10, "Ansicht darf nach dem Einklappen nicht am unteren Rand kleben (kein Clamp-Sprung)"
+
+
 def test_llm_streaming_is_visible_bit_by_bit_in_ui(page, base_url, llm_expect):
     """Streaming-Nachweis End-to-End im Browser: der Mock-LLM sendet 4 Chunks mit je 0.4 s
     Pause ('chunky'); die Assistant-Bubble muss den Text stufenweise aufbauen — der Nutzer
