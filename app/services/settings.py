@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from ..config import AppConfig
+
 BOOL_SETTINGS: dict[str, bool] = {
     "bubbles_deletable": True,
     "bubbles_checkable": True,
@@ -42,7 +44,7 @@ def base_from_host_port(host: str, port: str) -> str | None:
     return f"http://{host}{':' + port if port else ''}/v1"
 
 
-def resolve_base_url(stored: dict[str, str], config) -> str:
+def resolve_base_url(stored: dict[str, str], config: AppConfig) -> str:
     """Single Source of Truth fuer die LLM-Base-URL.
 
     Prioritaet: aus User-host/port berechnet > gespeicherte User-base (Legacy)
@@ -50,9 +52,11 @@ def resolve_base_url(stored: dict[str, str], config) -> str:
     > Default 127.0.0.1:1234.
     Wird von Settings-GET/PUT-Test und vom Chat-Router verwendet.
     """
-    return (
+    base = (
         base_from_host_port(stored.get("host") or "", stored.get("port") or "")
         or stored.get("base")
         or base_from_host_port(config.default_llm_host, config.default_llm_port)
-        or base_from_host_port("127.0.0.1", "1234")
     )
+    fallback = base_from_host_port("127.0.0.1", "1234")
+    assert fallback is not None  # Host ist nicht leer -> base_from_host_port liefert nie None
+    return base or fallback

@@ -2,14 +2,25 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
+
+
+class AttachmentRef(BaseModel):
+    """Referenz auf einen serverseitig gespeicherten Anhang (POST /api/sessions/{id}/attachments)."""
+
+    # extra="allow": der Client schickt z. B. noch "type" (MIME) mit; wird 1:1 durchgereicht
+    model_config = ConfigDict(extra="allow")
+
+    id: int
+    name: str = ""
+
 
 class MessageIn(BaseModel):
     role: Literal["user", "assistant", "system"]
     type: Literal["message", "toolcall", "reasoning", "toolresult"] = "message"
     text: str = ""
     in_context: bool = True
-    attachments: list[dict[str, Any]] = Field(default_factory=list)
+    attachments: list[AttachmentRef] = Field(default_factory=list)
 
 
 class MessageOut(MessageIn):
@@ -20,11 +31,11 @@ class MessageOut(MessageIn):
 class MessagePatch(BaseModel):
     in_context: bool | None = None
     text: str | None = None
-    attachments: list[dict[str, Any]] | None = None
+    attachments: list[AttachmentRef] | None = None
 
 
 class SessionIn(BaseModel):
-    name: str = "Neue Session"
+    name: str = Field(default="Neue Session", max_length=120)
 
 
 class SessionRename(BaseModel):
@@ -102,7 +113,7 @@ class ChatRequest(BaseModel):
 
 
 class ChatAbortRequest(BaseModel):
-    session_id: str
+    session_id: str = Field(max_length=64)
 
 
 class ClientLogIn(BaseModel):

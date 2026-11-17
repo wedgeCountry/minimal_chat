@@ -22,6 +22,7 @@ from user_registry.web import AuthConfig, mount_auth
 from user_registry.web.security import make_serializer
 
 from .config import REPO_ROOT, AppConfig
+from .types import UserIdentity
 
 TERMS_VERSION = "2025-01"
 
@@ -71,10 +72,10 @@ def legacy_key(secret: str, email: str) -> str:
     return base64.urlsafe_b64encode(digest).decode("ascii")
 
 
-_identity_cache: dict[tuple[str, str], dict] = {}
+_identity_cache: dict[tuple[str, str], UserIdentity] = {}
 
 
-def user_identity(secret: str, email: str) -> dict:
+def user_identity(secret: str, email: str) -> UserIdentity:
     """Leitet die lokale User-Identitaet (uid + Schluessel der per-user DB)
     aus dem Server-Secret und der E-Mail ab. Deterministisch und stateless:
     gleiche E-Mail + gleiches Secret => gleiche per-user DB, ohne dass eine
@@ -86,9 +87,9 @@ def user_identity(secret: str, email: str) -> dict:
     cache_key = (secret, email)
     cached = _identity_cache.get(cache_key)
     if cached is not None:
-        return dict(cached)
+        return {**cached}
     uid = hashlib.sha256(email.encode("utf-8")).hexdigest()[:16]
-    identity = {
+    identity: UserIdentity = {
         "uid": uid,
         "email": email,
         "username": display_name_from_email(email),
@@ -98,4 +99,4 @@ def user_identity(secret: str, email: str) -> dict:
     if len(_identity_cache) > 256:
         _identity_cache.clear()
     _identity_cache[cache_key] = identity
-    return dict(identity)
+    return {**identity}

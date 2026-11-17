@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import os
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 
 from fastapi import FastAPI, Request, Response
@@ -34,7 +35,7 @@ CSP_AUTH = (
 
 def create_app(
     config: AppConfig | None = None,
-    data_dir: str | os.PathLike | None = None,
+    data_dir: str | os.PathLike[str] | None = None,
     secret: str | None = None,
 ) -> FastAPI:
     cfg = config or load_config(data_dir=data_dir, secret=secret)
@@ -53,7 +54,7 @@ def create_app(
     init_auth(app, cfg)
 
     @app.middleware("http")
-    async def limit_request_size(request: Request, call_next):
+    async def limit_request_size(request: Request, call_next: Callable[[Request], Awaitable[Response]]) -> Response:
         if request.url.path.startswith("/api/"):
             length = request.headers.get("content-length")
             if length:
@@ -68,7 +69,7 @@ def create_app(
         return await call_next(request)
 
     @app.middleware("http")
-    async def security_headers(request: Request, call_next):
+    async def security_headers(request: Request, call_next: Callable[[Request], Awaitable[Response]]) -> Response:
         response = await call_next(request)
         response.headers.setdefault("X-Content-Type-Options", "nosniff")
         response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")

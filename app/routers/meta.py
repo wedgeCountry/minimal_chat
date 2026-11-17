@@ -9,5 +9,5 @@ router = APIRouter(prefix="/api/meta", tags=["meta"])
 
 
 @router.get("")
-def get_meta(config: AppConfig = Depends(get_config)) -> dict:
+def get_meta(config: AppConfig = Depends(get_config)) -> dict[str, str]:
     return {"app_name": config.app_name}

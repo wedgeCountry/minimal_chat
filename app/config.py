@@ -4,14 +4,14 @@ import json
 import os
 import secrets
 import shutil
-from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
+
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 ENV_FILE = REPO_ROOT / ".env"
 ENV_EXAMPLE = REPO_ROOT / "env-example"
-
-PATH_FIELDS = ("data_dir", "registry_path", "users_dir", "app_config_path")
 
 LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1"}
 
@@ -32,42 +32,48 @@ def _env_path(name: str) -> Path | None:
     return Path(value)
 
 
-@dataclass
-class AppConfig:
-    """Alle globalen Variablen der App.
+class AppConfig(BaseModel):
+    """Alle globalen Variablen der App (Pydantic-Model: Typen + Constraints werden
+    bei jeder Erzeugung geprueft, z. B. Port 1-65535 und positive Byte-Limits).
 
-    Wird beim Programmstart aus den Umgebungsvariablen generiert und als
+    Wird beim Programmstart aus den Umgebungsvariablen generiert (load_config) und als
     App-Config-Datei (JSON) abgelegt; Tests koennen das Objekt direkt
-    uebergeben, ohne auf Systemvariablen zugreifen zu muessen.
+    uebergeben, ohne auf Systemvariablen zugreifen zu muessen. Bewusst kein
+    BaseSettings: die Umgebung wird nur in load_config explizit gelesen, damit
+    ein uebergebenes Config-Objekt nie von Umgebungsvariablen ueberschrieben wird.
     """
+
+    model_config = ConfigDict(extra="forbid")
 
     data_dir: Path
     secret: str
     registry_path: Path
     users_dir: Path
-    default_llm_host: str = "127.0.0.1"
+    default_llm_host: str = Field(default="127.0.0.1", min_length=1)
     default_llm_port: str = "1234"
     default_api_key: str = ""
     default_model: str = "gpt-4o-mini"
-    app_name: str = "LeanChat"
-    voice_base: str = "http://127.0.0.1:8001"
-    host: str = "127.0.0.1"
-    port: int = 8000
+    app_name: str = Field(default="LeanChat", min_length=1)
+    voice_base: str = Field(default="http://127.0.0.1:8001", min_length=1)
+    host: str = Field(default="127.0.0.1", min_length=1)
+    port: int = Field(default=8000, ge=1, le=65535)
     ssl_certfile: Path | None = None
     ssl_keyfile: Path | None = None
     app_config_path: Path | None = None
     allow_private_llm: bool = False
     auto_login: bool = False
-    max_upload_bytes: int = DEFAULT_MAX_UPLOAD_BYTES
-    max_user_storage_bytes: int = DEFAULT_MAX_USER_STORAGE_BYTES
-    max_request_bytes: int = DEFAULT_MAX_REQUEST_BYTES
+    max_upload_bytes: int = Field(default=DEFAULT_MAX_UPLOAD_BYTES, ge=1)
+    max_user_storage_bytes: int = Field(default=DEFAULT_MAX_USER_STORAGE_BYTES, ge=1)
+    max_request_bytes: int = Field(default=DEFAULT_MAX_REQUEST_BYTES, ge=1)
 
-    def __post_init__(self) -> None:
+    @model_validator(mode="after")
+    def _loopback_allows_private_llm(self) -> "AppConfig":
         # Loopback-Bind = nur lokal erreichbar, daher private LLM-Ziele ok
         if self.host in LOOPBACK_HOSTS:
             self.allow_private_llm = True
+        return self
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         # secret und default_api_key werden bewusst NICHT persistiert:
         # keine Secrets at rest in der app_config.json (liegen in .env/.secret).
         return {
@@ -92,13 +98,11 @@ class AppConfig:
         }
 
     @classmethod
-    def from_dict(cls, data: dict) -> "AppConfig":
+    def from_dict(cls, data: dict[str, Any]) -> "AppConfig":
+        # str-Pfade werden vom Model automatisch nach Path koerziert
         kwargs = dict(data)
         kwargs.setdefault("secret", "")
         kwargs.setdefault("default_api_key", "")
-        for key in PATH_FIELDS:
-            if kwargs.get(key) is not None:
-                kwargs[key] = Path(kwargs[key])
         return cls(**kwargs)
 
     def config_file(self) -> Path:
@@ -162,7 +166,7 @@ def _load_or_create_secret(path: Path) -> str:
 
 
 def load_config(
-    data_dir: str | os.PathLike | None = None,
+    data_dir: str | os.PathLike[str] | None = None,
     secret: str | None = None,
 ) -> AppConfig:
     data = Path(data_dir or os.environ.get("LEANCHAT_DATA_DIR", "data")).resolve()

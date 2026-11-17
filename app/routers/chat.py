@@ -13,15 +13,20 @@ from ..services.ssrf import validate_llm_base_url
 from ..services.context import build_llm_context
 from ..services.generation import forget_abort_if_idle, is_running, request_abort, run_generation
 from ..services.settings import BOOL_SETTINGS, resolve_base_url, stored_bool
+from ..types import AttachmentRow, MessageRow, SessionRow, UserIdentity
 
 router = APIRouter(prefix="/api/chat", tags=["chat"])
 
 # Starke Referenzen auf laufende Hintergrund-Tasks, damit der GC sie nicht
 # mitten in der Generierungeinsammelt.
-_background_tasks: set[asyncio.Task] = set()
+_background_tasks: set[asyncio.Task[None]] = set()
 
 
-def _load_chat_context(db: Database, user: dict, session_id: str):
+def _load_chat_context(
+    db: Database,
+    user: UserIdentity,
+    session_id: str,
+) -> tuple[SessionRow, dict[str, str], dict[int, AttachmentRow], list[MessageRow]] | None:
     """Session + Settings + Attachments + Messages laden (blockierend -> via to_thread)."""
     with db.user_db(user) as con:
         session = dbq.q_get_session(con, session_id)
@@ -33,12 +38,12 @@ def _load_chat_context(db: Database, user: dict, session_id: str):
     return session, stored, attachments, messages
 
 
-def _session_exists(db: Database, user: dict, session_id: str) -> bool:
+def _session_exists(db: Database, user: UserIdentity, session_id: str) -> bool:
     with db.user_db(user) as con:
         return dbq.q_get_session(con, session_id) is not None
 
 
-def _clear_generating_if_idle(db: Database, user: dict, session_id: str) -> None:
+def _clear_generating_if_idle(db: Database, user: UserIdentity, session_id: str) -> None:
     # Ohne laufende Task ist generating verwaist (z. B. Server-Neustart mitten in einer
     # Generierung): Abbrechen setzt das Flag zurueck, sonst pollt der Client endlos.
     # Bei laufender Task setzt der finale Flush der Task das Flag (q_set_generating False).
@@ -48,7 +53,7 @@ def _clear_generating_if_idle(db: Database, user: dict, session_id: str) -> None
             forget_abort_if_idle(user, session_id)
 
 
-def _try_start_generation(db: Database, user: dict, session_id: str) -> str:
+def _try_start_generation(db: Database, user: UserIdentity, session_id: str) -> str:
     with db.user_db(user) as con:
         return dbq.q_try_start_generating(con, session_id)
 
@@ -56,10 +61,10 @@ def _try_start_generation(db: Database, user: dict, session_id: str) -> str:
 @router.post("", status_code=202)
 async def chat(
     req: ChatRequest,
-    user: dict = Depends(get_current_user),
+    user: UserIdentity = Depends(get_current_user),
     db: Database = Depends(get_db),
     config: AppConfig = Depends(get_config),
-) -> dict:
+) -> dict[str, str]:
     """Startet eine serverseitige Generierung als Hintergrund-Task.
 
     Der LLM-Stream wird nicht mehr an den Client durchgereicht, sondern in der
@@ -100,9 +105,9 @@ async def chat(
 @router.post("/abort")
 async def abort(
     req: ChatAbortRequest,
-    user: dict = Depends(get_current_user),
+    user: UserIdentity = Depends(get_current_user),
     db: Database = Depends(get_db),
-) -> dict:
+) -> dict[str, str]:
     exists = await asyncio.to_thread(_session_exists, db, user, req.session_id)
     if not exists:
         raise HTTPException(status_code=404, detail="Session nicht gefunden")

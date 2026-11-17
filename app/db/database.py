@@ -23,10 +23,12 @@ import sqlite3
 import threading
 import time
 import weakref
+from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Iterator
+from typing import Any
 
+from ..types import AttachmentContent, AttachmentRow, MessageRow, SessionRow, UserIdentity
 from . import crypto
 
 SCHEMA_PATH = Path(__file__).with_name("schema.sql")
@@ -48,7 +50,7 @@ def _new_uid() -> str:
     return secrets.token_hex(8)
 
 
-def _row_to_message(row: sqlite3.Row) -> dict:
+def _row_to_message(row: sqlite3.Row) -> MessageRow:
     return {
         "id": row["id"],
         "session_id": row["session_id"],
@@ -62,7 +64,7 @@ def _row_to_message(row: sqlite3.Row) -> dict:
     }
 
 
-def _row_to_session(row: sqlite3.Row) -> dict:
+def _row_to_session(row: sqlite3.Row) -> SessionRow:
     return {"id": row["id"], "name": row["name"], "ts": row["ts"], "generating": bool(row["generating"])}
 
 
@@ -86,7 +88,7 @@ class Database:
         self._locks_guard = threading.Lock()
         self._locks: weakref.WeakValueDictionary[str, _UserLock] = weakref.WeakValueDictionary()
 
-    def _lock_for(self, user: dict) -> _UserLock:
+    def _lock_for(self, user: UserIdentity) -> _UserLock:
         """Pro-User-Sperre: gleichzeitige Zugriffe verschiedener User blockieren sich nicht."""
         key = str(self._db_path(user))
         with self._locks_guard:
@@ -96,10 +98,10 @@ class Database:
                 self._locks[key] = entry
             return entry
 
-    def _db_path(self, user: dict) -> Path:
+    def _db_path(self, user: UserIdentity) -> Path:
         return self.users_dir / f"{user['uid']}.db.enc"
 
-    def _write_encrypted(self, user: dict, plain: bytes) -> None:
+    def _write_encrypted(self, user: UserIdentity, plain: bytes) -> None:
         key = crypto.normalize_key(user["key"])
         token = crypto.encrypt(key, plain)
         path = self._db_path(user)
@@ -108,7 +110,7 @@ class Database:
         tmp.replace(path)
 
     @contextmanager
-    def user_db(self, user: dict) -> Iterator[sqlite3.Connection]:
+    def user_db(self, user: UserIdentity) -> Iterator[sqlite3.Connection]:
         """Entschluesselte In-Memory-Sicht auf die SQLite-Datei eines Users.
 
         Zurueckgeschrieben (verschluesselt persistiert) wird nur, wenn sich
@@ -183,19 +185,19 @@ class Database:
 # --- Sessions ---
 
 
-def q_list_sessions(con: sqlite3.Connection) -> list[dict]:
+def q_list_sessions(con: sqlite3.Connection) -> list[SessionRow]:
     rows = con.execute("SELECT id, name, ts, generating FROM sessions ORDER BY ts DESC").fetchall()
     return [_row_to_session(r) for r in rows]
 
 
-def q_create_session(con: sqlite3.Connection, name: str) -> dict:
+def q_create_session(con: sqlite3.Connection, name: str) -> SessionRow:
     sid = _new_uid()
     ts = _now_ms()
     con.execute("INSERT INTO sessions (id, name, ts) VALUES (?, ?, ?)", (sid, name, ts))
-    return {"id": sid, "name": name, "ts": ts}
+    return {"id": sid, "name": name, "ts": ts, "generating": False}
 
 
-def q_get_session(con: sqlite3.Connection, sid: str) -> dict | None:
+def q_get_session(con: sqlite3.Connection, sid: str) -> SessionRow | None:
     row = con.execute("SELECT id, name, ts, generating FROM sessions WHERE id = ?", (sid,)).fetchone()
     return _row_to_session(row) if row else None
 
@@ -225,7 +227,7 @@ def q_try_start_generating(con: sqlite3.Connection, sid: str) -> str:
 # --- Messages ---
 
 
-def q_get_messages(con: sqlite3.Connection, sid: str) -> list[dict]:
+def q_get_messages(con: sqlite3.Connection, sid: str) -> list[MessageRow]:
     # System-Prompts immer ganz oben, danach chronologisch nach Zeitstempel
     # (id als Tiebreaker, created_at hat nur Sekundenaufloesung).
     rows = con.execute(
@@ -236,12 +238,14 @@ def q_get_messages(con: sqlite3.Connection, sid: str) -> list[dict]:
     return [_row_to_message(r) for r in rows]
 
 
-def q_get_message(con: sqlite3.Connection, mid: int) -> dict | None:
+def q_get_message(con: sqlite3.Connection, mid: int) -> MessageRow | None:
     row = con.execute("SELECT * FROM messages WHERE id = ?", (mid,)).fetchone()
     return _row_to_message(row) if row else None
 
 
-def q_add_message(con: sqlite3.Connection, sid: str, msg: dict) -> dict:
+# msg/patch kommen teils als model_dump() (dict[str, Any]) aus den Routern, teils als
+# MessageInput aus run_generation - Mapping deckt beides ab.
+def q_add_message(con: sqlite3.Connection, sid: str, msg: Mapping[str, Any]) -> MessageRow:
     cur = con.execute(
         "INSERT INTO messages (session_id, role, type, text, in_context, attachments, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
         (
@@ -255,10 +259,14 @@ def q_add_message(con: sqlite3.Connection, sid: str, msg: dict) -> dict:
         ),
     )
     con.execute("UPDATE sessions SET ts = ? WHERE id = ?", (_now_ms(), sid))
-    return q_get_message(con, cur.lastrowid)
+    mid = cur.lastrowid
+    stored = q_get_message(con, mid) if mid is not None else None
+    if stored is None:
+        raise sqlite3.OperationalError("INSERT in messages hat keine Zeile geliefert")
+    return stored
 
 
-def q_update_message(con: sqlite3.Connection, mid: int, patch: dict) -> dict | None:
+def q_update_message(con: sqlite3.Connection, mid: int, patch: Mapping[str, Any]) -> MessageRow | None:
     msg = q_get_message(con, mid)
     if not msg:
         return None
@@ -286,7 +294,7 @@ def q_delete_messages_after(con: sqlite3.Connection, sid: str, mid: int) -> int:
 # --- Attachments ---
 
 
-def _row_to_attachment(row: sqlite3.Row) -> dict:
+def _row_to_attachment(row: sqlite3.Row) -> AttachmentRow:
     return {
         "id": row["id"],
         "session_id": row["session_id"],
@@ -298,16 +306,18 @@ def _row_to_attachment(row: sqlite3.Row) -> dict:
     }
 
 
-def q_add_attachment(con: sqlite3.Connection, sid: str, att: dict) -> dict:
+def q_add_attachment(con: sqlite3.Connection, sid: str, att: AttachmentContent) -> AttachmentRow:
     cur = con.execute(
         "INSERT INTO attachments (session_id, name, mime, kind, size, content) VALUES (?, ?, ?, ?, ?, ?)",
         (sid, att["name"], att["mime"], att["kind"], att["size"], att["content"]),
     )
     row = con.execute("SELECT * FROM attachments WHERE id = ?", (cur.lastrowid,)).fetchone()
+    if row is None:
+        raise sqlite3.OperationalError("INSERT in attachments hat keine Zeile geliefert")
     return _row_to_attachment(row)
 
 
-def q_get_session_attachments(con: sqlite3.Connection, sid: str) -> list[dict]:
+def q_get_session_attachments(con: sqlite3.Connection, sid: str) -> list[AttachmentRow]:
     rows = con.execute("SELECT * FROM attachments WHERE session_id = ? ORDER BY id ASC", (sid,)).fetchall()
     return [_row_to_attachment(r) for r in rows]
 

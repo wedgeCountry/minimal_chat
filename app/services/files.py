@@ -10,7 +10,10 @@ in die verarbeiteten Content-Parts expandiert.
 from __future__ import annotations
 
 import base64
-from typing import Any
+from collections.abc import Mapping
+from typing import Any, Protocol
+
+from ..types import AttachmentContent
 
 MAX_TEXT_CHARS = 100_000
 MAX_UPLOAD_BYTES = 20 * 1024 * 1024
@@ -22,7 +25,13 @@ class UploadTooLarge(ValueError):
     pass
 
 
-async def read_upload_capped(file, limit: int) -> bytes:
+class AsyncUploadReader(Protocol):
+    """Was read_upload_capped braucht: ein asynchrones read (z. B. fastapi.UploadFile)."""
+
+    async def read(self, size: int = -1) -> bytes: ...
+
+
+async def read_upload_capped(file: AsyncUploadReader, limit: int) -> bytes:
     """Byte-Cap beim Streamen, damit ein grosser Body nicht komplett in den RAM geht."""
     raw = bytearray()
     while True:
@@ -60,7 +69,7 @@ def is_text_file(name: str, mime: str) -> bool:
     return False
 
 
-def process_upload(name: str, mime: str, raw: bytes, max_bytes: int = MAX_UPLOAD_BYTES) -> dict:
+def process_upload(name: str, mime: str, raw: bytes, max_bytes: int = MAX_UPLOAD_BYTES) -> AttachmentContent:
     """Bereitet eine hochgeladene Datei fuer die Speicherung und den LLM-Request auf."""
     mime = (mime or "").lower() or "application/octet-stream"
     if len(raw) > max_bytes:
@@ -82,13 +91,16 @@ def process_upload(name: str, mime: str, raw: bytes, max_bytes: int = MAX_UPLOAD
     }
 
 
-def _attachment_part(att: dict) -> dict:
+def _attachment_part(att: AttachmentContent) -> dict[str, Any]:
     if att["kind"] == "image":
         return {"type": "image_url", "image_url": {"url": att["content"]}}
     return {"type": "text", "text": f"[Datei: {att['name']}]\n{att['content']}"}
 
 
-def expand_attachment_parts(messages: list[dict[str, Any]], attachments_by_id: dict[int, dict]) -> list[dict[str, Any]]:
+def expand_attachment_parts(
+    messages: list[dict[str, Any]],
+    attachments_by_id: Mapping[int, AttachmentContent],
+) -> list[dict[str, Any]]:
     """Ersetzt Content-Parts mit ``attachment_id`` durch die serverseitig aufbereiteten Parts.
 
     Rein textuelle Content-Listen werden zu einem einzigen String verschmolzen:

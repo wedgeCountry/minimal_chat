@@ -64,7 +64,8 @@ async def transcribe_speech(
         raise VoiceServiceUnavailable(str(e)) from e
     if res.status_code >= 400:
         raise VoiceUpstreamError(res.status_code, res.text[:300])
-    return res.json()
+    result: dict[str, Any] = res.json()
+    return result
 
 
 async def synthesize_speech(

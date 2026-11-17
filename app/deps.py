@@ -7,20 +7,23 @@ from user_registry.web.security import read_session
 from .auth import TERMS_VERSION, display_name_from_email, user_identity
 from .config import AppConfig
 from .db.database import Database
+from .types import UserIdentity
 
 
 def get_config(request: Request) -> AppConfig:
-    return request.app.state.config
+    config: AppConfig = request.app.state.config
+    return config
 
 
 def get_db(request: Request) -> Database:
-    return request.app.state.db
+    db: Database = request.app.state.db
+    return db
 
 
 def get_session_email(request: Request) -> str | None:
     """E-Mail der gueltigen Session (inkl. Auto-Login-Testmodus) oder None."""
     registry = request.app.state.registry
-    email = read_session(request, request.app.state.auth_config, request.app.state.auth_serializer)
+    email: str | None = read_session(request, request.app.state.auth_config, request.app.state.auth_serializer)
 
     # Auto-login mode: serve the default test user if no valid session
     if (not email or not registry.user_exists(email)) and request.app.state.config.auto_login:
@@ -33,8 +36,9 @@ def get_session_email(request: Request) -> str | None:
     return email
 
 
-def get_current_user(request: Request) -> dict:
+def get_current_user(request: Request) -> UserIdentity:
     email = get_session_email(request)
     if email is None:
         raise HTTPException(status_code=401, detail="Nicht authentifiziert")
-    return user_identity(request.app.state.config.secret, email)
+    secret: str = request.app.state.config.secret
+    return user_identity(secret, email)
