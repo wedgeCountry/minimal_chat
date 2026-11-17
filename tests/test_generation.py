@@ -15,7 +15,7 @@ from app.auth import user_identity
 from app.db import database as dbq
 from app.db.database import Database
 from app.services.sse import parse_sse_buffer
-from app.services.chat import MessageService, _ActiveGeneration
+from app.services.chat import MessageService, _ActiveGeneration, _SessionState
 from app.services.store import UserStore
 
 SECRET = "test-secret"
@@ -82,24 +82,27 @@ def test_request_abort_returns_false_when_nothing_running(svc, user):
 
 def test_request_abort_sets_registered_event(svc, user):
     key = svc._key(user, "sid-2")
-    active = _ActiveGeneration()
-    svc._active[key] = active
+    state = _SessionState([])
+    state.generation = _ActiveGeneration()
+    svc._sessions[key] = state
     try:
         assert svc.is_running(user, "sid-2") is True
         assert svc.request_abort(user, "sid-2") is True
-        assert active.abort.is_set()
+        assert state.generation.abort.is_set()  # type: ignore[union-attr]
     finally:
-        svc._active.pop(key, None)
+        svc._sessions.pop(key, None)
 
 
 def test_abort_key_is_scoped_per_user(svc, user):
     other = user_identity(SECRET, "other@example.com")
-    svc._active[svc._key(user, "sid-3")] = _ActiveGeneration()
+    state = _SessionState([])
+    state.generation = _ActiveGeneration()
+    svc._sessions[svc._key(user, "sid-3")] = state
     try:
         # dieselbe Session-ID eines anderen Users darf nicht mit-abgebrochen werden
         assert svc.request_abort(other, "sid-3") is False
     finally:
-        svc._active.pop(svc._key(user, "sid-3"), None)
+        svc._sessions.pop(svc._key(user, "sid-3"), None)
 
 
 # --- generate (Regression) ---
@@ -290,7 +293,7 @@ def test_inflight_block_not_persisted_until_block_completes(svc, db, user, sid, 
         assert writes == ["Teil A Teil B"]
 
     asyncio.run(main())
-    # DB-Oeffnen: 1x Session-Exists-Check + 1x finaler Flush (keine Zwischen-Flushes)
+    # DB-Oeffnen: 1x Hot-State-Load (_hot) + 1x finaler Flush (keine Zwischen-Flushes pro Chunk)
     assert len(opens) == 2, opens
 
 

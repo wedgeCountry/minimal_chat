@@ -60,7 +60,7 @@ async def chat(
         "stream": True,
         "messages": llm_ctx.compile(),
     }
-    service.start_generation(user, req.session_id, base_url, api_key, payload, flags)
+    await service.start_generation(user, req.session_id, base_url, api_key, payload, flags)
     return {"status": "started"}
 
 

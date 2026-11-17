@@ -3,9 +3,10 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 
 from ..config import AppConfig
-from ..deps import get_config, get_current_user, get_store
+from ..deps import get_config, get_current_user, get_message_service, get_store
 from ..models import AttachmentOut, MessageIn, MessageOut, MessagePatch, SessionDetail, SessionIn, SessionOut, SessionRename
 from ..services.files import UploadTooLarge, process_upload, read_upload_capped
+from ..services.chat import MessageService
 from ..services.store import DEFAULT_SESSION_NAME, AttachmentQuotaExceeded, MessageNotFound, SessionNotFound, UserStoreProtocol
 from ..types import UserIdentity
 
@@ -63,10 +64,11 @@ async def add_message(
     sid: str,
     msg: MessageIn,
     user: UserIdentity = Depends(get_current_user),
-    store: UserStoreProtocol = Depends(get_store),
+    service: MessageService = Depends(get_message_service),
 ) -> MessageOut:
+    # Schreib-Funnel: In-Memory-Messages des Service zuerst, dann persistiert (write-through)
     try:
-        stored = await store.add_message(user, sid, msg.model_dump())
+        stored = await service.add_message(user, sid, msg)
     except SessionNotFound:
         raise HTTPException(status_code=404, detail="Session nicht gefunden")
     return MessageOut.model_validate(stored.model_dump())
@@ -78,10 +80,10 @@ async def update_message(
     mid: int,
     patch: MessagePatch,
     user: UserIdentity = Depends(get_current_user),
-    store: UserStoreProtocol = Depends(get_store),
+    service: MessageService = Depends(get_message_service),
 ) -> MessageOut:
     try:
-        updated = await store.update_message(user, sid, mid, patch.model_dump(exclude_none=True))
+        updated = await service.update_message(user, sid, mid, patch)
     except SessionNotFound:
         raise HTTPException(status_code=404, detail="Session nicht gefunden")
     except MessageNotFound:
@@ -90,9 +92,9 @@ async def update_message(
 
 
 @router.delete("/{sid}/messages/{mid}", status_code=204)
-async def delete_message(sid: str, mid: int, user: UserIdentity = Depends(get_current_user), store: UserStoreProtocol = Depends(get_store)) -> None:
+async def delete_message(sid: str, mid: int, user: UserIdentity = Depends(get_current_user), service: MessageService = Depends(get_message_service)) -> None:
     try:
-        await store.delete_message(user, sid, mid)
+        await service.delete_message(user, sid, mid)
     except SessionNotFound:
         raise HTTPException(status_code=404, detail="Session nicht gefunden")
     except MessageNotFound:
@@ -104,12 +106,12 @@ async def delete_messages_after(
     sid: str,
     mid: int,
     user: UserIdentity = Depends(get_current_user),
-    store: UserStoreProtocol = Depends(get_store),
+    service: MessageService = Depends(get_message_service),
 ) -> None:
     """Loescht alle Nachrichten der Session, die nach der Nachricht ``mid`` liegen
     (z. B. Antworten des Assistenten beim Bearbeiten einer Nutzernachricht)."""
     try:
-        await store.delete_messages_after(user, sid, mid)
+        await service.delete_messages_after(user, sid, mid)
     except SessionNotFound:
         raise HTTPException(status_code=404, detail="Session nicht gefunden")
     except MessageNotFound:

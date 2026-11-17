@@ -54,7 +54,7 @@ def create_app(
     app.state.config = cfg
     app.state.db = Database(cfg.data_dir, cfg.users_dir)
     app.state.store = SqliteUserStore(app.state.db)
-    app.state.message_service = MessageService(app.state.store)
+    app.state.message_service = MessageService(app.state.store, hot_ttl_s=cfg.hot_session_ttl_s)
     init_auth(app, cfg)
 
     @app.middleware("http")

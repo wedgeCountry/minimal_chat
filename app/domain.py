@@ -23,10 +23,14 @@ class AttachmentRef(BaseModel):
     name: str = ""
 
 
+MessageType = Literal["message", "toolcall", "reasoning", "toolresult"]
+MessageRole = Literal["user", "assistant", "system"]
+
+
 class Message(BaseModel):
     id: int | None = None  # None = Live-Message (noch nicht persistiert)
-    role: Literal["user", "assistant", "system"]
-    type: Literal["message", "toolcall", "reasoning", "toolresult"] = "message"
+    role: MessageRole
+    type: MessageType = "message"
     text: str = ""
     in_context: bool = True
     attachments: list[AttachmentRef] = Field(default_factory=list)

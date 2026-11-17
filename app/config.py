@@ -65,6 +65,7 @@ class AppConfig(BaseModel):
     max_upload_bytes: int = Field(default=DEFAULT_MAX_UPLOAD_BYTES, ge=1)
     max_user_storage_bytes: int = Field(default=DEFAULT_MAX_USER_STORAGE_BYTES, ge=1)
     max_request_bytes: int = Field(default=DEFAULT_MAX_REQUEST_BYTES, ge=1)
+    hot_session_ttl_s: float = Field(default=300.0, ge=0)  # In-Memory-Session-State im MessageService
 
     @model_validator(mode="after")
     def _loopback_allows_private_llm(self) -> "AppConfig":
@@ -95,6 +96,7 @@ class AppConfig(BaseModel):
             "max_upload_bytes": self.max_upload_bytes,
             "max_user_storage_bytes": self.max_user_storage_bytes,
             "max_request_bytes": self.max_request_bytes,
+            "hot_session_ttl_s": self.hot_session_ttl_s,
         }
 
     @classmethod
@@ -192,4 +194,5 @@ def load_config(
         max_upload_bytes=int(os.environ.get("LEANCHAT_MAX_UPLOAD_BYTES", str(DEFAULT_MAX_UPLOAD_BYTES))),
         max_user_storage_bytes=int(os.environ.get("LEANCHAT_MAX_USER_STORAGE_BYTES", str(DEFAULT_MAX_USER_STORAGE_BYTES))),
         max_request_bytes=int(os.environ.get("LEANCHAT_MAX_REQUEST_BYTES", str(DEFAULT_MAX_REQUEST_BYTES))),
+        hot_session_ttl_s=float(os.environ.get("LEANCHAT_HOT_SESSION_TTL_S", "300")),
     )
