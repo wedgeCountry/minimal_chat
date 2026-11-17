@@ -46,8 +46,25 @@ def build_llm_context(
     ctx = LlmContext()
     if system_prompt:
         ctx.add_system_prompt(system_prompt)
-    pending_tool_call_ids: list[str] = []
     wire: list[dict[str, Any]] = []
+    pending_calls: list[dict[str, Any]] = []  # gepufferte tool_calls der aktuellen Tool-Gruppe
+    pending_results: list[str] = []  # gepufferte tool_results der aktuellen Tool-Gruppe
+    tool_seq = 0
+
+    def _flush_tool_group() -> None:
+        # Nur vollstaendige Paare als EIN assistant-Message (alle tool_calls der Gruppe)
+        # direkt gefolgt von ihren tool-Messages senden: parallele Toolcalls landen so als
+        # mehrere tool_calls in einem assistant-Message, und ein tool_call ohne
+        # tool_result (z. B. Result per Kontext-Checkbox abwaehlt) wuerde das Request
+        # ungueltig machen (422 bei strikten LLM-Servern)
+        n = min(len(pending_calls), len(pending_results))
+        if n:
+            wire.append({"role": "assistant", "content": None, "tool_calls": pending_calls[:n]})
+            for call, text in zip(pending_calls[:n], pending_results[:n]):
+                wire.append({"role": "tool", "tool_call_id": call["id"], "content": text})
+        pending_calls.clear()
+        pending_results.clear()
+
     for m in messages or []:
         if m.get("in_context") is False:
             continue
@@ -57,21 +74,15 @@ def build_llm_context(
         mid = m.get("id")
         if mtype == "toolcall":
             fn = _parse_toolcall(text)
-            tid = f"call_{mid}" if mid is not None else f"call_{len(pending_tool_call_ids)}"
-            pending_tool_call_ids.append(tid)
-            wire.append({
-                "role": "assistant",
-                "content": None,
-                "tool_calls": [{"id": tid, "type": "function", "function": {"name": fn["name"], "arguments": fn["arguments"]}}],
-            })
+            tool_seq += 1
+            tid = f"call_{mid}" if mid is not None else f"call_{tool_seq}"
+            pending_calls.append({"id": tid, "type": "function", "function": {"name": fn["name"], "arguments": fn["arguments"]}})
         elif mtype == "toolresult":
-            if not pending_tool_call_ids:
-                # ohne passenden tool_call davor waere die tool-Message ungueltig (422 bei strikten LLM-Servern)
-                continue
-            wire.append({"role": "tool", "tool_call_id": pending_tool_call_ids.pop(0), "content": text})
+            pending_results.append(text)
         elif mtype == "reasoning":
             continue  # Thinking wird nicht an das Modell gesendet
         else:
+            _flush_tool_group()
             # leere System-Nachricht nicht an das LLM senden (sonst 422) und nie anzeigen
             if role == "system" and not text.strip():
                 continue
@@ -82,5 +93,6 @@ def build_llm_context(
                 if text:
                     content.append({"type": "text", "text": text})
             wire.append({"role": role, "content": content})
+    _flush_tool_group()
     ctx.messages.extend(expand_attachment_parts(wire, attachments_by_id or {}))
     return ctx
