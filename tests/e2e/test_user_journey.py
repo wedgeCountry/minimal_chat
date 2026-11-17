@@ -13,9 +13,7 @@ import urllib.request
 import httpx
 import pytest
 
-from app.auth import user_identity
-from app.db import crypto
-from tests.e2e.conftest import E2E_SECRET, REPO_ROOT
+from tests.e2e.conftest import REPO_ROOT
 
 pytestmark = pytest.mark.e2e
 
@@ -65,29 +63,14 @@ def _reasoning_bubble():
     return _bubble("assistant", "reasoning")
 
 
-def _open_user_db(data_dir, email):
-    """Entschluesselt die per-user DB aus dem Server-Datenverzeichnis (read-only via :memory:)."""
-    import sqlite3
-
-    from cryptography.fernet import Fernet
-
-    user = user_identity(E2E_SECRET, email)
-    token = (data_dir / "users" / f"{user['uid']}.db.enc").read_bytes()
-    con = sqlite3.connect(":memory:")
-    con.deserialize(Fernet(crypto.normalize_key(user["key"])).decrypt(token))
-    return con
-
-
-def _db_session_state(data_dir, email, sid):
-    con = _open_user_db(data_dir, email)
-    try:
-        session = con.execute("SELECT id, name, ts FROM sessions WHERE id = ?", (sid,)).fetchone()
-        messages = con.execute(
-            "SELECT role, type, text FROM messages WHERE session_id = ? ORDER BY id", (sid,)
-        ).fetchall()
-    finally:
-        con.close()
-    return session, messages
+def _api_detail(api_client, sid):
+    """Session-Detail inkl. Messages ueber die oeffentliche API - die API ist die
+    Quelle der Wahrheit fuer serverseitige Persistenz (die e2e-Tests duerfen nicht
+    direkt in die verschluesselten DB-Dateien schauen, damit die Persistenzschicht
+    austauschbar bleibt)."""
+    res = api_client.get(f"/api/sessions/{sid}")
+    assert res.status_code == 200, res.text
+    return res.json()
 
 
 def _register_client(base_url, email, password):
@@ -169,7 +152,7 @@ def _chat_once(page, text, n, expect, timeout_ms, attach=None):
         )
 
 
-def test_full_user_journey(page, base_url, tmp_path, llm_expect, server_data_dir):
+def test_full_user_journey(page, base_url, tmp_path, llm_expect):
     # Setup: User per API anlegen, System-Prompt-Anzeige serverseitig deaktivieren
     # (damit er in der Journey "am Anfang versteckt" ist).
     api_client = _register_client(base_url, USER["email"], USER["password"])
@@ -206,17 +189,17 @@ def test_full_user_journey(page, base_url, tmp_path, llm_expect, server_data_dir
         page.locator(_bubble("assistant")).nth(1).locator('[data-testid="bubble-body"]').inner_text()
     )
 
-    # 3b. Persistenz direkt in der per-user DB pruefen: Session-Eintrag und alle
-    #     Messages (inkl. Reasoning) liegen auf der Platte, sobald die Antworten fertig sind
+    # 3b. Persistenz ueber die API pruefen: Session-Eintrag und alle Messages (inkl.
+    #     Reasoning) sind serverseitig gespeichert, sobald die Antworten fertig sind
     #     (sid wurde oben beim Seeden des System-Prompts ermittelt; die Session wurde
     #     inzwischen per Auto-Rename umbenannt)
-    session, messages = _db_session_state(server_data_dir, USER["email"], sid)
-    assert session is not None and session[2] > 0, "Session-Eintrag mit ts muss in der DB existieren"
-    db_texts = [(r, t, x) for r, t, x in messages]
-    assert ("user", "message", "Nachricht 1") in db_texts
-    assert ("user", "message", "Nachricht 3") in db_texts
-    assert sum(1 for r, t, _ in db_texts if r == "assistant" and t == "message") == 3
-    assert any(t == "reasoning" for _, t, _ in db_texts), "Reasoning-Messages muessen persistiert sein"
+    detail = _api_detail(api_client, sid)
+    assert detail["ts"] > 0, "Session-Eintrag mit ts muss existieren"
+    msg_texts = [(m["role"], m["type"], m["text"]) for m in detail["messages"]]
+    assert ("user", "message", "Nachricht 1") in msg_texts
+    assert ("user", "message", "Nachricht 3") in msg_texts
+    assert sum(1 for r, t, _ in msg_texts if r == "assistant" and t == "message") == 3
+    assert any(t == "reasoning" for _, t, _ in msg_texts), "Reasoning-Messages muessen persistiert sein"
 
     # 4. Neue Session erstellen und einmal chatten
     page.click(T["new_session"])
@@ -548,7 +531,7 @@ def test_show_tool_output_and_reasoning_toggles_redraw_chat(page, base_url, llm_
     assert settings["show_reasoning"] is False
 
 
-def test_double_reasoning_toolcall_cycle_renders_each_block_separately_in_order(page, base_url, llm_expect, server_data_dir):
+def test_double_reasoning_toolcall_cycle_renders_each_block_separately_in_order(page, base_url, llm_expect):
     """LLM antwortet in einem Stream mit Reasoning -> Toolcall -> Toolresult -> Message, dann
     nochmals Reasoning -> Toolcall -> Toolresult -> Message. Erwartet: je 2 Bubbles pro Typ,
     exakt in dieser Reihenfolge (nichts wird akkumuliert/zu einer Bubble verschmolzen, nichts
@@ -603,18 +586,6 @@ def test_double_reasoning_toolcall_cycle_renders_each_block_separately_in_order(
     ts_list = [m["ts"] for m in assistant]
     assert all(a < b for a, b in zip(ts_list, ts_list[1:])), f"ts muss pro Block steigen: {ts_list}"
 
-    # DB: 8 eigene Assistant-Zeilen in derselben Reihenfolge mit steigendem created_at
-    con = _open_user_db(server_data_dir, email)
-    try:
-        rows = con.execute(
-            "SELECT type, created_at FROM messages WHERE session_id = ? AND role = 'assistant' ORDER BY id",
-            (sid,),
-        ).fetchall()
-    finally:
-        con.close()
-    assert [r[0] for r in rows] == ["reasoning", "toolcall", "toolresult", "message"] * 2
-    assert all(rows[i][1] < rows[i + 1][1] for i in range(len(rows) - 1)), "created_at muss pro Block steigen"
-
     # nach Reload bleibt die Reihenfolge erhalten
     page.reload()
     page.wait_for_selector(f'{T["session_tile"]}.active')
@@ -628,9 +599,9 @@ def test_double_reasoning_toolcall_cycle_renders_each_block_separately_in_order(
     assert order2 == expected_order, order2
 
 
-def test_session_db_updated_immediately_when_user_message_sent(page, base_url, llm_expect, server_data_dir):
-    """Session-Eintrag und User-Message muessen direkt nach dem Absenden in der
-    per-user DB stehen (noch bevor die LLM-Antwort fertig ist)."""
+def test_session_db_updated_immediately_when_user_message_sent(page, base_url, llm_expect):
+    """Session-Eintrag und User-Message muessen direkt nach dem Absenden serverseitig
+    persistiert sein (ueber die API sichtbar, noch bevor die LLM-Antwort fertig ist)."""
     email = "persist-user@example.com"
     api_client = _register_client(base_url, email, "Geheim-123")
     _login(page, base_url, email, "Geheim-123")
@@ -639,9 +610,9 @@ def test_session_db_updated_immediately_when_user_message_sent(page, base_url, l
     page.wait_for_selector(f'{T["session_tile"]}.active')
     sid = api_client.get("/api/sessions").json()[0]["id"]
 
-    session0, messages0 = _db_session_state(server_data_dir, email, sid)
-    assert session0 is not None and session0[2] > 0
-    assert messages0 == []
+    detail0 = _api_detail(api_client, sid)
+    assert detail0["ts"] > 0
+    assert detail0["messages"] == []
 
     page.fill(T["chat_input"], "Sofort-Persistiert")
     page.click(T["send_btn"])
@@ -650,10 +621,10 @@ def test_session_db_updated_immediately_when_user_message_sent(page, base_url, l
         timeout=llm_expect["timeout_ms"],
     )
 
-    # User-Message und aktualisierter Session-Timestamp liegen jetzt schon in der DB
-    session1, messages1 = _db_session_state(server_data_dir, email, sid)
-    assert ("user", "message", "Sofort-Persistiert") in messages1
-    assert session1[2] >= session0[2], "Session-ts muss nach dem User-Message aktualisiert sein"
+    # User-Message und aktualisierter Session-Timestamp sind jetzt schon persistiert
+    detail1 = _api_detail(api_client, sid)
+    assert ("user", "message", "Sofort-Persistiert") in [(m["role"], m["type"], m["text"]) for m in detail1["messages"]]
+    assert detail1["ts"] >= detail0["ts"], "Session-ts muss nach dem User-Message aktualisiert sein"
 
     # Nach fertiger Antwort liegen auch Assistant-Messages in der DB
     page.wait_for_function(
@@ -661,9 +632,9 @@ def test_session_db_updated_immediately_when_user_message_sent(page, base_url, l
         " && !document.querySelector('[data-testid=\"send-btn\"]').classList.contains('abort')",
         timeout=llm_expect["timeout_ms"],
     )
-    session2, messages2 = _db_session_state(server_data_dir, email, sid)
-    assert any(r == "assistant" and t == "message" for r, t, _ in messages2)
-    assert session2[2] >= session1[2]
+    detail2 = _api_detail(api_client, sid)
+    assert any(m["role"] == "assistant" and m["type"] == "message" for m in detail2["messages"])
+    assert detail2["ts"] >= detail1["ts"]
 
 
 def test_bubble_collapse_button_only_in_full_mode(page, base_url, llm_expect):
@@ -756,7 +727,7 @@ def test_login_rejects_wrong_password(page, base_url):
     assert "auth/login" in page.url
 
 
-def test_error_popup_when_llm_unreachable(page, base_url, llm_expect, server_data_dir):
+def test_error_popup_when_llm_unreachable(page, base_url, llm_expect):
     """Test that an error popup is shown when the LLM server is unreachable."""
     # Setup: Register user
     email = "unreachable-user@example.com"
@@ -792,9 +763,10 @@ def test_error_popup_when_llm_unreachable(page, base_url, llm_expect, server_dat
 LOREM_FIXTURE = REPO_ROOT / "tests" / "fixtures" / "lorem_ipsum.txt"
 
 
-def test_file_upload_user_journey(page, base_url, llm_expect, server_data_dir):
+def test_file_upload_user_journey(page, base_url, llm_expect, mock_llm_port):
     """User Journey Datei senden: Datei anhaengen/entfernen, Frage mit Anhang senden,
-    serverseitig verarbeiteter Inhalt landet vollstaendig im LLM-Request und in der DB."""
+    serverseitig verarbeiteter Inhalt landet vollstaendig im LLM-Request und die
+    Anhang-Referenz in der persistierten Message (API)."""
     email = "file-user@example.com"
     api_client = _register_client(base_url, email, "Geheim-123")
 
@@ -827,25 +799,19 @@ def test_file_upload_user_journey(page, base_url, llm_expect, server_data_dir):
     assert "Was steht in der Datei?" in user_bubble.locator('[data-testid="bubble-body"]').inner_text()
     assert user_bubble.locator('[data-testid="bubble-attachment-name"]').inner_text() == "lorem_ipsum.txt"
 
-    # 6. Serverseitige Verarbeitung in der per-user DB: Anhang vollstaendig als Text
-    #    gespeichert, Nachricht traegt die Anhang-Referenz
-    con = _open_user_db(server_data_dir, email)
-    try:
-        row = con.execute(
-            "SELECT name, mime, kind, content FROM attachments WHERE session_id = ?", (sid,)
-        ).fetchone()
-        msg_att = con.execute(
-            "SELECT attachments FROM messages WHERE session_id = ? AND role = 'user'", (sid,)
-        ).fetchone()
-    finally:
-        con.close()
-    assert row is not None, "Attachment muss in der per-user DB liegen"
-    name, mime, kind, att_content = row
-    assert (name, mime, kind) == ("lorem_ipsum.txt", "text/plain", "text")
-    assert att_content == LOREM_FIXTURE.read_text(encoding="utf-8")
-    assert len(att_content.splitlines()) == 20
-    refs = json.loads(msg_att[0])
-    assert refs and refs[0]["name"] == "lorem_ipsum.txt" and "id" in refs[0]
+    # 6. Serverseitige Verarbeitung ueber die API: die User-Message traegt die
+    #    Anhang-Referenz (id + name); der Mock-LLM antwortet nur, wenn der volle
+    #    Dateiinhalt im Request gelandet ist (siehe _chat_once mit llm_expect["lorem"])
+    user_msg = next(m for m in _api_detail(api_client, sid)["messages"] if m["role"] == "user")
+    refs = user_msg["attachments"]
+    assert refs and refs[0]["name"] == "lorem_ipsum.txt" and isinstance(refs[0]["id"], int)
+    if mock_llm_port is not None:
+        received = _llm_received(mock_llm_port)
+        assert received, "Mock-LLM muss den Chat-Request aufgezeichnet haben"
+        body = json.dumps(received[-1])
+        # zeilenweise vergleichen (im JSON-Body sind Newlines escapt)
+        for line in LOREM_FIXTURE.read_text(encoding="utf-8").splitlines():
+            assert line in body, f"Dateiinhalt fehlt im LLM-Request: {line!r}"
 
 
 def _new_named_session(page, api_client):
@@ -867,9 +833,9 @@ def _llm_received(port):
         return json.loads(res.read().decode())
 
 
-def test_abort_discards_inflight_block(page, base_url, llm_expect, server_data_dir):
+def test_abort_discards_inflight_block(page, base_url, llm_expect):
     """Abbruch waehrend des Streams (Mock-LLM 'langsam'): der offene (in-flight) Block wird
-    verworfen und landet nicht in UI/DB; kein Fehler-System-Message; generating=0."""
+    verworfen und landet nicht in UI/API; kein Fehler-System-Message; generating=0."""
     if llm_expect["default"] is None:
         pytest.skip("Abbruch-Test braucht den Mock-LLM (langsame Antwort)")
     email = "abort-user@example.com"
@@ -895,10 +861,10 @@ def test_abort_discards_inflight_block(page, base_url, llm_expect, server_data_d
     # offener Message-Block ("Teil A ") wurde verworfen: keine Assistant-Bubble in der UI
     assert page.locator(_bubble("assistant", "message")).count() == 0
 
-    _, messages = _db_session_state(server_data_dir, email, sid)
-    assert not any(r == "assistant" for r, _, _ in messages), "in-flight Block darf nicht persistiert werden"
-    assert not any(r == "system" for r, _, _ in messages), "Abbruch darf keine Fehlermeldung erzeugen"
-    assert api_client.get(f"/api/sessions/{sid}").json()["generating"] is False
+    messages = _api_detail(api_client, sid)["messages"]
+    assert not any(m["role"] == "assistant" for m in messages), "in-flight Block darf nicht persistiert werden"
+    assert not any(m["role"] == "system" for m in messages), "Abbruch darf keine Fehlermeldung erzeugen"
+    assert _api_detail(api_client, sid)["generating"] is False
 
 
 def test_rename_empty_keeps_name_and_escape_cancels(page, base_url, llm_expect):
@@ -1004,9 +970,9 @@ def test_context_checkbox_excludes_unselected_from_llm_request(page, base_url, l
         assert absent not in joined
 
 
-def test_delete_message_via_ui_persists_server_side_and_across_reload(page, base_url, llm_expect, server_data_dir):
-    """Nachricht per Muellimer loeschen: Bubble sofort weg, serverseitig geloescht (API und
-    per-user DB) und nach Reload weiterhin weg."""
+def test_delete_message_via_ui_persists_server_side_and_across_reload(page, base_url, llm_expect):
+    """Nachricht per Muellimer loeschen: Bubble sofort weg, serverseitig geloescht (ueber
+    die API sichtbar) und nach Reload weiterhin weg."""
     email = "del-user@example.com"
     api_client = _register_client(base_url, email, "Geheim-123")
     _login(page, base_url, email, "Geheim-123")
@@ -1030,8 +996,8 @@ def test_delete_message_via_ui_persists_server_side_and_across_reload(page, base
         time.sleep(0.2)
     assert _no_user_msg(), "DELETE muss serverseitig persistiert sein"
 
-    _, db_msgs = _db_session_state(server_data_dir, email, sid)
-    assert not any(r == "user" for r, _, _ in db_msgs), "per-user DB darf die Nachricht nicht mehr enthalten"
+    api_msgs = _api_detail(api_client, sid)["messages"]
+    assert not any(m["role"] == "user" for m in api_msgs), "serverseitig darf die Nachricht nicht mehr existieren"
 
     page.reload()
     page.wait_for_selector(_bubble("assistant", "message"), timeout=llm_expect["timeout_ms"])
@@ -1169,7 +1135,7 @@ def test_switch_between_sessions(page, base_url, llm_expect):
     assert "Session Zwei Nachricht" in page.locator(_bubble("user")).first.locator('[data-testid="bubble-body"]').inner_text()
 
 
-def test_resend_last_user_message(page, base_url, llm_expect, server_data_dir):
+def test_resend_last_user_message(page, base_url, llm_expect):
     """Erneut-senden-Button nur auf der letzten User-Bubble: wie Bearbeiten ohne
     Text-Aenderung - die Nachricht wird gepatcht, alle Nachrichten danach (alte
     Assistenten-Antworten) werden geloescht und die Antwort neu generiert."""
@@ -1206,28 +1172,18 @@ def test_resend_last_user_message(page, base_url, llm_expect, server_data_dir):
         timeout=llm_expect["timeout_ms"],
     )
 
-    # DB: weiterhin genau 2 User-Messages (kein Duplikat), genau eine Assistenten-
+    # API: weiterhin genau 2 User-Messages (kein Duplikat), genau eine Assistenten-
     # Antwort nach der letzten User-Nachricht (die alte zweite Antwort ist weg)
-    user_msgs = [m for m in api_client.get(f"/api/sessions/{sid}").json()["messages"] if m["role"] == "user"]
+    msgs = _api_detail(api_client, sid)["messages"]
+    user_msgs = [m for m in msgs if m["role"] == "user"]
     assert [m["text"] for m in user_msgs] == ["Erste Frage", "Zweite Frage"]
     last_user_id = user_msgs[-1]["id"]
-    con = _open_user_db(server_data_dir, email)
-    try:
-        assistant_after = con.execute(
-            "SELECT COUNT(*) FROM messages WHERE session_id = ? AND role = 'assistant' AND type = 'message' AND id > ?",
-            (sid, last_user_id),
-        ).fetchone()[0]
-        total_assistant = con.execute(
-            "SELECT COUNT(*) FROM messages WHERE session_id = ? AND role = 'assistant' AND type = 'message'",
-            (sid,),
-        ).fetchone()[0]
-    finally:
-        con.close()
-    assert assistant_after == 1
-    assert total_assistant == 2
+    assistant_msgs = [m for m in msgs if m["role"] == "assistant" and m["type"] == "message"]
+    assert sum(1 for m in assistant_msgs if m["id"] > last_user_id) == 1
+    assert len(assistant_msgs) == 2
 
 
-def test_edit_last_user_message(page, base_url, llm_expect, server_data_dir):
+def test_edit_last_user_message(page, base_url, llm_expect):
     """Edit-Button nur auf der letzten User-Bubble: Inline-Edit direkt in der Bubble
     (Textarea, Enter sendet, Esc bricht ab) - beim Absenden wird die Nachricht
     gepatcht, alle Nachrichten danach (Assistenten-Antworten) gelöscht und neu generiert."""
@@ -1301,26 +1257,16 @@ def test_edit_last_user_message(page, base_url, llm_expect, server_data_dir):
     assert page.locator(_bubble("user")).count() == 2
     assert "Erste Frage" in page.locator(_bubble("user")).first.locator('[data-testid="bubble-body"]').inner_text()
 
-    # DB: Text wurde geaendert (alte Fassung weg), alte Assistenten-Antwort der
+    # API: Text wurde geaendert (alte Fassung weg), alte Assistenten-Antwort der
     # zweiten Frage geloescht, genau eine neue Antwort nach der bearbeiteten Nachricht
-    user_msgs = [m for m in api_client.get(f"/api/sessions/{sid}").json()["messages"] if m["role"] == "user"]
+    msgs = _api_detail(api_client, sid)["messages"]
+    user_msgs = [m for m in msgs if m["role"] == "user"]
     assert len(user_msgs) == 2
     assert sorted(m["text"] for m in user_msgs) == ["Erste Frage", "Zweite Frage (bearbeitet)"]
     edited_id = next(m["id"] for m in user_msgs if "(bearbeitet)" in m["text"])
-    con = _open_user_db(server_data_dir, email)
-    try:
-        assistant_after = con.execute(
-            "SELECT COUNT(*) FROM messages WHERE session_id = ? AND role = 'assistant' AND type = 'message' AND id > ?",
-            (sid, edited_id),
-        ).fetchone()[0]
-        total_assistant = con.execute(
-            "SELECT COUNT(*) FROM messages WHERE session_id = ? AND role = 'assistant' AND type = 'message'",
-            (sid,),
-        ).fetchone()[0]
-    finally:
-        con.close()
-    assert assistant_after == 1, "genau eine neue Assistenten-Antwort nach der bearbeiteten Nachricht"
-    assert total_assistant == 2, "alte zweite Antwort wurde geloescht, erste Antwort bleibt"
+    assistant_msgs = [m for m in msgs if m["role"] == "assistant" and m["type"] == "message"]
+    assert sum(1 for m in assistant_msgs if m["id"] > edited_id) == 1, "genau eine neue Assistenten-Antwort nach der bearbeiteten Nachricht"
+    assert len(assistant_msgs) == 2, "alte zweite Antwort wurde geloescht, erste Antwort bleibt"
 
 
 def test_compact_mode_toggle(page, base_url, llm_expect):

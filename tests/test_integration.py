@@ -48,18 +48,14 @@ def test_concurrent_generations_of_two_users_are_independent(client, auth_header
     """Regression: generating-Flag und Abort-Key sind pro User+Session scoped."""
     gates = {}
 
-    async def fake_gen(db, user, sid, *args, **kwargs):
+    async def fake_gen(store, user, sid, *args, **kwargs):
         gate = asyncio.Event()
         gates[f"{user['uid']}:{sid}"] = gate
-        from app.db import database as dbq
-
-        with db.user_db(user) as con:
-            dbq.q_set_generating(con, sid, True)
+        await store.set_generating(user, sid, True)
         try:
             await asyncio.wait_for(gate.wait(), timeout=10)
         finally:
-            with db.user_db(user) as con:
-                dbq.q_set_generating(con, sid, False)
+            await store.set_generating(user, sid, False)
 
     monkeypatch.setattr("app.routers.chat.run_generation", fake_gen)
 

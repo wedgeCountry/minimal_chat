@@ -5,16 +5,19 @@ import asyncio
 from fastapi import APIRouter, Depends, HTTPException
 
 from ..config import AppConfig
-from ..db import database as dbq
-from ..db.database import Database
-from ..deps import get_config, get_current_user, get_db
+from ..deps import get_config, get_current_user, get_store
 from ..models import SettingsIn, SettingsOut, SettingsTestIn
 from ..services.llm import check_llm_connection
 from ..services.ssrf import validate_llm_base_url
 from ..services.settings import BOOL_SETTINGS, resolve_base_url, stored_bool, stored_speech_mode, to_db
+from ..services.store import UserStore
 from ..types import UserIdentity
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
+
+STRING_SETTING_KEYS = ("base", "host", "port", "model", "system_prompt", "theme", "api_key", "speech_mode")
+# host/port/system_prompt duerfen per leerem String geloescht werden
+CLEARABLE_WITH_EMPTY = ("host", "port", "system_prompt")
 
 
 def _settings_out(stored: dict[str, str], config: AppConfig) -> SettingsOut:
@@ -34,13 +37,12 @@ def _settings_out(stored: dict[str, str], config: AppConfig) -> SettingsOut:
 
 
 @router.get("", response_model=SettingsOut)
-def get_settings(
+async def get_settings(
     user: UserIdentity = Depends(get_current_user),
-    db: Database = Depends(get_db),
+    store: UserStore = Depends(get_store),
     config: AppConfig = Depends(get_config),
 ) -> SettingsOut:
-    with db.user_db(user) as con:
-        stored = dbq.q_get_user_settings(con)
+    stored = await store.get_user_settings(user)
     return _settings_out(stored, config)
 
 
@@ -48,15 +50,10 @@ def get_settings(
 async def test_connection(
     body: SettingsTestIn,
     user: UserIdentity = Depends(get_current_user),
-    db: Database = Depends(get_db),
+    store: UserStore = Depends(get_store),
     config: AppConfig = Depends(get_config),
 ) -> dict[str, object]:
-    def _load_stored() -> dict[str, str]:
-        with db.user_db(user) as con:
-            return dbq.q_get_user_settings(con)
-
-    # DB-Zugriff ist blockierend -> nicht auf dem Event-Loop (Regel 1)
-    stored = await asyncio.to_thread(_load_stored)
+    stored = await store.get_user_settings(user)
     base = body.base or resolve_base_url(stored, config)
     try:
         # DNS-Lookup in validate_llm_base_url ist blockierend -> nicht auf dem Event-Loop
@@ -69,21 +66,20 @@ async def test_connection(
 
 
 @router.put("", response_model=SettingsOut)
-def put_settings(
+async def put_settings(
     body: SettingsIn,
     user: UserIdentity = Depends(get_current_user),
-    db: Database = Depends(get_db),
+    store: UserStore = Depends(get_store),
     config: AppConfig = Depends(get_config),
 ) -> SettingsOut:
-    with db.user_db(user) as con:
-        for key in ("base", "host", "port", "model", "system_prompt", "theme", "api_key", "speech_mode"):
-            value = getattr(body, key)
-            # host/port/system_prompt duerfen per leerem String geloescht werden
-            if value is not None and (value != "" or key in ("host", "port", "system_prompt")):
-                dbq.q_set_user_setting(con, key, value)
-        for key in BOOL_SETTINGS:
-            value = getattr(body, key)
-            if value is not None:
-                dbq.q_set_user_setting(con, key, to_db(value))
-        stored = dbq.q_get_user_settings(con)
+    values: dict[str, str] = {}
+    for key in STRING_SETTING_KEYS:
+        value = getattr(body, key)
+        if value is not None and (value != "" or key in CLEARABLE_WITH_EMPTY):
+            values[key] = value
+    for key in BOOL_SETTINGS:
+        value = getattr(body, key)
+        if value is not None:
+            values[key] = to_db(value)
+    stored = await store.update_user_settings(user, values)
     return _settings_out(stored, config)

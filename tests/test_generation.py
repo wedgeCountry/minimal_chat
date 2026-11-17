@@ -17,6 +17,7 @@ from app.db.database import Database
 from app.services import generation
 from app.services.sse import parse_sse_buffer
 from app.services.generation import is_running, request_abort, run_generation
+from app.services.store import UserStore
 
 SECRET = "test-secret"
 EMAIL = "gen@example.com"
@@ -110,7 +111,7 @@ def test_run_generation_persists_content_reasoning_and_toolcalls(db, user, sid, 
                    {"tool_results": [{"index": 0, "name": "f", "result": "42\\nGrad"}]})
 
     monkeypatch.setattr("app.services.generation.stream_completion", fake_stream)
-    asyncio.run(run_generation(db, user, sid, "http://llm.test/v1", "k", {"messages": []}))
+    asyncio.run(run_generation(UserStore(db), user, sid, "http://llm.test/v1", "k", {"messages": []}))
 
     with db.user_db(user) as con:
         session = dbq.q_get_session(con, sid)
@@ -143,7 +144,7 @@ def test_run_generation_keeps_repeated_block_cycles_separate_with_switch_timesta
         )
 
     monkeypatch.setattr("app.services.generation.stream_completion", fake_stream)
-    asyncio.run(run_generation(db, user, sid, "http://llm.test/v1", "k", {"messages": []}))
+    asyncio.run(run_generation(UserStore(db), user, sid, "http://llm.test/v1", "k", {"messages": []}))
 
     with db.user_db(user) as con:
         messages = dbq.q_get_messages(con, sid)
@@ -180,7 +181,7 @@ def test_toolcall_done_signal_closes_toolcall_block_without_toolresult_row(db, u
     monkeypatch.setattr("app.services.generation.stream_completion", fake_stream)
 
     async def main():
-        task = asyncio.create_task(run_generation(db, user, sid, "http://llm.test/v1", "k", {"messages": []}))
+        task = asyncio.create_task(run_generation(UserStore(db), user, sid, "http://llm.test/v1", "k", {"messages": []}))
         await asyncio.sleep(0.5)  # Pause wie bei echter Tool-Ausfuehrung
         with db.user_db(user) as con:
             during = [(m["type"], m["text"]) for m in dbq.q_get_messages(con, sid) if m["role"] == "assistant"]
@@ -208,7 +209,7 @@ def test_abort_discards_inflight_block_and_clears_generating(db, user, sid, monk
         yield "data: [DONE]\n\n"
 
     monkeypatch.setattr("app.services.generation.stream_completion", fake_stream)
-    asyncio.run(run_generation(db, user, sid, "http://llm.test/v1", "k", {"messages": []}))
+    asyncio.run(run_generation(UserStore(db), user, sid, "http://llm.test/v1", "k", {"messages": []}))
 
     with db.user_db(user) as con:
         session = dbq.q_get_session(con, sid)
@@ -229,7 +230,7 @@ def test_run_generation_persists_error_event_as_system_message(db, user, sid, mo
         yield "data: [DONE]\n\n"
 
     monkeypatch.setattr("app.services.generation.stream_completion", fake_stream)
-    asyncio.run(run_generation(db, user, sid, "http://llm.test/v1", "k", {"messages": []}))
+    asyncio.run(run_generation(UserStore(db), user, sid, "http://llm.test/v1", "k", {"messages": []}))
 
     with db.user_db(user) as con:
         session = dbq.q_get_session(con, sid)
@@ -275,7 +276,7 @@ def test_inflight_block_not_persisted_until_block_completes(db, user, sid, monke
     monkeypatch.setattr("app.services.generation.stream_completion", fake_stream)
 
     async def main():
-        task = asyncio.create_task(run_generation(db, user, sid, "http://llm.test/v1", "k", {"messages": []}))
+        task = asyncio.create_task(run_generation(UserStore(db), user, sid, "http://llm.test/v1", "k", {"messages": []}))
         await asyncio.sleep(0.5)  # laenger als das alte FLUSH_INTERVAL_S (0.25 s)
         with orig_user_db(db, user) as con:  # am Spy vorbei, damit nur Task-Oeffnen zaehlen
             assert dbq.q_get_messages(con, sid) == [], "offener Block darf nicht in die DB"
@@ -298,5 +299,5 @@ def test_run_generation_unknown_session_is_noop(db, user, monkeypatch):
         raise AssertionError("Stream darf bei unbekannter Session nicht konsumiert werden")
 
     monkeypatch.setattr("app.services.generation.stream_completion", fake_stream)
-    asyncio.run(run_generation(db, user, "gibts-nicht", "http://llm.test/v1", "k", {"messages": []}))
+    asyncio.run(run_generation(UserStore(db), user, "gibts-nicht", "http://llm.test/v1", "k", {"messages": []}))
     assert is_running(user, "gibts-nicht") is False

@@ -111,14 +111,12 @@ def test_chat_starts_background_generation_and_persists(client, auth_headers, mo
 def test_chat_marks_session_generating_while_running(client, auth_headers, monkeypatch):
     release = asyncio.Event()
 
-    async def fake_gen(db, user, sid, *args, **kwargs):
-        with db.user_db(user) as con:
-            dbq.q_set_generating(con, sid, True)
+    async def fake_gen(store, user, sid, *args, **kwargs):
+        await store.set_generating(user, sid, True)
         try:
             await asyncio.wait_for(release.wait(), timeout=10)
         finally:
-            with db.user_db(user) as con:
-                dbq.q_set_generating(con, sid, False)
+            await store.set_generating(user, sid, False)
 
     monkeypatch.setattr("app.routers.chat.run_generation", fake_gen)
     sid = _new_session(client, auth_headers)
