@@ -6,14 +6,14 @@ from ..config import AppConfig
 from ..deps import get_config, get_current_user, get_store
 from ..models import AttachmentOut, MessageIn, MessageOut, MessagePatch, SessionDetail, SessionIn, SessionOut, SessionRename
 from ..services.files import UploadTooLarge, process_upload, read_upload_capped
-from ..services.store import DEFAULT_SESSION_NAME, AttachmentQuotaExceeded, MessageNotFound, SessionNotFound, UserStore
+from ..services.store import DEFAULT_SESSION_NAME, AttachmentQuotaExceeded, MessageNotFound, SessionNotFound, UserStoreProtocol
 from ..types import UserIdentity
 
 router = APIRouter(prefix="/api/sessions", tags=["sessions"])
 
 
 @router.get("", response_model=list[SessionOut])
-async def list_sessions(user: UserIdentity = Depends(get_current_user), store: UserStore = Depends(get_store)) -> list[SessionOut]:
+async def list_sessions(user: UserIdentity = Depends(get_current_user), store: UserStoreProtocol = Depends(get_store)) -> list[SessionOut]:
     return [SessionOut.model_validate(s.model_dump()) for s in await store.list_sessions(user)]
 
 
@@ -21,14 +21,14 @@ async def list_sessions(user: UserIdentity = Depends(get_current_user), store: U
 async def create_session(
     body: SessionIn,
     user: UserIdentity = Depends(get_current_user),
-    store: UserStore = Depends(get_store),
+    store: UserStoreProtocol = Depends(get_store),
 ) -> SessionDetail:
     session = await store.create_session(user, body.name.strip() or DEFAULT_SESSION_NAME)
     return SessionDetail(**session.model_dump(), messages=[])
 
 
 @router.get("/{sid}", response_model=SessionDetail)
-async def get_session(sid: str, user: UserIdentity = Depends(get_current_user), store: UserStore = Depends(get_store)) -> SessionDetail:
+async def get_session(sid: str, user: UserIdentity = Depends(get_current_user), store: UserStoreProtocol = Depends(get_store)) -> SessionDetail:
     detail = await store.get_session_detail(user, sid)
     if detail is None:
         raise HTTPException(status_code=404, detail="Session nicht gefunden")
@@ -41,7 +41,7 @@ async def rename_session(
     sid: str,
     body: SessionRename,
     user: UserIdentity = Depends(get_current_user),
-    store: UserStore = Depends(get_store),
+    store: UserStoreProtocol = Depends(get_store),
 ) -> SessionOut:
     try:
         session = await store.rename_session(user, sid, body.name)
@@ -51,7 +51,7 @@ async def rename_session(
 
 
 @router.delete("/{sid}", status_code=204)
-async def delete_session(sid: str, user: UserIdentity = Depends(get_current_user), store: UserStore = Depends(get_store)) -> None:
+async def delete_session(sid: str, user: UserIdentity = Depends(get_current_user), store: UserStoreProtocol = Depends(get_store)) -> None:
     try:
         await store.delete_session(user, sid)
     except SessionNotFound:
@@ -63,7 +63,7 @@ async def add_message(
     sid: str,
     msg: MessageIn,
     user: UserIdentity = Depends(get_current_user),
-    store: UserStore = Depends(get_store),
+    store: UserStoreProtocol = Depends(get_store),
 ) -> MessageOut:
     try:
         stored = await store.add_message(user, sid, msg.model_dump())
@@ -78,7 +78,7 @@ async def update_message(
     mid: int,
     patch: MessagePatch,
     user: UserIdentity = Depends(get_current_user),
-    store: UserStore = Depends(get_store),
+    store: UserStoreProtocol = Depends(get_store),
 ) -> MessageOut:
     try:
         updated = await store.update_message(user, sid, mid, patch.model_dump(exclude_none=True))
@@ -90,7 +90,7 @@ async def update_message(
 
 
 @router.delete("/{sid}/messages/{mid}", status_code=204)
-async def delete_message(sid: str, mid: int, user: UserIdentity = Depends(get_current_user), store: UserStore = Depends(get_store)) -> None:
+async def delete_message(sid: str, mid: int, user: UserIdentity = Depends(get_current_user), store: UserStoreProtocol = Depends(get_store)) -> None:
     try:
         await store.delete_message(user, sid, mid)
     except SessionNotFound:
@@ -104,7 +104,7 @@ async def delete_messages_after(
     sid: str,
     mid: int,
     user: UserIdentity = Depends(get_current_user),
-    store: UserStore = Depends(get_store),
+    store: UserStoreProtocol = Depends(get_store),
 ) -> None:
     """Loescht alle Nachrichten der Session, die nach der Nachricht ``mid`` liegen
     (z. B. Antworten des Assistenten beim Bearbeiten einer Nutzernachricht)."""
@@ -121,7 +121,7 @@ async def add_attachment(
     sid: str,
     file: UploadFile = File(...),
     user: UserIdentity = Depends(get_current_user),
-    store: UserStore = Depends(get_store),
+    store: UserStoreProtocol = Depends(get_store),
     config: AppConfig = Depends(get_config),
 ) -> AttachmentOut:
     """Laedt eine Datei per Multipart-Upload (Rohdaten, kein Base64-in-JSON) hoch;

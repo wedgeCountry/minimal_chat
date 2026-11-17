@@ -20,7 +20,7 @@ from ..db.database import now_ms
 from ..types import MessageInput, StreamBlock, UserIdentity
 from .llm import stream_completion
 from .sse import SseParser
-from .store import UserStore
+from .store import UserStoreProtocol
 
 
 def _block_text(b: StreamBlock) -> str:
@@ -48,7 +48,7 @@ class _ActiveGeneration:
 class MessageService:
     """In-Memory-Message-Store + Persistenz-Orchestrierung fuer laufende Generierungen."""
 
-    def __init__(self, store: UserStore) -> None:
+    def __init__(self, store: UserStoreProtocol) -> None:
         self._store = store
         self._active: dict[str, _ActiveGeneration] = {}
         self._abort_requested: set[str] = set()

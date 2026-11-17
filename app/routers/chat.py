@@ -14,7 +14,7 @@ from ..services.context import build_llm_context
 from ..services.settings import BOOL_SETTINGS, resolve_base_url, stored_bool
 from ..services.sse import sse_event
 from ..services.ssrf import validate_llm_base_url
-from ..services.store import UserStore
+from ..services.store import UserStoreProtocol
 from ..types import UserIdentity
 
 router = APIRouter(prefix="/api/chat", tags=["chat"])
@@ -24,7 +24,7 @@ router = APIRouter(prefix="/api/chat", tags=["chat"])
 async def chat(
     req: ChatRequest,
     user: UserIdentity = Depends(get_current_user),
-    store: UserStore = Depends(get_store),
+    store: UserStoreProtocol = Depends(get_store),
     service: MessageService = Depends(get_message_service),
     config: AppConfig = Depends(get_config),
 ) -> dict[str, str]:
@@ -68,7 +68,7 @@ async def chat(
 async def chat_stream(
     sid: str,
     user: UserIdentity = Depends(get_current_user),
-    store: UserStore = Depends(get_store),
+    store: UserStoreProtocol = Depends(get_store),
     service: MessageService = Depends(get_message_service),
 ) -> StreamingResponse:
     """SSE-Stream der Live-Chunks aus dem In-Memory-State des MessageService.
@@ -95,7 +95,7 @@ async def chat_stream(
 async def abort(
     req: ChatAbortRequest,
     user: UserIdentity = Depends(get_current_user),
-    store: UserStore = Depends(get_store),
+    store: UserStoreProtocol = Depends(get_store),
     service: MessageService = Depends(get_message_service),
 ) -> dict[str, str]:
     if not await store.session_exists(user, req.session_id):
