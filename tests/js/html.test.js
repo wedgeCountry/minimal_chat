@@ -1,5 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 
 function fakeEl(partial) {
   return {
@@ -51,4 +53,12 @@ test("initPartials throws when a partial cannot be loaded", async () => {
 
   const { initPartials } = await import("../../static/js/html.js");
   await assert.rejects(initPartials(), /Partial nicht geladen/);
+});
+
+test("side-panel partial ist ab dem ersten Render eingeklappt (kein Aufflackern beim Laden/Refresh)", () => {
+  const partial = readFileSync(fileURLToPath(new URL("../../static/partials/side-panel.html", import.meta.url)), "utf-8");
+  const aside = partial.match(/<aside[^>]*>/);
+  assert.ok(aside, "side-panel.html enthaelt ein <aside>");
+  assert.match(aside[0], /id="side"/);
+  assert.match(aside[0], /class="[^"]*\bhidden\b/, "#side traegt die hidden-Klasse schon im Markup");
 });

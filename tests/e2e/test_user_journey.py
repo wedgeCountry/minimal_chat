@@ -708,6 +708,11 @@ def test_startup_side_panel_collapsed_and_new_session_on_first_start(page, base_
     # die aktive Session (mit ihren Bubbles) bleibt offen
     page.reload()
     page.wait_for_selector(T["chat_input"])
+    # hidden steckt schon im Markup: Das Panel ist ab dem ersten Render eingeklappt
+    # (kein kurzes Aufflackern, bevor das JS-Bootstrap die Klasse setzt)
+    side = page.locator(T["side_panel"])
+    side.wait_for(state="attached")
+    assert "hidden" in (side.get_attribute("class") or "")
     page.wait_for_selector(f'{T["side_panel"]}.hidden')
     page.wait_for_selector(f'{T["session_tile"]}.active', state="attached")
     assert page.locator(T["session_tile"]).count() == 1
