@@ -25,14 +25,25 @@ export function abortStream() {
   closeLiveStream();
 }
 
-// Live-Chunks kommen ausschliesslich ueber die Service-Layer: SSE aus dem In-Memory-
-// State des MessageService (GET /api/chat/stream/{sid}). Der Poll bleibt Quelle der
-// Wahrheit fuer die persistierten Messages und ueberschreibt das Live-Overlay.
-let liveBlocks = [];
+// Live-Daten kommen ausschliesslich ueber die Service-Layer: SSE aus dem In-Memory-State
+// des MessageService (GET /api/chat/stream/{sid}, versionierte state-Events mit seq).
+// Der Poll (GET /api/sessions/{id}) bleibt Quelle der Wahrheit fuer den persistierten
+// Stand und ueberschreibt den SSE-Stand, sobald die Generierung endet.
+let sseState = null; // { seq, messages } — letzter Stand aus der Service-Layer
 let liveStream = null;
 
+// Reines Merge (testbar): state-Event uebernehmen, wenn seq neuer; veraltete Events verwerfen.
+export function applySseState(ev, cur) {
+  if (!ev || ev.type !== "state" || typeof ev.seq !== "number") return cur;
+  if (cur && ev.seq <= cur.seq) return cur;
+  const messages = normalizeMessages(ev.messages || []).map((m) =>
+    m.id == null && !m.ts ? { ...m, ts: Date.now() } : m // Live-Messages (ts=0) ans Ende sortieren
+  );
+  return { seq: ev.seq, messages };
+}
+
 function viewMessages() {
-  if (state.streaming && liveBlocks.length) return [...state.messages, ...liveBlocks];
+  if (state.streaming && sseState) return sseState.messages;
   return state.messages;
 }
 
@@ -41,8 +52,8 @@ export function closeLiveStream() {
     liveStream.close();
     liveStream = null;
   }
-  if (liveBlocks.length) {
-    liveBlocks = [];
+  if (sseState) {
+    sseState = null;
     renderChat(viewMessages());
   }
 }
@@ -57,15 +68,12 @@ function openLiveStream(s) {
     } catch {
       return;
     }
-    if (ev.type === "snapshot" || ev.type === "blocks") {
-      liveBlocks = (ev.blocks || []).map((b) => ({
-        id: b.id != null ? b.id : `live-${b.bid}`,
-        role: "assistant",
-        type: b.kind,
-        text: b.text,
-        inContext: b.kind !== "reasoning",
-      }));
-      renderChat(viewMessages());
+    if (ev.type === "state") {
+      const merged = applySseState(ev, sseState);
+      if (merged !== sseState) {
+        sseState = merged;
+        renderChat(viewMessages());
+      }
     } else if (ev.type === "done" || ev.type === "idle" || ev.type === "error") {
       closeLiveStream();
       pollOnce();
@@ -144,8 +152,9 @@ export function removeLocalMessagesAfter(mid) {
 // bei Aenderung aktualisiert, statt das gesamte Chat-DOM bei jedem Poll neu zu bauen.
 const bubbleNodes = new Map();
 
-function bubbleKey(m) {
-  return m.id != null ? `msg-${m.id}` : "sys-prompt";
+function bubbleKey(m, idx) {
+  if (m.id != null) return `msg-${m.id}`;
+  return m.role === "system" ? "sys-prompt" : `live-${idx}`;
 }
 
 function updateBubble(b, m, showResend, showEdit) {
@@ -214,7 +223,7 @@ export function renderChat(messages) {
   }
   const seen = new Set();
   for (const item of items) {
-    const key = bubbleKey(item.m);
+    const key = bubbleKey(item.m, items.indexOf(item));
     seen.add(key);
     let b = bubbleNodes.get(key);
     if (!b) {
