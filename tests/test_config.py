@@ -232,3 +232,18 @@ def test_app_config_from_dict_rejects_unknown_keys(tmp_path):
 
     with pytest.raises(ValidationError):
         AppConfig.from_dict({"data_dir": str(tmp_path), "secret": "s", "registry_path": "r.db", "users_dir": "u", "typo_key": 1})
+
+
+def test_load_config_reads_hot_session_ttl_and_validates_it(tmp_path, monkeypatch):
+    import pytest
+    from pydantic import ValidationError
+
+    monkeypatch.setenv("LEANCHAT_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("LEANCHAT_SECRET", "s")
+    monkeypatch.setenv("LEANCHAT_HOT_SESSION_TTL_S", "12.5")
+    cfg = load_config()
+    assert cfg.hot_session_ttl_s == 12.5
+    assert cfg.to_dict()["hot_session_ttl_s"] == 12.5
+    monkeypatch.setenv("LEANCHAT_HOT_SESSION_TTL_S", "-1")
+    with pytest.raises(ValidationError):
+        load_config()
