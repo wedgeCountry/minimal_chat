@@ -42,7 +42,7 @@ class _UserLock:
         self.lock = threading.RLock()
 
 
-def _now_ms() -> int:
+def now_ms() -> int:
     return int(time.time() * 1000)
 
 
@@ -192,7 +192,7 @@ def q_list_sessions(con: sqlite3.Connection) -> list[SessionRow]:
 
 def q_create_session(con: sqlite3.Connection, name: str) -> SessionRow:
     sid = _new_uid()
-    ts = _now_ms()
+    ts = now_ms()
     con.execute("INSERT INTO sessions (id, name, ts) VALUES (?, ?, ?)", (sid, name, ts))
     return {"id": sid, "name": name, "ts": ts, "generating": False}
 
@@ -255,10 +255,10 @@ def q_add_message(con: sqlite3.Connection, sid: str, msg: Mapping[str, Any]) -> 
             msg.get("text", ""),
             1 if msg.get("in_context", True) else 0,
             json.dumps(msg.get("attachments", [])),
-            msg.get("created_at") or _now_ms(),
+            msg.get("created_at") or now_ms(),
         ),
     )
-    con.execute("UPDATE sessions SET ts = ? WHERE id = ?", (_now_ms(), sid))
+    con.execute("UPDATE sessions SET ts = ? WHERE id = ?", (now_ms(), sid))
     mid = cur.lastrowid
     stored = q_get_message(con, mid) if mid is not None else None
     if stored is None:

@@ -76,14 +76,10 @@ def llm_expect(mock_llm_port):
 
 
 @pytest.fixture(scope="session")
-def server_data_dir(tmp_path_factory):
-    """Datenverzeichnis des e2e-Servers (damit Tests die DBs direkt lesen koennen)."""
-    return tmp_path_factory.mktemp("leanchat-e2e-data")
-
-
-@pytest.fixture(scope="session")
-def server_port(server_data_dir, mock_llm_port):
-    data_dir = server_data_dir
+def server_port(mock_llm_port, tmp_path_factory):
+    # e2e-Tests pruefen Persistenz ausschliesslich ueber die oeffentliche API
+    # (GET /api/sessions/{id}); das Datenverzeichnis des Servers bleibt den Tests verborgen.
+    data_dir = tmp_path_factory.mktemp("leanchat-e2e-data")
     port = _free_port()
     if mock_llm_port is not None:
         llm_base = f"http://127.0.0.1:{mock_llm_port}/v1"

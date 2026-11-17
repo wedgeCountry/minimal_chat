@@ -14,11 +14,11 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
-from ..db import database as dbq
-from ..db.database import Database
+from ..db.database import now_ms
 from ..types import MessageInput, StreamBlock, UserIdentity
 from .llm import stream_completion
 from .sse import SseParser
+from .store import UserStore
 
 _abort_events: dict[str, asyncio.Event] = {}
 _abort_requested: set[str] = set()
@@ -54,7 +54,7 @@ def is_running(user: UserIdentity, sid: str) -> bool:
 
 
 async def run_generation(
-    db: Database,
+    store: UserStore,
     user: UserIdentity,
     sid: str,
     base_url: str,
@@ -89,7 +89,7 @@ async def run_generation(
 
     def _next_ts() -> int:
         nonlocal last_ts
-        last_ts = max(dbq._now_ms(), last_ts + 1)
+        last_ts = max(now_ms(), last_ts + 1)
         return last_ts
 
     def _touch(kind: str, idx: int | None = None) -> None:
@@ -136,50 +136,31 @@ async def run_generation(
 
     async def _persist_closed_blocks() -> None:
         """Persistiert abgeschlossene Bloecke sofort (beim Typwechsel im Stream).
-        Der offene Block wird nie geschrieben. Pro Batch genau ein DB-Oeffnen
-        (blockierend -> to_thread)."""
+        Der offene Block wird nie geschrieben. Pro Batch genau ein DB-Oeffnen."""
         closed = [b for b in blocks if b["ts"] is not None and b["id"] is None and _block_text(b)]
         if not closed:
             return
-
-        def _do() -> None:
-            with db.user_db(user) as con:
-                for b in closed:
-                    b["id"] = dbq.q_add_message(con, sid, _message_row(b))["id"]
-
-        await asyncio.to_thread(_do)
+        stored = await store.add_messages(user, sid, [_message_row(b) for b in closed])
+        for b, row in zip(closed, stored):
+            b["id"] = row["id"]
 
     async def _final_flush() -> None:
         """Ein einziges DB-Oeffnen am Stream-Ende: bei normalem Ende wird der letzte
         offene Block abgeschlossen und persistiert; bei Abort/Fehler wird er verworfen.
         Ausserdem Fehler-System-Message (falls error) und generating=0."""
         discard_open = ev.is_set() or error is not None
-
-        def _do() -> None:
-            with db.user_db(user) as con:
-                if not discard_open:
-                    for b in blocks:
-                        if b["ts"] is None:
-                            b["ts"] = _next_ts()
-                    for b in blocks:
-                        if b["id"] is None and _block_text(b):
-                            b["id"] = dbq.q_add_message(con, sid, _message_row(b))["id"]
-                if error:
-                    dbq.q_add_message(
-                        con, sid, {"role": "system", "type": "message", "text": "Fehler: " + error, "in_context": False}
-                    )
-                dbq.q_set_generating(con, sid, False)
-
-        await asyncio.to_thread(_do)
-
-    def _session_exists() -> bool:
-        # nur Lesezugriff (kein Schreibzugriff -> Datei wird nicht neu verschluesselt);
-        # das generating-Flag setzt bereits der Router atomar (q_try_start_generating)
-        with db.user_db(user) as con:
-            return dbq.q_get_session(con, sid) is not None
+        rows: list[MessageInput] = []
+        if not discard_open:
+            for b in blocks:
+                if b["ts"] is None:
+                    b["ts"] = _next_ts()
+            rows = [_message_row(b) for b in blocks if b["id"] is None and _block_text(b)]
+        await store.finalize_generation(user, sid, rows, error)
 
     try:
-        if not await asyncio.to_thread(_session_exists):
+        # nur Lesezugriff (kein Schreibzugriff -> Datei wird nicht neu verschluesselt);
+        # das generating-Flag setzt bereits der Router atomar (try_start_generating)
+        if not await store.session_exists(user, sid):
             return
         async for chunk in stream_completion(base_url, api_key, payload, settings=settings, abort=ev):
             if ev.is_set():

@@ -6,7 +6,7 @@ from user_registry.web.security import read_session
 
 from .auth import TERMS_VERSION, display_name_from_email, user_identity
 from .config import AppConfig
-from .db.database import Database
+from .services.store import UserStore
 from .types import UserIdentity
 
 
@@ -15,9 +15,9 @@ def get_config(request: Request) -> AppConfig:
     return config
 
 
-def get_db(request: Request) -> Database:
-    db: Database = request.app.state.db
-    return db
+def get_store(request: Request) -> UserStore:
+    store: UserStore = request.app.state.store
+    return store
 
 
 def get_session_email(request: Request) -> str | None:

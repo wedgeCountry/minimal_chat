@@ -5,64 +5,27 @@ import asyncio
 from fastapi import APIRouter, Depends, HTTPException
 
 from ..config import AppConfig
-from ..db import database as dbq
-from ..db.database import Database
-from ..deps import get_config, get_current_user, get_db
+from ..deps import get_config, get_current_user, get_store
 from ..models import ChatAbortRequest, ChatRequest
-from ..services.ssrf import validate_llm_base_url
 from ..services.context import build_llm_context
 from ..services.generation import forget_abort_if_idle, is_running, request_abort, run_generation
 from ..services.settings import BOOL_SETTINGS, resolve_base_url, stored_bool
-from ..types import AttachmentRow, MessageRow, SessionRow, UserIdentity
+from ..services.ssrf import validate_llm_base_url
+from ..services.store import UserStore
+from ..types import UserIdentity
 
 router = APIRouter(prefix="/api/chat", tags=["chat"])
 
 # Starke Referenzen auf laufende Hintergrund-Tasks, damit der GC sie nicht
-# mitten in der Generierungeinsammelt.
+# mitten in der Generierung einsammelt.
 _background_tasks: set[asyncio.Task[None]] = set()
-
-
-def _load_chat_context(
-    db: Database,
-    user: UserIdentity,
-    session_id: str,
-) -> tuple[SessionRow, dict[str, str], dict[int, AttachmentRow], list[MessageRow]] | None:
-    """Session + Settings + Attachments + Messages laden (blockierend -> via to_thread)."""
-    with db.user_db(user) as con:
-        session = dbq.q_get_session(con, session_id)
-        if not session:
-            return None
-        stored = dbq.q_get_user_settings(con)
-        attachments = {a["id"]: a for a in dbq.q_get_session_attachments(con, session_id)}
-        messages = dbq.q_get_messages(con, session_id)
-    return session, stored, attachments, messages
-
-
-def _session_exists(db: Database, user: UserIdentity, session_id: str) -> bool:
-    with db.user_db(user) as con:
-        return dbq.q_get_session(con, session_id) is not None
-
-
-def _clear_generating_if_idle(db: Database, user: UserIdentity, session_id: str) -> None:
-    # Ohne laufende Task ist generating verwaist (z. B. Server-Neustart mitten in einer
-    # Generierung): Abbrechen setzt das Flag zurueck, sonst pollt der Client endlos.
-    # Bei laufender Task setzt der finale Flush der Task das Flag (q_set_generating False).
-    with db.user_db(user) as con:
-        if dbq.q_get_session(con, session_id) and not is_running(user, session_id):
-            dbq.q_set_generating(con, session_id, False)
-            forget_abort_if_idle(user, session_id)
-
-
-def _try_start_generation(db: Database, user: UserIdentity, session_id: str) -> str:
-    with db.user_db(user) as con:
-        return dbq.q_try_start_generating(con, session_id)
 
 
 @router.post("", status_code=202)
 async def chat(
     req: ChatRequest,
     user: UserIdentity = Depends(get_current_user),
-    db: Database = Depends(get_db),
+    store: UserStore = Depends(get_store),
     config: AppConfig = Depends(get_config),
 ) -> dict[str, str]:
     """Startet eine serverseitige Generierung als Hintergrund-Task.
@@ -70,7 +33,7 @@ async def chat(
     Der LLM-Stream wird nicht mehr an den Client durchgereicht, sondern in der
     per-user DB persistiert; der Client pollt ``GET /api/sessions/{id}``.
     """
-    ctx = await asyncio.to_thread(_load_chat_context, db, user, req.session_id)
+    ctx = await store.load_chat_context(user, req.session_id)
     if ctx is None:
         raise HTTPException(status_code=404, detail="Session nicht gefunden")
     _session, stored, attachments, session_messages = ctx
@@ -81,11 +44,11 @@ async def chat(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     # vor Task-Start atomar setzen, sonst TOCTOU-Race bei parallelen POSTs
-    status = await asyncio.to_thread(_try_start_generation, db, user, req.session_id)
+    status = await store.try_start_generating(user, req.session_id)
     if status == "missing":
         raise HTTPException(status_code=404, detail="Session nicht gefunden")
     if status == "busy":
-        raise HTTPException(status_code=409, detail="Es läuft bereits eine Generierung für diese Session")
+        raise HTTPException(status_code=409, detail="Es laeuft bereits eine Generierung fuer diese Session")
     api_key = stored.get("api_key") or config.default_api_key
     flags = {key: stored_bool(stored, key) for key in BOOL_SETTINGS}
     # Chat-History serverseitig aus der DB bauen (gueltiges Format inkl. Tool-Calls),
@@ -96,7 +59,7 @@ async def chat(
         "stream": True,
         "messages": llm_ctx.compile(),
     }
-    task = asyncio.create_task(run_generation(db, user, req.session_id, base_url, api_key, payload, flags))
+    task = asyncio.create_task(run_generation(store, user, req.session_id, base_url, api_key, payload, flags))
     _background_tasks.add(task)
     task.add_done_callback(_background_tasks.discard)
     return {"status": "started"}
@@ -106,11 +69,14 @@ async def chat(
 async def abort(
     req: ChatAbortRequest,
     user: UserIdentity = Depends(get_current_user),
-    db: Database = Depends(get_db),
+    store: UserStore = Depends(get_store),
 ) -> dict[str, str]:
-    exists = await asyncio.to_thread(_session_exists, db, user, req.session_id)
-    if not exists:
+    if not await store.session_exists(user, req.session_id):
         raise HTTPException(status_code=404, detail="Session nicht gefunden")
     request_abort(user, req.session_id)
-    await asyncio.to_thread(_clear_generating_if_idle, db, user, req.session_id)
+    # Ohne laufende Task ist generating verwaist (z. B. Server-Neustart mitten in einer
+    # Generierung): Abbrechen setzt das Flag zurueck, sonst pollt der Client endlos.
+    # Bei laufender Task setzt der finale Flush der Task das Flag.
+    await store.clear_generating_if_idle(user, req.session_id, is_running(user, req.session_id))
+    forget_abort_if_idle(user, req.session_id)
     return {"status": "aborted"}
