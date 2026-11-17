@@ -11,6 +11,13 @@ const typeLabels = { message: "", toolcall: "Tool-Call", toolresult: "Tool-Resul
 let tmpBubbleSeq = 0;
 
 export function setBubbleMode(b, mode) {
+  // Modus-Wechsel aendert die Bubble-Hoehe sofort; schrumpft sie, clamped der Browser
+  // scrollTop ans neue Maximum (Sprung ans untere Ende). Deshalb scrollTop vorab
+  // merken und nachtraeglich um die Verschiebung der oberen Viewport-Kante korrigieren.
+  const chat = typeof b.closest === "function" ? b.closest("#chat") : null;
+  const prevTop = chat ? chat.scrollTop : 0;
+  const prevEdge = chat ? prevTop + (b.getBoundingClientRect().bottom - chat.getBoundingClientRect().top) : 0;
+  const prevH = chat ? b.getBoundingClientRect().height : 0;
   for (const m of BUBBLE_MODES) b.classList.remove(m);
   b.classList.add(mode);
   b.dataset.mode = mode;
@@ -19,7 +26,19 @@ export function setBubbleMode(b, mode) {
   // Einklapp-Button unten rechts nur im voll ausgeklappten Zustand anbieten
   const collapseBtn = b.querySelector(".collapseBtn");
   if (collapseBtn) collapseBtn.style.display = mode === "full" ? "" : "none";
-  renderBubbleBody(b);
+  renderBubbleBody(b); // liest body.scrollHeight -> Layout ist danach synchron aktualisiert
+  if (chat) {
+    const shrink = prevH - b.getBoundingClientRect().height; // >0 beim Einklappen
+    let shift = 0;
+    if (shrink >= 0) {
+      // Die Kollaps-Verschiebung sitzt an der unteren Bubble-Kante: solange die obere
+      // Viewport-Kante innerhalb der (kollabierten) Bubble bleibt, aendert sich nichts.
+      shift = Math.min(Math.max(prevTop - (prevEdge - shrink), 0), shrink);
+    } else if (prevTop > prevEdge) {
+      shift = shrink; // Bubble waechst oberhalb des Viewports -> Inhalt darunter rueckt nach unten
+    }
+    chat.scrollTop = prevTop - shift;
+  }
 }
 
 export function setBubbleText(b, text) {
