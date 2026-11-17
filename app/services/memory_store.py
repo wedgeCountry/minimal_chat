@@ -59,9 +59,10 @@ class InMemoryUserStore(UserStoreProtocol):
     async def create_session(self, user: UserIdentity, name: str) -> Session:
         sid = f"mem-{len(self._sessions.setdefault(self._uid(user), {})) + 1}-{ _now_ms()}"
         row = Session(id=sid, name=name, ts=_now_ms())
-        self._sessions[self._uid(user)][sid] = row
-        self._messages[self._uid(user)][sid] = []
-        self._attachments[self._uid(user)][sid] = []
+        uid = self._uid(user)
+        self._sessions.setdefault(uid, {})[sid] = row
+        self._messages.setdefault(uid, {})[sid] = []
+        self._attachments.setdefault(uid, {})[sid] = []
         return row.model_copy()
 
     async def get_session(self, user: UserIdentity, sid: str) -> Session | None:
