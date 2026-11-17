@@ -54,16 +54,15 @@ def build_llm_context(
     tool_seq = 0
 
     def _flush_tool_group() -> None:
-        # Nur vollstaendige Paare als EIN assistant-Message (alle tool_calls der Gruppe)
-        # direkt gefolgt von ihren tool-Messages senden: parallele Toolcalls landen so als
-        # mehrere tool_calls in einem assistant-Message, und ein tool_call ohne
-        # tool_result (z. B. Result per Kontext-Checkbox abwaehlt) wuerde das Request
-        # ungueltig machen (422 bei strikten LLM-Servern)
+        # Nur vollstaendige Paare senden, 1:1 wie die Bubbles: pro Paar ein eigenes
+        # assistant-Message mit genau einem tool_call, direkt gefolgt von seiner
+        # tool-Message (klassische Tool-Loop-Form, gueltig bei strikten LLM-Servern).
+        # Ein tool_call ohne tool_result (z. B. Result per Kontext-Checkbox abwaehlt)
+        # wuerde das Request ungueltig machen (422) und wird daher verworfen.
         n = min(len(pending_calls), len(pending_results))
-        if n:
-            wire.append({"role": "assistant", "content": None, "tool_calls": pending_calls[:n]})
-            for call, text in zip(pending_calls[:n], pending_results[:n]):
-                wire.append({"role": "tool", "tool_call_id": call["id"], "content": text})
+        for call, text in zip(pending_calls[:n], pending_results[:n]):
+            wire.append({"role": "assistant", "content": None, "tool_calls": [call]})
+            wire.append({"role": "tool", "tool_call_id": call["id"], "content": text})
         pending_calls.clear()
         pending_results.clear()
 

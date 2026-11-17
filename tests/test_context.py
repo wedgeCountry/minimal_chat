@@ -134,22 +134,23 @@ def test_db_rows_malformed_tool_text_do_not_crash():
     ]
     wire = build_llm_context(rows).compile()
     tool_calls = [m for m in wire if m.get("tool_calls")]
-    # alle gepaarten Calls landen in EINEM assistant-Message; der dritte Call hat kein
-    # Result und wird verworfen (kein ungueltiges dangling tool_calls im Request)
-    assert len(tool_calls) == 1
-    assert len(tool_calls[0]["tool_calls"]) == 2
+    # pro Paar ein eigenes assistant-Message mit genau einem tool_call; der dritte Call
+    # hat kein Result und wird verworfen (kein ungueltiges dangling tool_calls)
+    assert len(tool_calls) == 2
+    assert all(len(m["tool_calls"]) == 1 for m in tool_calls)
     assert tool_calls[0]["tool_calls"][0]["function"]["arguments"] == "{}"
     tool_res = [m for m in wire if m["role"] == "tool"]
     assert len(tool_res) == 2  # beide Results gepaart (FIFO)
-    assert {r["tool_call_id"] for r in tool_res} == {c["id"] for c in tool_calls[0]["tool_calls"]}
+    assert [r["tool_call_id"] for r in tool_res] == [m["tool_calls"][0]["id"] for m in tool_calls]
     assert wire[-1] == {"role": "user", "content": ""}
 
 
-def test_parallel_toolcalls_compile_to_one_assistant_message_with_all_tool_calls():
+def test_parallel_toolcalls_compile_to_one_assistant_message_per_pair():
     """Deep-Research-Stream mit parallelen Toolcalls: tool_calls [0,1] in einem Delta,
     danach tool_results [0,1] -> DB-Reihenfolge toolcall, toolcall, toolresult, toolresult.
-    Daraus muss EIN assistant-Message mit beiden tool_calls direkt gefolgt von beiden
-    tool-Messages werden (sonst 422 bzw. das Modell sieht die Ergebnisse nicht)."""
+    Daraus wird pro Paar ein eigenes assistant-Message mit genau einem tool_call, direkt
+    gefolgt von seiner tool-Message (1:1 wie die Bubbles; sonst 422 bzw. das Modell
+    sieht die Ergebnisse nicht)."""
     rows = [
         _db_row(1, "user", "message", "Recherchiere X"),
         _db_row(2, "assistant", "toolcall", 'search({"q":"a"})'),
@@ -161,14 +162,16 @@ def test_parallel_toolcalls_compile_to_one_assistant_message_with_all_tool_calls
     ]
     wire = build_llm_context(rows).compile()
     tool_call_msgs = [m for m in wire if m.get("tool_calls")]
-    assert len(tool_call_msgs) == 1
-    assert [c["id"] for c in tool_call_msgs[0]["tool_calls"]] == ["call_2", "call_3"]
+    assert len(tool_call_msgs) == 2
+    assert [m["tool_calls"][0]["id"] for m in tool_call_msgs] == ["call_2", "call_3"]
+    # jedes assistant-Message steht direkt vor seiner tool-Message
+    for m in tool_call_msgs:
+        idx = wire.index(m)
+        assert wire[idx + 1]["role"] == "tool"
+        assert wire[idx + 1]["tool_call_id"] == m["tool_calls"][0]["id"]
     tool_res = [m for m in wire if m["role"] == "tool"]
     assert [r["tool_call_id"] for r in tool_res] == ["call_2", "call_3"]
     assert [r["content"] for r in tool_res] == ["search: ERGEBNIS A", "search: ERGEBNIS B"]
-    # assistant-Message mit tool_calls steht direkt vor seinen tool-Messages
-    idx = wire.index(tool_call_msgs[0])
-    assert wire[idx + 1]["role"] == "tool" and wire[idx + 2]["role"] == "tool"
     assert wire[0] == {"role": "user", "content": "Recherchiere X"}
     assert wire[-1] == {"role": "user", "content": "Was kam bei A raus?"}
 
@@ -350,10 +353,10 @@ def _run_generation(client, auth_headers, sid):
 
 def test_parallel_toolcalls_roundtrip_through_api_stay_valid_for_next_request(client, auth_headers, monkeypatch):
     """Deep-Research-Stream mit parallelen Toolcalls (tool_calls [0,1] in einem Delta,
-    dann tool_results [0,1]): Beim naechsten Request muss das Paar als EIN assistant-
-    Message mit beiden tool_calls direkt gefolgt von beiden tool-Messages an das LLM
-    gehen - sonst lehnt ein strikter Server das Request ab (422) bzw. sieht das Modell
-    die langen Tool-Ergebnisse nicht ('nicht genug Kontext')."""
+    dann tool_results [0,1]): Beim naechsten Request muss pro Paar ein eigenes
+    assistant-Message mit dem tool_call direkt gefolgt von seiner tool-Message an das
+    LLM gehen - sonst lehnt ein strikter Server das Request ab (422) bzw. sieht das
+    Modell die langen Tool-Ergebnisse nicht ('nicht genug Kontext')."""
     sse = (
         b'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"name":"search","arguments":"{\\"q\\":\\"a\\"}"}},{"index":1,"function":{"name":"search","arguments":"{\\"q\\":\\"b\\"}"}}]}}]}\n\n'
         b'data: {"choices":[{"delta":{"tool_results":[{"index":0,"name":"search","result":"ERGEBNIS A"},{"index":1,"name":"search","result":"ERGEBNIS B"}]}}]}\n\n'
@@ -392,15 +395,17 @@ def test_parallel_toolcalls_roundtrip_through_api_stay_valid_for_next_request(cl
 
     msgs = seen["body"]["messages"]
     tc_msgs = [m for m in msgs if m.get("tool_calls")]
-    assert len(tc_msgs) == 1 and tc_msgs[0]["role"] == "assistant"
-    assert [c["id"] for c in tc_msgs[0]["tool_calls"]] == ["call_2", "call_3"]
-    assert [c["function"]["name"] for c in tc_msgs[0]["tool_calls"]] == ["search", "search"]
-    idx = msgs.index(tc_msgs[0])
+    assert len(tc_msgs) == 2 and all(m["role"] == "assistant" for m in tc_msgs)
+    assert [m["tool_calls"][0]["id"] for m in tc_msgs] == ["call_2", "call_3"]
+    assert [m["tool_calls"][0]["function"]["name"] for m in tc_msgs] == ["search", "search"]
     tool_res = [m for m in msgs if m["role"] == "tool"]
     assert len(tool_res) == 2
     assert [r["tool_call_id"] for r in tool_res] == ["call_2", "call_3"]
     assert [r["content"] for r in tool_res] == ["search: ERGEBNIS A", "search: ERGEBNIS B"]
-    # tool-Messages folgen direkt auf das assistant-Message mit den tool_calls
-    assert msgs[idx + 1]["role"] == "tool" and msgs[idx + 2]["role"] == "tool"
+    # pro Paar: assistant-Message mit tool_call direkt gefolgt von seiner tool-Message
+    for m in tc_msgs:
+        idx = msgs.index(m)
+        assert msgs[idx + 1]["role"] == "tool"
+        assert msgs[idx + 1]["tool_call_id"] == m["tool_calls"][0]["id"]
     assert msgs[0] == {"role": "user", "content": "Recherchiere X"}
     assert msgs[-1] == {"role": "user", "content": "Was kam bei A raus?"}
