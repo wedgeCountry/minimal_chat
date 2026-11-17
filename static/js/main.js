@@ -11,6 +11,7 @@ import { controlsVisible, refreshSpeechAvailability } from "./ttsDetectionServic
 import { onMicClick } from "./recorder.js";
 import { initPartials } from "./html.js";
 import { initGlobalErrorHandling } from "./errors.js";
+import { initViewportSync } from "./viewport.js";
 
 let autoLoginEnabled = false;
 
@@ -160,6 +161,7 @@ function initEvents() {
   };
 
   const input = $("input");
+  initViewportSync(window, document);
   const mobile = isMobileInput();
   input.addEventListener("keydown", (e) => {
     if (e.key === "Enter" && !e.shiftKey && !mobile) {
