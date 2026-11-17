@@ -21,6 +21,8 @@ app/                  FastAPI backend (uvicorn)
     database.py       Low-Level-Persistenz: verschluesselte per-user SQLite-Dateien (einzige Stelle mit SQLite/Crypto)
   services/store.py   UserStore (Repository): einziger DB-Zugriff fuer Router/Generierung, kapselt asyncio.to_thread
   routers/            auth.py, sessions.py, settings.py, chat.py (serverseitige Generierung)
+  services/chat.py    MessageService: In-Memory-Stream-State + SSE an den Client (GET /api/chat/stream/{sid}),
+                      orchestriert die Persistenz ueber UserStore
   services/llm.py     LLM-Client (LlmClient: stream_completion mit Abort-Race, check_llm_connection)
   services/context.py LLM-Kontext aus der Session-DB via trixie_ai.LlmContext (vendored Wheel,
                       inkl. Tool-Calls als assistant/tool-Messages)

@@ -12,6 +12,11 @@ from collections.abc import AsyncIterator
 from typing import Any
 
 
+def sse_event(payload: dict[str, Any]) -> str:
+    """Ein SSE-Event serialisieren (einzige Stelle, die das ausgehende ``data:``-Wire-Format baut)."""
+    return f"data: {json.dumps(payload, separators=(',', ':'))}\n\n"
+
+
 def parse_sse_data(data: str) -> dict[str, Any] | None:
     """Parst einen einzelnen SSE-data-Payload; ``[DONE]`` und ungueltiges JSON -> None."""
     if data == "[DONE]":

@@ -244,7 +244,7 @@ def q_get_message(con: sqlite3.Connection, mid: int) -> MessageRow | None:
 
 
 # msg/patch kommen teils als model_dump() (dict[str, Any]) aus den Routern, teils als
-# MessageInput aus run_generation - Mapping deckt beides ab.
+# MessageInput aus MessageService - Mapping deckt beides ab.
 def q_add_message(con: sqlite3.Connection, sid: str, msg: Mapping[str, Any]) -> MessageRow:
     cur = con.execute(
         "INSERT INTO messages (session_id, role, type, text, in_context, attachments, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",

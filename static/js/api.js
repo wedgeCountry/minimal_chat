@@ -39,3 +39,9 @@ export const api = {
   put: (path, body) => request(path, { method: "PUT", body }),
   del: (path) => request(path, { method: "DELETE" }),
 };
+
+// SSE-Stream der Service-Layer (Live-Chunks aus dem In-Memory-State des MessageService).
+// Das Session-Cookie wird same-origin automatisch mitgesendet.
+export function openStream(path) {
+  return new EventSource("/api" + path);
+}

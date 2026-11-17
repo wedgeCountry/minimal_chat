@@ -6,6 +6,7 @@ from user_registry.web.security import read_session
 
 from .auth import TERMS_VERSION, display_name_from_email, user_identity
 from .config import AppConfig
+from .services.chat import MessageService
 from .services.store import UserStore
 from .types import UserIdentity
 
@@ -18,6 +19,11 @@ def get_config(request: Request) -> AppConfig:
 def get_store(request: Request) -> UserStore:
     store: UserStore = request.app.state.store
     return store
+
+
+def get_message_service(request: Request) -> MessageService:
+    service: MessageService = request.app.state.message_service
+    return service
 
 
 def get_session_email(request: Request) -> str | None:

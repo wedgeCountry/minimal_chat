@@ -1,24 +1,23 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import AsyncIterator
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import StreamingResponse
 
 from ..config import AppConfig
-from ..deps import get_config, get_current_user, get_store
+from ..deps import get_config, get_current_user, get_message_service, get_store
 from ..models import ChatAbortRequest, ChatRequest
+from ..services.chat import MessageService
 from ..services.context import build_llm_context
-from ..services.generation import forget_abort_if_idle, is_running, request_abort, run_generation
 from ..services.settings import BOOL_SETTINGS, resolve_base_url, stored_bool
+from ..services.sse import sse_event
 from ..services.ssrf import validate_llm_base_url
 from ..services.store import UserStore
 from ..types import UserIdentity
 
 router = APIRouter(prefix="/api/chat", tags=["chat"])
-
-# Starke Referenzen auf laufende Hintergrund-Tasks, damit der GC sie nicht
-# mitten in der Generierung einsammelt.
-_background_tasks: set[asyncio.Task[None]] = set()
 
 
 @router.post("", status_code=202)
@@ -26,12 +25,14 @@ async def chat(
     req: ChatRequest,
     user: UserIdentity = Depends(get_current_user),
     store: UserStore = Depends(get_store),
+    service: MessageService = Depends(get_message_service),
     config: AppConfig = Depends(get_config),
 ) -> dict[str, str]:
-    """Startet eine serverseitige Generierung als Hintergrund-Task.
+    """Startet eine serverseitige Generierung als Hintergrund-Task im MessageService.
 
-    Der LLM-Stream wird nicht mehr an den Client durchgereicht, sondern in der
-    per-user DB persistiert; der Client pollt ``GET /api/sessions/{id}``.
+    Der LLM-Stream wird in den In-Memory-State des Service gelesen (SSE-Quelle fuer
+    den Client, siehe GET /stream/{sid}) und blockweise in der per-user DB persistiert;
+    der Client pollt zusaetzlich ``GET /api/sessions/{id}``.
     """
     ctx = await store.load_chat_context(user, req.session_id)
     if ctx is None:
@@ -59,10 +60,35 @@ async def chat(
         "stream": True,
         "messages": llm_ctx.compile(),
     }
-    task = asyncio.create_task(run_generation(store, user, req.session_id, base_url, api_key, payload, flags))
-    _background_tasks.add(task)
-    task.add_done_callback(_background_tasks.discard)
+    service.start_generation(user, req.session_id, base_url, api_key, payload, flags)
     return {"status": "started"}
+
+
+@router.get("/stream/{sid}")
+async def chat_stream(
+    sid: str,
+    user: UserIdentity = Depends(get_current_user),
+    store: UserStore = Depends(get_store),
+    service: MessageService = Depends(get_message_service),
+) -> StreamingResponse:
+    """SSE-Stream der Live-Chunks aus dem In-Memory-State des MessageService.
+
+    Events: ``snapshot``/``blocks`` ( Liste der offenen/abgeschlossenen Bloecke mit
+    bid/id/kind/text), ``done`` (Generierung beendet), ``idle`` (laeuft gerade nicht -
+    Client liest den Stand ueber GET /api/sessions/{sid}).
+    """
+    if not await store.session_exists(user, sid):
+        raise HTTPException(status_code=404, detail="Session nicht gefunden")
+
+    async def events() -> AsyncIterator[str]:
+        async for ev in service.stream(user, sid):
+            yield sse_event(ev)
+
+    return StreamingResponse(
+        events(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 @router.post("/abort")
@@ -70,13 +96,14 @@ async def abort(
     req: ChatAbortRequest,
     user: UserIdentity = Depends(get_current_user),
     store: UserStore = Depends(get_store),
+    service: MessageService = Depends(get_message_service),
 ) -> dict[str, str]:
     if not await store.session_exists(user, req.session_id):
         raise HTTPException(status_code=404, detail="Session nicht gefunden")
-    request_abort(user, req.session_id)
+    service.request_abort(user, req.session_id)
     # Ohne laufende Task ist generating verwaist (z. B. Server-Neustart mitten in einer
     # Generierung): Abbrechen setzt das Flag zurueck, sonst pollt der Client endlos.
     # Bei laufender Task setzt der finale Flush der Task das Flag.
-    await store.clear_generating_if_idle(user, req.session_id, is_running(user, req.session_id))
-    forget_abort_if_idle(user, req.session_id)
+    await store.clear_generating_if_idle(user, req.session_id, service.is_running(user, req.session_id))
+    service.forget_abort_if_idle(user, req.session_id)
     return {"status": "aborted"}

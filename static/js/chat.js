@@ -1,4 +1,4 @@
-import { api } from "./api.js";
+import { api, openStream } from "./api.js";
 import { activeSession, normalizeMessage, normalizeMessages, state } from "./state.js";
 import { $, isNearBottom, captureScrollAnchor, restoreScrollAnchor } from "./util.js";
 import { ICONS } from "./icons.js";
@@ -22,6 +22,56 @@ export function setStreamingUI(on) {
 export function abortStream() {
   const s = activeSession();
   if (s) api.post("/chat/abort", { session_id: s.id }).catch(() => {});
+  closeLiveStream();
+}
+
+// Live-Chunks kommen ausschliesslich ueber die Service-Layer: SSE aus dem In-Memory-
+// State des MessageService (GET /api/chat/stream/{sid}). Der Poll bleibt Quelle der
+// Wahrheit fuer die persistierten Messages und ueberschreibt das Live-Overlay.
+let liveBlocks = [];
+let liveStream = null;
+
+function viewMessages() {
+  if (state.streaming && liveBlocks.length) return [...state.messages, ...liveBlocks];
+  return state.messages;
+}
+
+export function closeLiveStream() {
+  if (liveStream) {
+    liveStream.close();
+    liveStream = null;
+  }
+  if (liveBlocks.length) {
+    liveBlocks = [];
+    renderChat(viewMessages());
+  }
+}
+
+function openLiveStream(s) {
+  closeLiveStream();
+  liveStream = openStream(`/chat/stream/${s.id}`);
+  liveStream.onmessage = (e) => {
+    let ev;
+    try {
+      ev = JSON.parse(e.data);
+    } catch {
+      return;
+    }
+    if (ev.type === "snapshot" || ev.type === "blocks") {
+      liveBlocks = (ev.blocks || []).map((b) => ({
+        id: b.id != null ? b.id : `live-${b.bid}`,
+        role: "assistant",
+        type: b.kind,
+        text: b.text,
+        inContext: b.kind !== "reasoning",
+      }));
+      renderChat(viewMessages());
+    } else if (ev.type === "done" || ev.type === "idle" || ev.type === "error") {
+      closeLiveStream();
+      pollOnce();
+    }
+  };
+  liveStream.onerror = () => closeLiveStream();
 }
 
 // Primär chronologisch nach ts (ms; jeder Stream-Block traegt als ts seinen Abschluss-
@@ -231,6 +281,7 @@ async function triggerGeneration(s) {
     return;
   }
   setStreamingUI(true);
+  openLiveStream(s); // Live-Chunks direkt aus der Service-Layer (In-Memory)
   await pollOnce();
   ensurePolling();
 }
@@ -322,10 +373,15 @@ export async function pollOnce() {
         const msgs = normalizeMessages(detail.messages);
         state.messages = msgs;
         state.messagesSid = s.id;
-        if (JSON.stringify(msgs) !== JSON.stringify(lastMessages)) renderChat(msgs);
       } catch {}
     }
-    setStreamingUI(!!s?.generating);
+    const generating = !!s?.generating;
+    setStreamingUI(generating);
+    // z. B. nach Reload waehrend laufender Generierung: Live-Stream der Service-Layer abonnieren
+    if (generating && s && !liveStream) openLiveStream(s);
+    if (!generating) closeLiveStream();
+    const view = viewMessages();
+    if (JSON.stringify(view) !== JSON.stringify(lastMessages)) renderChat(view);
     if (state.sessions.some((x) => x.generating)) ensurePolling();
     else stopPolling();
   } finally {

@@ -2,7 +2,7 @@
 
 ``LlmClient`` kapselt base_url/api_key/timeout; ``stream_completion`` und
 ``check_llm_connection`` sind schlanke module-level Hüllen fuer die Aufrufer
-(run_generation, Settings-Test). Abort wird ueber ``race_abort`` gegen das
+(MessageService, Settings-Test). Abort wird ueber ``race_abort`` gegen das
 Oeffnen der Response und jeden Chunk-Read geracet.
 """
 
@@ -134,7 +134,7 @@ class LlmClient:
         async with self._client_factory(timeout=self._timeout) as client:
             # Erreichbarkeit des LLM-Servers ergibt sich aus dem POST selbst:
             # ConnectError/TimeoutError propagieren und werden vom Aufrufer
-            # (run_generation) als System-Message persistiert.
+            # (MessageService) als System-Message persistiert.
             stream_cm = client.stream("POST", self.chat_completions_url, headers=self._headers(), json=payload)
             res, aborted = await race_abort(stream_cm.__aenter__(), abort)
             if aborted or res is None:
@@ -167,7 +167,7 @@ async def stream_completion(
     client_factory: ClientFactory | None = None,
     abort: asyncio.Event | None = None,
 ) -> AsyncIterator[str]:
-    """Module-level Huelle um ``LlmClient.stream_completion`` (Einstieg fuer run_generation)."""
+    """Module-level Huelle um ``LlmClient.stream_completion`` (Einstieg fuer MessageService)."""
     client = LlmClient(base_url, api_key, client_factory=client_factory)
     async for chunk in client.stream_completion(payload, settings=settings, abort=abort):
         yield chunk

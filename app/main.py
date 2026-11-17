@@ -14,6 +14,7 @@ from .config import LOOPBACK_HOSTS, AppConfig, bootstrap_env, load_config
 from .db.database import Database
 from .deps import get_session_email
 from .routers import auth, chat, log, meta, sessions, settings, voice
+from .services.chat import MessageService
 from .services.store import UserStore
 
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
@@ -53,6 +54,7 @@ def create_app(
     app.state.config = cfg
     app.state.db = Database(cfg.data_dir, cfg.users_dir)
     app.state.store = UserStore(app.state.db)
+    app.state.message_service = MessageService(app.state.store)
     init_auth(app, cfg)
 
     @app.middleware("http")

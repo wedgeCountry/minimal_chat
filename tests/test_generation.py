@@ -1,4 +1,4 @@
-"""Unit- und Regression-Tests fuer app/services/generation.py.
+"""Unit- und Regression-Tests fuer app/services/chat.py (MessageService).
 
 Regression-Verhalten (README/SPEC): Beim Abbruch einer laufenden Generierung bleibt
 nur der bereits abgeschlossene Block persistiert; der offene (in-flight) Block wird
@@ -14,9 +14,8 @@ import pytest
 from app.auth import user_identity
 from app.db import database as dbq
 from app.db.database import Database
-from app.services import generation
 from app.services.sse import parse_sse_buffer
-from app.services.generation import is_running, request_abort, run_generation
+from app.services.chat import MessageService, _ActiveGeneration
 from app.services.store import UserStore
 
 SECRET = "test-secret"
@@ -31,6 +30,11 @@ def user():
 @pytest.fixture()
 def db(tmp_path):
     return Database(tmp_path / "data")
+
+
+@pytest.fixture()
+def svc(db):
+    return MessageService(UserStore(db))
 
 
 @pytest.fixture()
@@ -71,47 +75,44 @@ def test_parse_sse_buffer_ignores_non_data_lines():
 # --- request_abort / is_running (Unit) ---
 
 
-def test_request_abort_returns_false_when_nothing_running(user):
-    assert request_abort(user, "sid-1") is False
-    assert is_running(user, "sid-1") is False
+def test_request_abort_returns_false_when_nothing_running(svc, user):
+    assert svc.request_abort(user, "sid-1") is False
+    assert svc.is_running(user, "sid-1") is False
 
 
-def test_request_abort_sets_registered_event(user):
-    key = generation._key(user, "sid-2")
-    ev = asyncio.Event()
-    generation._abort_events[key] = ev
-    generation._running.add(key)
+def test_request_abort_sets_registered_event(svc, user):
+    key = svc._key(user, "sid-2")
+    active = _ActiveGeneration()
+    svc._active[key] = active
     try:
-        assert is_running(user, "sid-2") is True
-        assert request_abort(user, "sid-2") is True
-        assert ev.is_set()
+        assert svc.is_running(user, "sid-2") is True
+        assert svc.request_abort(user, "sid-2") is True
+        assert active.abort.is_set()
     finally:
-        generation._abort_events.pop(key, None)
-        generation._running.discard(key)
+        svc._active.pop(key, None)
 
 
-def test_abort_key_is_scoped_per_user(user):
+def test_abort_key_is_scoped_per_user(svc, user):
     other = user_identity(SECRET, "other@example.com")
-    key = generation._key(user, "sid-3")
-    generation._abort_events[key] = asyncio.Event()
+    svc._active[svc._key(user, "sid-3")] = _ActiveGeneration()
     try:
         # dieselbe Session-ID eines anderen Users darf nicht mit-abgebrochen werden
-        assert request_abort(other, "sid-3") is False
+        assert svc.request_abort(other, "sid-3") is False
     finally:
-        generation._abort_events.pop(key, None)
+        svc._active.pop(svc._key(user, "sid-3"), None)
 
 
-# --- run_generation (Regression) ---
+# --- generate (Regression) ---
 
 
-def test_run_generation_persists_content_reasoning_and_toolcalls(db, user, sid, monkeypatch):
+def test_run_generation_persists_content_reasoning_and_toolcalls(svc, db, user, sid, monkeypatch):
     async def fake_stream(*args, **kwargs):
         yield _sse({"reasoning_content": "denke"}, {"content": "Hallo "}, {"content": "Welt"},
                    {"tool_calls": [{"index": 0, "function": {"name": "f", "arguments": "{\\n}"}}]},
                    {"tool_results": [{"index": 0, "name": "f", "result": "42\\nGrad"}]})
 
-    monkeypatch.setattr("app.services.generation.stream_completion", fake_stream)
-    asyncio.run(run_generation(UserStore(db), user, sid, "http://llm.test/v1", "k", {"messages": []}))
+    monkeypatch.setattr("app.services.chat.stream_completion", fake_stream)
+    asyncio.run(svc.generate(user, sid, "http://llm.test/v1", "k", {"messages": []}))
 
     with db.user_db(user) as con:
         session = dbq.q_get_session(con, sid)
@@ -123,10 +124,10 @@ def test_run_generation_persists_content_reasoning_and_toolcalls(db, user, sid, 
     # literale "\n" aus den JSON-String-Literalen werden als echte Umbrueche persistiert
     assert texts[("assistant", "toolcall")] == "f({\n})"
     assert texts[("assistant", "toolresult")] == "f: 42\nGrad"
-    assert is_running(user, sid) is False
+    assert svc.is_running(user, sid) is False
 
 
-def test_run_generation_keeps_repeated_block_cycles_separate_with_switch_timestamps(db, user, sid, monkeypatch):
+def test_run_generation_keeps_repeated_block_cycles_separate_with_switch_timestamps(svc, db, user, sid, monkeypatch):
     """Zwei volle Zyklen (reasoning, toolcall, toolresult, message) in einem Stream:
     8 eigene Zeilen in Stream-Reihenfolge (keine Akkumulation), jeder Block mit seinem
     Abschluss-Zeitstempel (ms) beim Typwechsel im Stream."""
@@ -143,8 +144,8 @@ def test_run_generation_keeps_repeated_block_cycles_separate_with_switch_timesta
             {"content": "Antwort 2"},
         )
 
-    monkeypatch.setattr("app.services.generation.stream_completion", fake_stream)
-    asyncio.run(run_generation(UserStore(db), user, sid, "http://llm.test/v1", "k", {"messages": []}))
+    monkeypatch.setattr("app.services.chat.stream_completion", fake_stream)
+    asyncio.run(svc.generate(user, sid, "http://llm.test/v1", "k", {"messages": []}))
 
     with db.user_db(user) as con:
         messages = dbq.q_get_messages(con, sid)
@@ -164,7 +165,7 @@ def test_run_generation_keeps_repeated_block_cycles_separate_with_switch_timesta
     assert all(a < b for a, b in zip(ts, ts[1:])), f"jeder Block braucht eigenen, steigenden Ts: {ts}"
 
 
-def test_toolcall_done_signal_closes_toolcall_block_without_toolresult_row(db, user, sid, monkeypatch):
+def test_toolcall_done_signal_closes_toolcall_block_without_toolresult_row(svc, db, user, sid, monkeypatch):
     """Signal-Dummy des LLM-Servers ({"tool_results":[{"index":0,"signal":"toolcall_done"}]}):
     schliesst den offenen Toolcall-Block sofort (Zeile wird persistiert, bevor das echte
     Toolresult eintrifft), legt aber keinen Toolresult-Block an."""
@@ -178,10 +179,10 @@ def test_toolcall_done_signal_closes_toolcall_block_without_toolresult_row(db, u
         yield _sse({"tool_results": [{"index": 0, "name": "f", "result": "42"}]})
         yield _sse({"content": "Antwort"})
 
-    monkeypatch.setattr("app.services.generation.stream_completion", fake_stream)
+    monkeypatch.setattr("app.services.chat.stream_completion", fake_stream)
 
     async def main():
-        task = asyncio.create_task(run_generation(UserStore(db), user, sid, "http://llm.test/v1", "k", {"messages": []}))
+        task = asyncio.create_task(svc.generate(user, sid, "http://llm.test/v1", "k", {"messages": []}))
         await asyncio.sleep(0.5)  # Pause wie bei echter Tool-Ausfuehrung
         with db.user_db(user) as con:
             during = [(m["type"], m["text"]) for m in dbq.q_get_messages(con, sid) if m["role"] == "assistant"]
@@ -196,7 +197,7 @@ def test_toolcall_done_signal_closes_toolcall_block_without_toolresult_row(db, u
     asyncio.run(main())
 
 
-def test_abort_discards_inflight_block_and_clears_generating(db, user, sid, monkeypatch):
+def test_abort_discards_inflight_block_and_clears_generating(svc, db, user, sid, monkeypatch):
     """Abbruch mitten im Stream: bereits abgeschlossene Bloecke bleiben persistiert,
     der offene (in-flight) Block wird verworfen; kein Fehler-System-Message; generating=0."""
 
@@ -204,12 +205,12 @@ def test_abort_discards_inflight_block_and_clears_generating(db, user, sid, monk
         yield _sse({"reasoning_content": "denke "})  # Block 1
         yield _sse({"content": "Teil 1 "})  # schliesst Block 1, oeffnet Block 2 (message)
         # Abbruch wird von aussen angefordert, waehrend der Stream noch laeuft
-        request_abort(user, sid)
+        svc.request_abort(user, sid)
         yield _sse({"content": "VERWORFEN"})  # wird verworfen
         yield "data: [DONE]\n\n"
 
-    monkeypatch.setattr("app.services.generation.stream_completion", fake_stream)
-    asyncio.run(run_generation(UserStore(db), user, sid, "http://llm.test/v1", "k", {"messages": []}))
+    monkeypatch.setattr("app.services.chat.stream_completion", fake_stream)
+    asyncio.run(svc.generate(user, sid, "http://llm.test/v1", "k", {"messages": []}))
 
     with db.user_db(user) as con:
         session = dbq.q_get_session(con, sid)
@@ -220,17 +221,17 @@ def test_abort_discards_inflight_block_and_clears_generating(db, user, sid, monk
     assert [(m["type"], m["text"]) for m in assistant] == [("reasoning", "denke ")]
     # Abbruch ist kein Fehler: keine System-Fehlermeldung
     assert not [m for m in messages if m["role"] == "system"]
-    assert is_running(user, sid) is False
-    assert request_abort(user, sid) is False
+    assert svc.is_running(user, sid) is False
+    assert svc.request_abort(user, sid) is False
 
 
-def test_run_generation_persists_error_event_as_system_message(db, user, sid, monkeypatch):
+def test_run_generation_persists_error_event_as_system_message(svc, db, user, sid, monkeypatch):
     async def fake_stream(*args, **kwargs):
         yield 'data: {"error": "LLM-Server nicht erreichbar"}\n\n'
         yield "data: [DONE]\n\n"
 
-    monkeypatch.setattr("app.services.generation.stream_completion", fake_stream)
-    asyncio.run(run_generation(UserStore(db), user, sid, "http://llm.test/v1", "k", {"messages": []}))
+    monkeypatch.setattr("app.services.chat.stream_completion", fake_stream)
+    asyncio.run(svc.generate(user, sid, "http://llm.test/v1", "k", {"messages": []}))
 
     with db.user_db(user) as con:
         session = dbq.q_get_session(con, sid)
@@ -241,7 +242,7 @@ def test_run_generation_persists_error_event_as_system_message(db, user, sid, mo
     assert "LLM-Server nicht erreichbar" in system[0]["text"]
 
 
-def test_inflight_block_not_persisted_until_block_completes(db, user, sid, monkeypatch):
+def test_inflight_block_not_persisted_until_block_completes(svc, db, user, sid, monkeypatch):
     """Performance-Regression: die per-user DB wird nicht pro Chunk geoeffnet/geschrieben.
     Der offene Block landet erst als eine Zeile mit komplettem Text, wenn der Block
     abgeschlossen ist (hier: Stream-Ende)."""
@@ -273,10 +274,10 @@ def test_inflight_block_not_persisted_until_block_completes(db, user, sid, monke
         yield 'data: {"choices":[{"delta":{"content":"Teil B"}}]}\n\n'
         yield "data: [DONE]\n\n"
 
-    monkeypatch.setattr("app.services.generation.stream_completion", fake_stream)
+    monkeypatch.setattr("app.services.chat.stream_completion", fake_stream)
 
     async def main():
-        task = asyncio.create_task(run_generation(UserStore(db), user, sid, "http://llm.test/v1", "k", {"messages": []}))
+        task = asyncio.create_task(svc.generate(user, sid, "http://llm.test/v1", "k", {"messages": []}))
         await asyncio.sleep(0.5)  # laenger als das alte FLUSH_INTERVAL_S (0.25 s)
         with orig_user_db(db, user) as con:  # am Spy vorbei, damit nur Task-Oeffnen zaehlen
             assert dbq.q_get_messages(con, sid) == [], "offener Block darf nicht in die DB"
@@ -293,11 +294,11 @@ def test_inflight_block_not_persisted_until_block_completes(db, user, sid, monke
     assert len(opens) == 2, opens
 
 
-def test_run_generation_unknown_session_is_noop(db, user, monkeypatch):
+def test_run_generation_unknown_session_is_noop(svc, db, user, monkeypatch):
     async def fake_stream(*args, **kwargs):
         yield _sse({"content": "x"})
         raise AssertionError("Stream darf bei unbekannter Session nicht konsumiert werden")
 
-    monkeypatch.setattr("app.services.generation.stream_completion", fake_stream)
-    asyncio.run(run_generation(UserStore(db), user, "gibts-nicht", "http://llm.test/v1", "k", {"messages": []}))
-    assert is_running(user, "gibts-nicht") is False
+    monkeypatch.setattr("app.services.chat.stream_completion", fake_stream)
+    asyncio.run(svc.generate(user, "gibts-nicht", "http://llm.test/v1", "k", {"messages": []}))
+    assert svc.is_running(user, "gibts-nicht") is False
