@@ -212,9 +212,10 @@ def test_partially_deselected_results_keep_only_complete_pairs():
     assert tool_res[0]["content"] == "search: ERGEBNIS A"
 
 
-def test_tool_call_assistant_message_omits_content_key():
-    """Reine tool_call-assistant-Messages senden KEIN "content": null - manche strikten
-    LLM-Server lehnen null ab (422)."""
+def test_tool_call_assistant_message_sends_empty_string_content():
+    """Reine tool_call-assistant-Messages senden "content": "" - weder null noch ein
+    fehlendes content-Feld passiert jedes Pydantic-Modell (str wie Optional[str]);
+    beides gibt sonst 422, bevor der Request den Completion-Endpoint erreicht."""
     rows = [
         _db_row(1, "user", "message", "Wetter?"),
         _db_row(2, "assistant", "toolcall", 'get_weather({"city":"Berlin"})'),
@@ -222,7 +223,7 @@ def test_tool_call_assistant_message_omits_content_key():
     ]
     wire = build_llm_context(rows).compile()
     tc_msg = next(m for m in wire if m.get("tool_calls"))
-    assert "content" not in tc_msg
+    assert tc_msg["content"] == ""
     assert tc_msg["tool_calls"][0]["id"] == "call_2"
     assert wire[wire.index(tc_msg) + 1] == {"role": "tool", "tool_call_id": "call_2", "content": "get_weather: 21C"}
 
@@ -249,8 +250,8 @@ def test_tool_calls_merge_into_preceding_assistant_content_message():
     # erstes Paar: tool_call landet im vorausgehenden assistant-Content-Message
     assert assistant_msgs[0]["content"] == "Ich recherchiere das fuer dich ..."
     assert [c["id"] for c in assistant_msgs[0]["tool_calls"]] == ["call_3"]
-    # zweites Paar: eigenes assistant-Message ohne content-Key
-    assert "content" not in assistant_msgs[1]
+    # zweites Paar: eigenes assistant-Message mit content: ""
+    assert assistant_msgs[1]["content"] == ""
     assert [c["id"] for c in assistant_msgs[1]["tool_calls"]] == ["call_4"]
     tool_res = [m for m in wire if m["role"] == "tool"]
     assert [r["tool_call_id"] for r in tool_res] == ["call_3", "call_4"]

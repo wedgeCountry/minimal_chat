@@ -56,13 +56,14 @@ def build_llm_context(
     def _append_tool_pair(call: dict[str, Any], text: str) -> None:
         # Pro Paar ein assistant-Message mit dem tool_call, direkt gefolgt von seiner
         # tool-Message. Dabei zwei 422-Fallen bei strikten Servern vermeiden:
-        # - "content": null wird bei reinen tool_call-Messages ganz weggelassen
+        # - reine tool_call-Messages senden "content": "" (leerer String) - weder null
+        #   noch ein fehlendes content-Feld passiert jedes Pydantic-Modell (str/Optional)
         # - ein tool_call direkt nach einer assistant-Content-Message wird in diese
         #   gemerged statt ein zweites assistant-Message hintereinander zu erzeugen
         if wire and wire[-1]["role"] == "assistant":
             wire[-1].setdefault("tool_calls", []).append(call)
         else:
-            wire.append({"role": "assistant", "tool_calls": [call]})
+            wire.append({"role": "assistant", "content": "", "tool_calls": [call]})
         wire.append({"role": "tool", "tool_call_id": call["id"], "content": text})
 
     def _flush_tool_group() -> None:
