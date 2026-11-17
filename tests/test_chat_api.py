@@ -5,10 +5,11 @@ import json
 import time
 
 import httpx
+from fastapi.testclient import TestClient
 
 from app.auth import user_identity
 from app.db import database as dbq
-from app.services import generation
+from app.services.chat import MessageService
 
 RealAsyncClient = httpx.AsyncClient
 
@@ -111,14 +112,14 @@ def test_chat_starts_background_generation_and_persists(client, auth_headers, mo
 def test_chat_marks_session_generating_while_running(client, auth_headers, monkeypatch):
     release = asyncio.Event()
 
-    async def fake_gen(store, user, sid, *args, **kwargs):
-        await store.set_generating(user, sid, True)
+    async def fake_generate(self, user, sid, active, *args, **kwargs):
+        await self._store.set_generating(user, sid, True)
         try:
             await asyncio.wait_for(release.wait(), timeout=10)
         finally:
-            await store.set_generating(user, sid, False)
+            await self._store.set_generating(user, sid, False)
 
-    monkeypatch.setattr("app.routers.chat.run_generation", fake_gen)
+    monkeypatch.setattr(MessageService, "_generate", fake_generate)
     sid = _new_session(client, auth_headers)
     _post_user_message(client, auth_headers, sid)
 
@@ -152,28 +153,23 @@ def test_chat_unknown_session_404(client, auth_headers):
     assert res.status_code == 404
 
 
-def test_chat_abort_endpoint(client, auth_headers, monkeypatch):
+def test_chat_abort_endpoint(client, app, auth_headers, monkeypatch):
     observed = {}
 
-    async def fake_gen(db, user, sid, *args, **kwargs):
-        key = f"{user['uid']}:{sid}"
-        ev = asyncio.Event()
-        generation._abort_events[key] = ev
-        try:
-            await asyncio.wait_for(ev.wait(), timeout=10)
-            observed["aborted"] = True
-        finally:
-            generation._abort_events.pop(key, None)
+    async def fake_generate(self, user, sid, active, *args, **kwargs):
+        observed["active"] = active
+        await asyncio.wait_for(active.abort.wait(), timeout=10)
+        observed["aborted"] = True
 
-    monkeypatch.setattr("app.routers.chat.run_generation", fake_gen)
+    monkeypatch.setattr(MessageService, "_generate", fake_generate)
     sid = _new_session(client, auth_headers)
     _post_user_message(client, auth_headers, sid)
     assert _start_chat(client, auth_headers, sid).status_code == 202
 
     deadline = time.time() + 5
-    while time.time() < deadline and not any(k.endswith(":" + sid) for k in generation._abort_events):
+    while time.time() < deadline and not any(k.endswith(":" + sid) for k in app.state.message_service._active):
         time.sleep(0.05)
-    assert any(k.endswith(":" + sid) for k in generation._abort_events)
+    assert any(k.endswith(":" + sid) for k in app.state.message_service._active)
 
     res = client.post("/api/chat/abort", json={"session_id": sid}, headers=auth_headers)
     assert res.status_code == 200
@@ -200,12 +196,12 @@ def test_chat_abort_clears_stale_generating_flag(client, app, auth_headers, monk
     with app.state.db.user_db(user) as con:
         dbq.q_set_generating(con, sid, True)
     assert client.get(f"/api/sessions/{sid}", headers=auth_headers).json()["generating"] is True
-    assert generation._running == set()
+    assert app.state.message_service._active == {}
 
     res = client.post("/api/chat/abort", json={"session_id": sid}, headers=auth_headers)
     assert res.status_code == 200
     assert client.get(f"/api/sessions/{sid}", headers=auth_headers).json()["generating"] is False
-    assert generation._abort_requested == set()
+    assert app.state.message_service._abort_requested == set()
 
     # neue Generierung derselben Session laeuft normal durch (kein verwaister Abort-Request)
     _mock_llm(monkeypatch)
@@ -221,7 +217,7 @@ def test_chat_abort_without_generating_keeps_flag_zero(client, auth_headers):
     assert client.get(f"/api/sessions/{sid}", headers=auth_headers).json()["generating"] is False
 
 
-def test_chat_abort_cancels_stalled_upstream_stream(client, auth_headers, monkeypatch):
+def test_chat_abort_cancels_stalled_upstream_stream(client, app, auth_headers, monkeypatch):
     """Abort muss auch wirken, wenn das LLM (noch) keine Chunks liefert: der haengende
     Upstream-Read wird gecancelt. Bereits abgeschlossene Bloecke bleiben persistiert,
     der offene (in-flight) Block wird verworfen."""
@@ -266,9 +262,9 @@ def test_chat_abort_cancels_stalled_upstream_stream(client, auth_headers, monkey
     assert "denke" in texts  # abgeschlossener Block bleibt erhalten
     assert not any("Teil A" in t or "Teil B" in t for t in texts)  # in-flight Block verworfen
     assert not any(m["role"] == "system" for m in detail["messages"]), "Abbruch darf keine Fehlermeldung erzeugen"
-    assert generation._running == set()
-    assert generation._abort_events == {}
-    assert generation._abort_requested == set()
+    svc = app.state.message_service
+    assert svc._active == {}
+    assert svc._abort_requested == set()
 
 
 def test_chat_filters_reasoning_and_tool_output_server_side(client, auth_headers, monkeypatch):
@@ -463,3 +459,50 @@ def test_chat_uses_env_default_llm_host_port(client, auth_headers, monkeypatch, 
     assert _start_chat(client, auth_headers, sid).status_code == 202
     _wait_generation(client, auth_headers, sid)
     assert seen["url"] == "http://10.9.8.7:9999/v1/chat/completions"
+
+
+def _parse_sse_events(body: str) -> list[dict]:
+    return [json.loads(line[len("data: "):]) for line in body.splitlines() if line.startswith("data: ")]
+
+
+def test_chat_stream_sse_emits_snapshot_blocks_and_done(client, auth_headers, monkeypatch):
+    """GET /api/chat/stream/{sid}: SSE-Events aus dem In-Memory-State des MessageService
+    (snapshot -> blocks -> done)."""
+
+    async def fake_generate(self, user, sid, active, *args, **kwargs):
+        active.blocks.append({"kind": "message", "ts": None, "id": None, "text": "Hallo"})
+        self._publish(active)
+        await asyncio.sleep(0.05)
+        active.blocks[-1]["text"] = "Hallo Welt"
+        self._publish(active)
+
+    monkeypatch.setattr(MessageService, "_generate", fake_generate)
+    sid = _new_session(client, auth_headers)
+    _post_user_message(client, auth_headers, sid)
+    assert _start_chat(client, auth_headers, sid).status_code == 202
+
+    with client.stream("GET", f"/api/chat/stream/{sid}", headers=auth_headers) as res:
+        assert res.status_code == 200
+        assert res.headers["content-type"].startswith("text/event-stream")
+        body = res.read().decode("utf-8")
+
+    events = _parse_sse_events(body)
+    assert events[0]["type"] == "snapshot"
+    blocks_events = [e for e in events if e["type"] == "blocks"]
+    assert blocks_events, "mindestens ein blocks-Event erwartet"
+    assert blocks_events[-1]["blocks"][-1] == {"bid": 0, "id": None, "kind": "message", "text": "Hallo Welt"}
+    assert events[-1]["type"] == "done"
+
+
+def test_chat_stream_idle_when_nothing_running(client, auth_headers):
+    sid = _new_session(client, auth_headers)
+    with client.stream("GET", f"/api/chat/stream/{sid}", headers=auth_headers) as res:
+        assert res.status_code == 200
+        events = _parse_sse_events(res.read().decode("utf-8"))
+    assert events == [{"type": "idle"}]
+
+
+def test_chat_stream_requires_auth_and_known_session(client, app, auth_headers):
+    anon = TestClient(app)  # kein Session-Cookie -> 401
+    assert anon.get("/api/chat/stream/x").status_code == 401
+    assert client.get("/api/chat/stream/does-not-exist", headers=auth_headers).status_code == 404

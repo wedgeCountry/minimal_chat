@@ -74,7 +74,7 @@ class AttachmentRow(AttachmentContent):
 
 
 class StreamBlock(TypedDict, total=False):
-    """Ein Block des LLM-Streams in run_generation (text ODER toolcall/toolresult-Felder)."""
+    """Ein Block des LLM-Streams im MessageService (text ODER toolcall/toolresult-Felder)."""
 
     kind: str
     ts: int | None

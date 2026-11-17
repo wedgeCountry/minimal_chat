@@ -15,7 +15,7 @@ import time
 from fastapi.testclient import TestClient
 
 from app.main import create_app
-from app.services import generation
+from app.services.chat import MessageService
 from tests.conftest import login_client, login_via_api
 
 
@@ -48,16 +48,16 @@ def test_concurrent_generations_of_two_users_are_independent(client, auth_header
     """Regression: generating-Flag und Abort-Key sind pro User+Session scoped."""
     gates = {}
 
-    async def fake_gen(store, user, sid, *args, **kwargs):
+    async def fake_generate(self, user, sid, active, *args, **kwargs):
         gate = asyncio.Event()
         gates[f"{user['uid']}:{sid}"] = gate
-        await store.set_generating(user, sid, True)
+        await self._store.set_generating(user, sid, True)
         try:
             await asyncio.wait_for(gate.wait(), timeout=10)
         finally:
-            await store.set_generating(user, sid, False)
+            await self._store.set_generating(user, sid, False)
 
-    monkeypatch.setattr("app.routers.chat.run_generation", fake_gen)
+    monkeypatch.setattr(MessageService, "_generate", fake_generate)
 
     alice = client  # auth_headers = alice
     sid_a = _new_session(alice, auth_headers, "Alice")
@@ -117,7 +117,7 @@ def test_settings_and_sessions_survive_app_restart(config):
     assert [m["text"] for m in detail["messages"]] == ["Hallo Restart"]
 
 
-def test_abort_via_api_discards_inflight_block_end_to_end(client, auth_headers, monkeypatch):
+def test_abort_via_api_discards_inflight_block_end_to_end(client, app, auth_headers, monkeypatch):
     """End-to-end: POST /api/chat/abort mitten im Stream - der abgeschlossene Block bleibt
     persistiert, der offene (in-flight) Block wird verworfen (nicht in der Session)."""
 
@@ -125,13 +125,13 @@ def test_abort_via_api_discards_inflight_block_end_to_end(client, auth_headers, 
         yield 'data: {"choices":[{"delta":{"reasoning_content":"denke"}}]}\n\n'
         yield 'data: {"choices":[{"delta":{"content":"Teil "}}]}\n\n'  # schliesst reasoning-Block
         for _ in range(500):
-            if any(ev.is_set() for ev in generation._abort_events.values()):
+            if any(a.abort.is_set() for a in app.state.message_service._active.values()):
                 break
             await asyncio.sleep(0.01)
         yield 'data: {"choices":[{"delta":{"content":"VERWORFEN"}}]}\n\n'
         yield "data: [DONE]\n\n"
 
-    monkeypatch.setattr("app.services.generation.stream_completion", fake_stream)
+    monkeypatch.setattr("app.services.chat.stream_completion", fake_stream)
 
     sid = _new_session(client, auth_headers)
     assert _start_chat(client, auth_headers, sid).status_code == 202
