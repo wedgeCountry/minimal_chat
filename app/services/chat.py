@@ -32,6 +32,9 @@ from .store import MessageNotFound, SessionNotFound, UserStoreProtocol
 
 DEFAULT_HOT_TTL_S = 300.0
 
+# Puffer pro SSE-Subscriber (Voll-Snapshot-Events); bei Ueberlauf Drop-Oldest, siehe _put
+_SUBSCRIBER_QUEUE_MAX = 8
+
 
 def _render_toolcall(a: dict[str, Any]) -> str:
     # Argumente sind JSON-String-Literale: literale "\n" als echte Umbrueche speichern
@@ -109,12 +112,33 @@ class MessageService:
     def _state_event(self, state: _SessionState) -> dict[str, Any]:
         return {"type": "state", "seq": state.seq, "messages": [m.model_dump() for m in state.messages]}
 
+    @staticmethod
+    def _put(q: asyncio.Queue[dict[str, Any] | None], item: dict[str, Any] | None) -> None:
+        """In die begrenzte Subscriber-Queue legen; bei Ueberlauf das aelteste state-Event
+        verwerfen (Voll-Snapshot: das neueste genuegt, der Client merged per seq).
+        Der None-Sentinel ('done') wird nie verworfen."""
+        try:
+            q.put_nowait(item)
+            return
+        except asyncio.QueueFull:
+            rest: list[dict[str, Any] | None] = []
+            dropped = False
+            while not q.empty():
+                old = q.get_nowait()
+                if old is not None and not dropped:
+                    dropped = True
+                else:
+                    rest.append(old)
+            for old in rest:
+                q.put_nowait(old)
+            q.put_nowait(item)
+
     def _publish(self, state: _SessionState) -> None:
         """Aktuellen In-Memory-Zustand als versioniertes state-Event an alle SSE-Subscriber."""
         state.last_touch = time.monotonic()
         ev = self._state_event(state)
         for q in state.subscribers:
-            q.put_nowait(ev)
+            self._put(q, ev)
 
     # --- Status / Abort ---
 
@@ -288,7 +312,7 @@ class MessageService:
         self._abort_requested.discard(key)
         # None-Sentinel -> stream() schickt 'done' und beendet den SSE-Stream
         for q in state.subscribers:
-            q.put_nowait(None)
+            self._put(q, None)
 
     # --- SSE-Stream an das Frontend ---
 
@@ -303,7 +327,7 @@ class MessageService:
         if state is None or state.generation is None:
             yield {"type": "idle"}
             return
-        q: asyncio.Queue[dict[str, Any] | None] = asyncio.Queue()
+        q: asyncio.Queue[dict[str, Any] | None] = asyncio.Queue(maxsize=_SUBSCRIBER_QUEUE_MAX)
         state.subscribers.add(q)
         state.last_touch = time.monotonic()
         try:

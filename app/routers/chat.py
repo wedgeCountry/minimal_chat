@@ -71,11 +71,11 @@ async def chat_stream(
     store: UserStoreProtocol = Depends(get_store),
     service: MessageService = Depends(get_message_service),
 ) -> StreamingResponse:
-    """SSE-Stream der Live-Chunks aus dem In-Memory-State des MessageService.
+    """SSE-Stream der Live-Daten aus dem In-Memory-State des MessageService.
 
-    Events: ``snapshot``/``blocks`` ( Liste der offenen/abgeschlossenen Bloecke mit
-    bid/id/kind/text), ``done`` (Generierung beendet), ``idle`` (laeuft gerade nicht -
-    Client liest den Stand ueber GET /api/sessions/{sid}).
+    Events: ``state`` (versioniert: seq + vollstaendige Message-Liste inkl. Live-Messages
+    mit id=null), ``done`` (Generierung beendet), ``idle`` (Session nicht hot / keine
+    laufende Generierung - Client liest den Stand ueber GET /api/sessions/{sid}).
     """
     if not await store.session_exists(user, sid):
         raise HTTPException(status_code=404, detail="Session nicht gefunden")

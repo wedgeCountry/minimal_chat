@@ -222,8 +222,8 @@ export function renderChat(messages) {
     items.push({ m, showResend: m === lastUser, showEdit: m === lastUser });
   }
   const seen = new Set();
-  for (const item of items) {
-    const key = bubbleKey(item.m, items.indexOf(item));
+  for (const [idx, item] of items.entries()) {
+    const key = bubbleKey(item.m, idx);
     seen.add(key);
     let b = bubbleNodes.get(key);
     if (!b) {

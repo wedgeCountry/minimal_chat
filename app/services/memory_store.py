@@ -9,7 +9,7 @@ import time
 from collections.abc import Mapping
 from typing import Any
 
-from ..domain import Attachment, Message, Session
+from ..domain import Attachment, AttachmentRef, Message, Session
 from ..types import MessageInput, UserIdentity
 from .store import (
     DEFAULT_SESSION_NAME,
@@ -98,8 +98,6 @@ class InMemoryUserStore(UserStoreProtocol):
         uid = self._uid(user)
         mid = self._next_mid.get(uid, 0) + 1
         self._next_mid[uid] = mid
-        from ..domain import AttachmentRef
-
         m = Message(
             id=mid,
             role=msg["role"],
@@ -126,8 +124,6 @@ class InMemoryUserStore(UserStoreProtocol):
         if patch.get("text") is not None:
             m.text = str(patch["text"])
         if patch.get("attachments") is not None:
-            from ..domain import AttachmentRef
-
             m.attachments = [AttachmentRef.model_validate(a) for a in patch["attachments"]]
         if patch.get("created_at") is not None:
             m.ts = int(patch["created_at"])

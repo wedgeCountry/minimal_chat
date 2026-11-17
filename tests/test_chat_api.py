@@ -8,7 +8,6 @@ import httpx
 from fastapi.testclient import TestClient
 
 from app.auth import user_identity
-from app.db import database as dbq
 from app.services.chat import MessageService
 
 RealAsyncClient = httpx.AsyncClient
@@ -196,8 +195,7 @@ def test_chat_abort_clears_stale_generating_flag(client, app, auth_headers, monk
     sid = _new_session(client, auth_headers)
     _post_user_message(client, auth_headers, sid)
     user = user_identity("test-secret", "alice@example.com")
-    with app.state.db.user_db(user) as con:
-        dbq.q_set_generating(con, sid, True)
+    asyncio.run(app.state.store.set_generating(user, sid, True))
     assert client.get(f"/api/sessions/{sid}", headers=auth_headers).json()["generating"] is True
     assert not any(st.generation for st in app.state.message_service._sessions.values())
 

@@ -218,3 +218,27 @@ def test_abort_discards_live_messages_from_memory(svc, store, user, monkeypatch)
     assert all(m.id is not None for m in state.messages), "keine Live-Messages (id=None) nach Abort im Memory"
     assert [m.text for m in state.messages if m.role == "assistant"] == ["denke "], "nur abgeschlossener Block bleibt"
     assert [m.text for m in detail[1] if m.role == "assistant"] == ["denke "], "... und in der DB"
+
+
+def test_subscriber_queue_bounded_drop_oldest_keeps_done_sentinel(svc, store, user):
+    """Subscriber-Queues sind begrenzt (maxsize): bei Ueberlauf wird das aelteste
+    state-Event verworfen (Voll-Snapshot, das neueste genuegt), der None-Sentinel
+    ('done') wird nie verworfen."""
+
+    async def main():
+        sid = (await store.create_session(user, "S")).id
+        state = await svc._hot(user, sid)
+        q: asyncio.Queue = asyncio.Queue(maxsize=3)
+        state.subscribers.add(q)
+        for _ in range(5):
+            state.seq += 1
+            svc._publish(state)
+        assert q.qsize() == 3, "Queue bleibt begrenzt (Drop-Oldest)"
+        svc._put(q, None)  # volle Queue + Sentinel -> aeltestes state-Event wird verworfen
+        drained = []
+        while not q.empty():
+            drained.append(q.get_nowait())
+        assert [e["seq"] for e in drained if e is not None] == [4, 5], "die neuesten state-Events bleiben erhalten"
+        assert drained[-1] is None, "done-Sentinel ueberlebt die volle Queue"
+
+    asyncio.run(main())
