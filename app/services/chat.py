@@ -258,7 +258,7 @@ class MessageService:
                 return
             stored = await self._store.add_messages(user, sid, [_message_row(b) for b in closed])
             for b, row in zip(closed, stored):
-                b["id"] = row["id"]
+                b["id"] = row.id
 
         async def _final_flush() -> None:
             """Ein einziges DB-Oeffnen am Stream-Ende: bei normalem Ende wird der letzte

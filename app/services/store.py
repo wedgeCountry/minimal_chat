@@ -1,9 +1,11 @@
 """Persistenz-Gateway (Repository): einzige Schicht zwischen App-Code (Router,
-Generierungs-Task) und der Datenbank.
+MessageService) und der Datenbank.
 
-``UserStore`` kapselt ``Database.user_db`` + die ``q_*``-Helper + ``asyncio.to_thread``:
-Aufrufer arbeiten asynchron mit fachlichen Methoden und bekommen Zeilen-Typen
-(``SessionRow``/``MessageRow``/...) statt einer ``sqlite3.Connection``. Verschluesselung,
+Die oeffentliche Schnittstelle ist ``UserStoreProtocol``; ``SqliteUserStore`` kapselt
+``Database.user_db`` + die ``q_*``-Helper + ``asyncio.to_thread`` und mappt dabei
+DB-Zeilen (TypedDicts aus app/types.py) auf die kanonischen Domain-Models (app/domain.py).
+Aufrufer arbeiten asynchron mit fachlichen Methoden und Domain-Objekten
+(``Session``/``Message``/...) statt ``sqlite3.Connection``. Verschluesselung,
 Datei-Layout, Schema-Migrationen und Locks bleiben in ``app/db/database.py``; direkter
 Zugriff auf ``Database``/``q_*`` ist nur noch dieser Schicht und den DB-Unit-Tests vorbehalten
 (AGENTS.md Regel 1). Jede Methode oeffnet die per-user DB genau einmal (ein Schreibzugriff
@@ -15,11 +17,12 @@ from __future__ import annotations
 import asyncio
 import sqlite3
 from collections.abc import Callable, Mapping
-from typing import Any, TypeVar
+from typing import Any, Protocol, TypeVar, runtime_checkable
 
 from ..db import database as dbq
 from ..db.database import Database
-from ..types import AttachmentContent, AttachmentRow, MessageInput, MessageRow, SessionRow, UserIdentity
+from ..domain import Attachment, AttachmentRef, Message, Session
+from ..types import AttachmentRow, MessageInput, MessageRow, SessionRow, UserIdentity
 
 T = TypeVar("T")
 
@@ -40,8 +43,72 @@ class AttachmentQuotaExceeded(Exception):
         self.limit = limit
 
 
-class UserStore:
-    """Asynchroner, fachlicher Zugriff auf die Daten eines Users."""
+# --- Row -> Domain Mapping ---
+
+
+def _to_session(row: SessionRow) -> Session:
+    return Session(id=row["id"], name=row["name"], ts=row["ts"], generating=row["generating"])
+
+
+def _to_message(row: MessageRow) -> Message:
+    return Message(
+        id=row["id"],
+        role=row["role"],  # type: ignore[arg-type]  # DB-CHECK erzwingt gueltige Literal-Werte
+        type=row["type"],  # type: ignore[arg-type]
+        text=row["text"],
+        in_context=row["in_context"],
+        attachments=[AttachmentRef.model_validate(a) for a in row["attachments"]],
+        ts=row["ts"],
+    )
+
+
+def _to_attachment(row: AttachmentRow) -> Attachment:
+    return Attachment(
+        id=row["id"],
+        session_id=row["session_id"],
+        name=row["name"],
+        mime=row["mime"],
+        kind=row["kind"],
+        size=row["size"],
+        content=row["content"],
+    )
+
+
+@runtime_checkable
+class UserStoreProtocol(Protocol):
+    """Schnittstelle des Persistenz-Gateways (implementiert z. B. von SqliteUserStore
+    und dem InMemoryUserStore fuer Tests)."""
+
+    async def list_sessions(self, user: UserIdentity) -> list[Session]: ...
+    async def create_session(self, user: UserIdentity, name: str) -> Session: ...
+    async def get_session(self, user: UserIdentity, sid: str) -> Session | None: ...
+    async def session_exists(self, user: UserIdentity, sid: str) -> bool: ...
+    async def get_session_detail(self, user: UserIdentity, sid: str) -> tuple[Session, list[Message]] | None: ...
+    async def rename_session(self, user: UserIdentity, sid: str, name: str) -> Session: ...
+    async def delete_session(self, user: UserIdentity, sid: str) -> None: ...
+    async def add_message(self, user: UserIdentity, sid: str, msg: Mapping[str, Any]) -> Message: ...
+    async def update_message(self, user: UserIdentity, sid: str, mid: int, patch: Mapping[str, Any]) -> Message: ...
+    async def delete_message(self, user: UserIdentity, sid: str, mid: int) -> None: ...
+    async def delete_messages_after(self, user: UserIdentity, sid: str, mid: int) -> None: ...
+    async def add_messages(self, user: UserIdentity, sid: str, messages: list[MessageInput]) -> list[Message]: ...
+    async def get_session_attachments(self, user: UserIdentity, sid: str) -> list[Attachment]: ...
+    async def add_attachment(self, user: UserIdentity, sid: str, att: Attachment, raw_size: int, max_total_bytes: int) -> Attachment: ...
+    async def get_user_settings(self, user: UserIdentity) -> dict[str, str]: ...
+    async def update_user_settings(self, user: UserIdentity, values: Mapping[str, str]) -> dict[str, str]: ...
+    async def try_start_generating(self, user: UserIdentity, sid: str) -> str: ...
+    async def set_generating(self, user: UserIdentity, sid: str, on: bool) -> None: ...
+    async def clear_generating_if_idle(self, user: UserIdentity, sid: str, running: bool) -> None: ...
+    async def load_chat_context(
+        self, user: UserIdentity, sid: str
+    ) -> tuple[Session, dict[str, str], dict[int, Attachment], list[Message]] | None: ...
+    async def finalize_generation(self, user: UserIdentity, sid: str, messages: list[MessageInput], error: str | None) -> list[Message]: ...
+
+    @staticmethod
+    def now_ms() -> int: ...
+
+
+class SqliteUserStore(UserStoreProtocol):
+    """UserStoreProtocol ueber die verschluesselten per-user SQLite-Dateien."""
 
     def __init__(self, db: Database) -> None:
         self._db = db
@@ -59,41 +126,41 @@ class UserStore:
 
     # --- Sessions ---
 
-    async def list_sessions(self, user: UserIdentity) -> list[SessionRow]:
-        return await self._run(user, dbq.q_list_sessions)
+    async def list_sessions(self, user: UserIdentity) -> list[Session]:
+        return await self._run(user, lambda con: [_to_session(r) for r in dbq.q_list_sessions(con)])
 
-    async def create_session(self, user: UserIdentity, name: str) -> SessionRow:
-        return await self._run(user, lambda con: dbq.q_create_session(con, name))
+    async def create_session(self, user: UserIdentity, name: str) -> Session:
+        return await self._run(user, lambda con: _to_session(dbq.q_create_session(con, name)))
 
-    async def get_session(self, user: UserIdentity, sid: str) -> SessionRow | None:
-        return await self._run(user, lambda con: dbq.q_get_session(con, sid))
+    async def get_session(self, user: UserIdentity, sid: str) -> Session | None:
+        return await self._run(user, lambda con: (lambda r: _to_session(r) if r else None)(dbq.q_get_session(con, sid)))
 
     async def session_exists(self, user: UserIdentity, sid: str) -> bool:
         return await self._run(user, lambda con: dbq.q_get_session(con, sid) is not None)
 
-    async def get_session_detail(self, user: UserIdentity, sid: str) -> tuple[SessionRow, list[MessageRow]] | None:
-        def _do(con: sqlite3.Connection) -> tuple[SessionRow, list[MessageRow]] | None:
-            session = dbq.q_get_session(con, sid)
-            if not session:
+    async def get_session_detail(self, user: UserIdentity, sid: str) -> tuple[Session, list[Message]] | None:
+        def _do(con: sqlite3.Connection) -> tuple[Session, list[Message]] | None:
+            row = dbq.q_get_session(con, sid)
+            if not row:
                 return None
-            return session, dbq.q_get_messages(con, sid)
+            return _to_session(row), [_to_message(r) for r in dbq.q_get_messages(con, sid)]
 
         return await self._run(user, _do)
 
-    async def rename_session(self, user: UserIdentity, sid: str, name: str) -> SessionRow:
+    async def rename_session(self, user: UserIdentity, sid: str, name: str) -> Session:
         """Umbenennen; leer/Whitespace-only behaelt den alten Namen."""
 
-        def _do(con: sqlite3.Connection) -> SessionRow:
-            session = dbq.q_get_session(con, sid)
-            if not session:
+        def _do(con: sqlite3.Connection) -> Session:
+            row = dbq.q_get_session(con, sid)
+            if not row:
                 raise SessionNotFound(sid)
             stripped = name.strip()
             if stripped:
                 dbq.q_rename_session(con, sid, stripped)
-                session = dbq.q_get_session(con, sid)
-                if not session:
+                row = dbq.q_get_session(con, sid)
+                if not row:
                     raise SessionNotFound(sid)
-            return session
+            return _to_session(row)
 
         return await self._run(user, _do)
 
@@ -107,10 +174,10 @@ class UserStore:
 
     # --- Messages ---
 
-    async def add_message(self, user: UserIdentity, sid: str, msg: Mapping[str, Any]) -> MessageRow:
+    async def add_message(self, user: UserIdentity, sid: str, msg: Mapping[str, Any]) -> Message:
         """Message anlegen; Session wird beim ersten User-Text auf den Text umbenannt."""
 
-        def _do(con: sqlite3.Connection) -> MessageRow:
+        def _do(con: sqlite3.Connection) -> Message:
             session = dbq.q_get_session(con, sid)
             if not session:
                 raise SessionNotFound(sid)
@@ -118,7 +185,7 @@ class UserStore:
             text = str(msg.get("text") or "").strip()
             if msg.get("role") == "user" and msg.get("type", "message") == "message" and text and session["name"] == DEFAULT_SESSION_NAME:
                 dbq.q_rename_session(con, sid, text[:40])
-            return stored
+            return _to_message(stored)
 
         return await self._run(user, _do)
 
@@ -129,13 +196,13 @@ class UserStore:
         if not msg or msg["session_id"] != sid:
             raise MessageNotFound(mid)
 
-    async def update_message(self, user: UserIdentity, sid: str, mid: int, patch: Mapping[str, Any]) -> MessageRow:
-        def _do(con: sqlite3.Connection) -> MessageRow:
+    async def update_message(self, user: UserIdentity, sid: str, mid: int, patch: Mapping[str, Any]) -> Message:
+        def _do(con: sqlite3.Connection) -> Message:
             self._check_session_and_message(con, sid, mid)
             updated = dbq.q_update_message(con, mid, patch)
             if updated is None:
                 raise MessageNotFound(mid)
-            return updated
+            return _to_message(updated)
 
         return await self._run(user, _do)
 
@@ -153,33 +220,33 @@ class UserStore:
 
         await self._run(user, _do)
 
-    async def add_messages(self, user: UserIdentity, sid: str, messages: list[MessageInput]) -> list[MessageRow]:
+    async def add_messages(self, user: UserIdentity, sid: str, messages: list[MessageInput]) -> list[Message]:
         """Mehrere Messages in einem DB-Oeffnen anlegen (Generierungs-Bloecke), Reihenfolge bleibt erhalten."""
 
-        def _do(con: sqlite3.Connection) -> list[MessageRow]:
-            return [dbq.q_add_message(con, sid, m) for m in messages]
+        def _do(con: sqlite3.Connection) -> list[Message]:
+            return [_to_message(dbq.q_add_message(con, sid, m)) for m in messages]
 
         return await self._run(user, _do)
 
     # --- Attachments ---
 
-    async def get_session_attachments(self, user: UserIdentity, sid: str) -> list[AttachmentRow]:
-        return await self._run(user, lambda con: dbq.q_get_session_attachments(con, sid))
+    async def get_session_attachments(self, user: UserIdentity, sid: str) -> list[Attachment]:
+        return await self._run(user, lambda con: [_to_attachment(r) for r in dbq.q_get_session_attachments(con, sid)])
 
     async def add_attachment(
         self,
         user: UserIdentity,
         sid: str,
-        att: AttachmentContent,
+        att: Attachment,
         raw_size: int,
         max_total_bytes: int,
-    ) -> AttachmentRow:
-        def _do(con: sqlite3.Connection) -> AttachmentRow:
+    ) -> Attachment:
+        def _do(con: sqlite3.Connection) -> Attachment:
             if not dbq.q_get_session(con, sid):
                 raise SessionNotFound(sid)
             if dbq.q_total_attachment_bytes(con) + raw_size > max_total_bytes:
                 raise AttachmentQuotaExceeded(max_total_bytes)
-            return dbq.q_add_attachment(con, sid, att)
+            return _to_attachment(dbq.q_add_attachment(con, sid, att.model_dump()))
 
         return await self._run(user, _do)
 
@@ -216,28 +283,41 @@ class UserStore:
 
     async def load_chat_context(
         self, user: UserIdentity, sid: str
-    ) -> tuple[SessionRow, dict[str, str], dict[int, AttachmentRow], list[MessageRow]] | None:
+    ) -> tuple[Session, dict[str, str], dict[int, Attachment], list[Message]] | None:
         """Session + Settings + Attachments + Messages in einem DB-Oeffnen laden."""
 
-        def _do(con: sqlite3.Connection) -> tuple[SessionRow, dict[str, str], dict[int, AttachmentRow], list[MessageRow]] | None:
-            session = dbq.q_get_session(con, sid)
-            if not session:
+        def _do(
+            con: sqlite3.Connection,
+        ) -> tuple[Session, dict[str, str], dict[int, Attachment], list[Message]] | None:
+            row = dbq.q_get_session(con, sid)
+            if not row:
                 return None
             stored = dbq.q_get_user_settings(con)
-            attachments = {a["id"]: a for a in dbq.q_get_session_attachments(con, sid)}
-            messages = dbq.q_get_messages(con, sid)
-            return session, stored, attachments, messages
+            attachments = {a["id"]: _to_attachment(a) for a in dbq.q_get_session_attachments(con, sid)}
+            messages = [_to_message(r) for r in dbq.q_get_messages(con, sid)]
+            return _to_session(row), stored, attachments, messages
 
         return await self._run(user, _do)
 
-    async def finalize_generation(self, user: UserIdentity, sid: str, messages: list[MessageInput], error: str | None) -> None:
-        """Finaler Flush am Stream-Ende: Messages persistieren, Fehler als System-Message, generating=0."""
+    async def finalize_generation(
+        self, user: UserIdentity, sid: str, messages: list[MessageInput], error: str | None
+    ) -> list[Message]:
+        """Finaler Flush am Stream-Ende: Messages persistieren, Fehler als System-Message, generating=0.
+        Rueckgabe: die neu persistierten Messages (inkl. Fehler-Message)."""
 
-        def _do(con: sqlite3.Connection) -> None:
-            for m in messages:
-                dbq.q_add_message(con, sid, m)
+        def _do(con: sqlite3.Connection) -> list[Message]:
+            added = [_to_message(dbq.q_add_message(con, sid, m)) for m in messages]
             if error:
-                dbq.q_add_message(con, sid, {"role": "system", "type": "message", "text": "Fehler: " + error, "in_context": False})
+                added.append(
+                    _to_message(
+                        dbq.q_add_message(con, sid, {"role": "system", "type": "message", "text": "Fehler: " + error, "in_context": False})
+                    )
+                )
             dbq.q_set_generating(con, sid, False)
+            return added
 
-        await self._run(user, _do)
+        return await self._run(user, _do)
+
+
+# Alias fuer bestehende Aufrufer (Wiring, Tests)
+UserStore = SqliteUserStore

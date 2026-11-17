@@ -2,17 +2,11 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, Field
 
+from .domain import AttachmentRef, Message, Session
 
-class AttachmentRef(BaseModel):
-    """Referenz auf einen serverseitig gespeicherten Anhang (POST /api/sessions/{id}/attachments)."""
-
-    # extra="allow": der Client schickt z. B. noch "type" (MIME) mit; wird 1:1 durchgereicht
-    model_config = ConfigDict(extra="allow")
-
-    id: int
-    name: str = ""
+__all__ = ["AttachmentRef"]
 
 
 class MessageIn(BaseModel):
@@ -23,9 +17,9 @@ class MessageIn(BaseModel):
     attachments: list[AttachmentRef] = Field(default_factory=list)
 
 
-class MessageOut(MessageIn):
+class MessageOut(Message):
+    # persistierte Messages haben immer eine id
     id: int
-    ts: int = 0  # ms seit Epoch (created_at); pro Stream-Block der Abschluss-Zeitstempel
 
 
 class MessagePatch(BaseModel):
@@ -43,11 +37,8 @@ class SessionRename(BaseModel):
     name: str = Field(max_length=120)
 
 
-class SessionOut(BaseModel):
-    id: str
-    name: str
-    ts: int
-    generating: bool = False
+class SessionOut(Session):
+    pass
 
 
 class SessionDetail(SessionOut):

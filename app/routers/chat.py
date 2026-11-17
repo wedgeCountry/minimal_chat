@@ -54,7 +54,7 @@ async def chat(
     flags = {key: stored_bool(stored, key) for key in BOOL_SETTINGS}
     # Chat-History serverseitig aus der DB bauen (gueltiges Format inkl. Tool-Calls),
     # nicht aus dem Client-Request uebernehmen
-    llm_ctx = build_llm_context(session_messages, system_prompt=stored.get("system_prompt") or "", attachments_by_id=attachments)
+    llm_ctx = build_llm_context([m.model_dump() for m in session_messages], system_prompt=stored.get("system_prompt") or "", attachments_by_id=attachments)
     payload = {
         "model": req.model,
         "stream": True,
