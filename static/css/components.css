@@ -24,7 +24,7 @@
 @keyframes sweep{from{transform:translateX(-100%)}to{transform:translateX(100%)}}
 
 /* Composer */
-#composerWrap{background:var(--panel);border-top:1px solid var(--border);padding:10px 12px}
+#composerWrap{background:var(--panel);border-top:1px solid var(--border);padding:10px 12px calc(10px + env(safe-area-inset-bottom,0px))}
 #attachments{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px}
 #attachments:empty{display:none}
 .att{display:flex;align-items:center;gap:6px;font-size:12px;background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:4px 8px;max-width:220px}
