@@ -514,3 +514,38 @@ def test_chat_stream_requires_auth_and_known_session(client, app, auth_headers):
     anon = TestClient(app)  # kein Session-Cookie -> 401
     assert anon.get("/api/chat/stream/x").status_code == 401
     assert client.get("/api/chat/stream/does-not-exist", headers=auth_headers).status_code == 404
+
+
+def test_chat_stream_publishes_each_chunk_progressively_before_done(client, auth_headers, monkeypatch):
+    """Streaming-Nachweis serverseitig: jeder LLM-Chunk erzeugt ein eigenes state-Event
+    (wachsender Text) — bevor das finale done-Event kommt."""
+    from app.domain import Message
+
+    async def fake_generate(self, user, sid, state, active, *args, **kwargs):
+        m = Message(id=None, role="assistant", type="message", text="")
+        state.messages.append(m)
+        for part in ("Ha", "llo ", "Welt"):
+            m.text += part
+            state.seq += 1
+            self._publish(state)
+            await asyncio.sleep(0.02)
+
+    monkeypatch.setattr(MessageService, "_generate", fake_generate)
+    sid = _new_session(client, auth_headers)
+    _post_user_message(client, auth_headers, sid)
+    assert _start_chat(client, auth_headers, sid).status_code == 202
+
+    with client.stream("GET", f"/api/chat/stream/{sid}", headers=auth_headers) as res:
+        assert res.status_code == 200
+        body = res.read().decode("utf-8")
+
+    events = _parse_sse_events(body)
+    assert events[-1]["type"] == "done", "Stream endet mit done"
+    state_events = [e for e in events if e["type"] == "state"]
+    # Live-Message (id=None) wuchs in jedem Event um genau einen Chunk
+    live_texts = [
+        m["text"] for e in state_events for m in e["messages"] if m["id"] is None and m["role"] == "assistant"
+    ]
+    assert live_texts == ["Ha", "Hallo ", "Hallo Welt"], f"jeder Chunk einzeln publiziert: {live_texts}"
+    seqs = [e["seq"] for e in state_events]
+    assert seqs == sorted(seqs) and len(set(seqs)) == len(seqs), "seq steigt pro Event"

@@ -83,6 +83,15 @@ async def app(scope, receive, send):
             chunks = [
                 {"choices": [{"delta": {"content": "Die Datei enthält Lorem ipsum (20 Zeilen)."}}]},
             ]
+        elif "chunky" in str(content):
+            # Mehrere Content-Chunks mit Pause dazwischen: zum Testen, dass der Client
+            # den Stream stufenweise (bit by bit) sieht
+            chunks = [
+                {"choices": [{"delta": {"content": "Alpha "}}]},
+                {"choices": [{"delta": {"content": "Beta "}}]},
+                {"choices": [{"delta": {"content": "Gamma "}}]},
+                {"choices": [{"delta": {"content": "Delta"}}]},
+            ]
         elif "langsam" in str(content):
             # Langsamer Stream mit Pause: zum Testen des Abbruchs (Teilausgabe bleibt erhalten)
             chunks = [
@@ -120,7 +129,10 @@ async def app(scope, receive, send):
                 {"choices": [{"delta": {"content": "Hallo"}}]},
                 {"choices": [{"delta": {"content": " Welt"}}]},
             ]
-        slow = "langsam" in str(content)
+        text = str(content)
+        slow = "langsam" in text
+        chunky = "chunky" in text
+        delay = 10.0 if slow else (0.4 if chunky else 0.02)
         for chunk in chunks:
             await send(
                 {
@@ -129,7 +141,7 @@ async def app(scope, receive, send):
                     "more_body": True,
                 }
             )
-            await asyncio.sleep(10.0 if slow else 0.02)
+            await asyncio.sleep(delay)
         await send({"type": "http.response.body", "body": b"data: [DONE]\n\n", "more_body": False})
     else:
         await send(
