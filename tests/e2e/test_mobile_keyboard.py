@@ -330,11 +330,10 @@ def test_minimalism_single_tap_cycles_expansion_mode(mobile_page, base_url, llm_
     assert menu.count() == 0, "Scroll-Geste darf kein Kontextmenue oeffnen"
 
 
-def test_minimalism_tap_stops_playback_once(mobile_speech_page, base_url, llm_expect):
-    """Minimalismus auf Touch mit laufender Wiedergabe (TTS): ein einfacher Tap auf eine Bubble
-    stoppt die Wiedergabe; dieser eine Tap wird unterdrueckt (kein Expand-Wechsel, kein Menue).
-    Danach verhalten sich Taps wieder normal (Expand-Zyklus). Der Doppel-Tap oeffnet waehrend der
-    Wiedergabe weiterhin nur das Kontextmenue (Wiedergabe laeuft weiter)."""
+def test_minimalism_dbltap_or_escape_stops_playback(mobile_speech_page, base_url, llm_expect):
+    """Minimalismus auf Touch mit laufender Wiedergabe (TTS): ein einfacher Tap stoppt die
+    Wiedergabe NICHT, sondern schaltet den Expand-Modus zyklisch weiter. Doppel-Tap oder Esc
+    stoppen die Wiedergabe (dann kein Kontextmenue, kein Expand-Wechsel)."""
     if llm_expect["default"] is None:
         pytest.skip("Minimalismus-TTS-Test braucht den Mock-LLM")
     page = mobile_speech_page
@@ -374,43 +373,47 @@ def test_minimalism_tap_stops_playback_once(mobile_speech_page, base_url, llm_ex
         # > Doppel-Tap-Fenster (350ms): der Einfach-Tap feuert, der naechste Tap zaehlt nicht als Doppel-Tap
         page.wait_for_timeout(500)
 
-    # Wiedergabe starten (Speaker-Button liegt im ausgeblendeten Head -> per JS klicken)
-    page.evaluate(f"() => document.querySelector('{tts_btn}').click()")
-    page.wait_for_function(speaking, timeout=10000)
+    def dbltap():
+        return page.evaluate(
+            """(sel) => {
+              const el = document.querySelector(sel);
+              const r = el.getBoundingClientRect();
+              const x = r.x + r.width / 2, y = r.y + r.height / 2;
+              for (let i = 0; i < 2; i++) {
+                el.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, clientX: x, clientY: y }));
+                el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, clientX: x, clientY: y }));
+              }
+              return !!document.querySelector('[data-testid="bubble-context-menu"]');
+            }""",
+            bubble,
+        )
+
+    def start_speech():
+        # Speaker-Button liegt im ausgeblendeten Head -> per JS klicken
+        page.evaluate(f"() => document.querySelector('{tts_btn}').click()")
+        page.wait_for_function(speaking, timeout=10000)
+
+    start_speech()
     assert mode() == "normal"
 
-    # Einfach-Tap waehrend der Wiedergabe: stoppt sie, wird einmalig unterdrueckt
+    # Einfach-Tap waehrend der Wiedergabe: stoppt NICHT, sondern normaler Expand-Zyklus
     tap()
-    assert page.evaluate(speaking) is False, "Tap muss die Wiedergabe stoppen"
-    assert page.evaluate("() => window.__tts.cancelCalls") >= 1, "speechSynthesis.cancel() wurde gerufen"
-    assert mode() == "normal", "der Tap wird einmalig unterdrueckt: kein Expand-Wechsel"
+    assert page.evaluate(speaking) is True, "Einfach-Tap darf die Wiedergabe nicht stoppen"
+    assert mode() == "full", "Einfach-Tap feuert den normalen Expand-Zyklus"
     assert menu.count() == 0, "der Tap darf kein Kontextmenue oeffnen"
 
-    # danach wieder normaler Tap-Zyklus
-    tap()
-    assert mode() == "full", "nach dem Stopp feuert der Expand-Zyklus wieder"
-
-    # Doppel-Tap waehrend erneuter Wiedergabe: nur Menue, Wiedergabe laeuft weiter
-    page.evaluate(f"() => document.querySelector('{tts_btn}').click()")
-    page.wait_for_function(speaking, timeout=10000)
+    # Doppel-Tap waehrend der Wiedergabe: stoppt sie, oeffnet kein Menue
     page.wait_for_timeout(400)  # evtl. stale lastTap ablaufen lassen
-    opened = page.evaluate(
-        """(sel) => {
-          const el = document.querySelector(sel);
-          const r = el.getBoundingClientRect();
-          const x = r.x + r.width / 2, y = r.y + r.height / 2;
-          for (let i = 0; i < 2; i++) {
-            el.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, clientX: x, clientY: y }));
-            el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, clientX: x, clientY: y }));
-          }
-          return !!document.querySelector('[data-testid="bubble-context-menu"]');
-        }""",
-        bubble,
-    )
-    assert opened is True, "Doppel-Tap muss das Kontextmenue oeffnen"
-    page.wait_for_timeout(500)  # ein von der ersten Tap-Haelfte geplanter Stopp darf nicht feuern
-    assert page.evaluate(speaking) is True, "Doppel-Tap stoppt die Wiedergabe nicht (eigene Aktion: nur Menue)"
+    opened = dbltap()
+    page.wait_for_timeout(500)  # ein von der ersten Tap-Haelfte geplanter Expand darf nicht feuern
+    assert opened is False, "Doppel-Tap darf waehrend der Wiedergabe kein Kontextmenue oeffnen"
+    assert page.evaluate(speaking) is False, "Doppel-Tap muss die Wiedergabe stoppen"
+    assert page.evaluate("() => window.__tts.cancelCalls") >= 1, "speechSynthesis.cancel() wurde gerufen"
     assert mode() == "full", "Doppel-Tap aendert nicht den Expand-Modus"
-    menu.wait_for(state="visible")
+
+    # Esc stoppt die Wiedergabe ebenfalls
+    start_speech()
     page.keyboard.press("Escape")
-    page.wait_for_selector('[data-testid="bubble-context-menu"]', state="detached")
+    page.wait_for_timeout(300)
+    assert page.evaluate(speaking) is False, "Escape muss die Wiedergabe stoppen"
+    assert menu.count() == 0

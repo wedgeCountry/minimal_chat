@@ -6,7 +6,11 @@ button:hover{background:var(--hover-bg)}
 svg{width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;flex:none}
 input,textarea{font:inherit;color:inherit}
 
+/* Utility: Sichtbarkeit per Klasse statt Inline-Style (JS toggelt nur Klassen, siehe AGENTS.md) */
+.u-hidden{display:none!important}
+
 /* Header */
+html.auto-login #logoutBtn,html.auto-login #changePwBtn{display:none}
 #header{height:46px;display:flex;align-items:center;gap:6px;padding:0 8px;background:var(--panel);border-bottom:1px solid var(--border);position:relative;z-index:30}
 #header .title{flex:1;font-size:14px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 #burgerWrap{position:relative}

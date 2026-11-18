@@ -1082,7 +1082,7 @@ def test_delete_last_user_message_shows_resend_on_new_last_without_reload(page, 
     """Regression: Loescht man die letzte User-Message, muss der 'Erneut senden'-Button an der
     nun letzten User-Bubble sofort erscheinen (ohne Reload). Grund: resendBtn/editBtn wurden
     bisher nur beim Anlegen der Bubble erzeugt, wenn sie gerade die letzte User-Message war —
-    jetzt existieren sie fuer alle User-Messages und werden nur per display umgeschaltet."""
+    jetzt existieren sie fuer alle User-Messages und werden nur per Klasse (u-hidden) umgeschaltet."""
     if llm_expect["default"] is None:
         pytest.skip("Test braucht den Mock-LLM")
     email = "resend-after-delete-user@example.com"
@@ -1775,10 +1775,10 @@ def test_minimalism_desktop_hides_head_and_overrides_context_menu(page, base_url
     assert page.locator('[data-testid="bubble-context-menu"]').count() == 0, "ohne Minimalismus darf kein Kontextmenue erscheinen"
 
 
-def test_minimalism_desktop_click_stops_playback_once(page, base_url, llm_expect):
-    """Minimalismus auf Desktop mit laufender Wiedergabe (TTS): ein Klick auf eine Bubble stoppt
-    die Wiedergabe einmalig und wird unterdrueckt (kein Expand bei gekuerztem Text, kein Menue);
-    der naechste Klick klappt die gekuerzte Bubble wie gewohnt auf."""
+def test_minimalism_desktop_dblclick_stops_playback(page, base_url, llm_expect):
+    """Minimalismus auf Desktop mit laufender Wiedergabe (TTS): ein einzelner Klick auf eine
+    Bubble stoppt die Wiedergabe NICHT (er klappt die gekuerzte Bubble wie gewohnt auf);
+    ein Doppelklick stoppt die Wiedergabe (kein Menue, kein weiterer Expand-Wechsel)."""
     if llm_expect["default"] is None:
         pytest.skip("Minimalismus-TTS-Desktop-Test braucht den Mock-LLM")
     page.add_init_script(SPEECH_STUB)
@@ -1802,13 +1802,15 @@ def test_minimalism_desktop_click_stops_playback_once(page, base_url, llm_expect
     page.evaluate(f"() => document.querySelector('{tts_btn}').click()")
     page.wait_for_function(speaking, timeout=10000)
 
-    # Klick waehrend der Wiedergabe: stoppt sie, wird einmalig unterdrueckt
+    # einzelner Klick waehrend der Wiedergabe: stoppt NICHT, klappt die gekuerzte Bubble auf
     lang_bubble.click()
-    assert page.evaluate(speaking) is False, "Klick muss die Wiedergabe stoppen"
-    assert page.evaluate("() => window.__tts.cancelCalls") >= 1, "speechSynthesis.cancel() wurde gerufen"
-    assert lang_bubble.evaluate("el => el.dataset.mode") == "normal", "der Klick wird einmalig unterdrueckt: kein Expand-Wechsel"
+    assert page.evaluate(speaking) is True, "einzelner Klick darf die Wiedergabe nicht stoppen"
+    assert lang_bubble.evaluate("el => el.classList.contains('full')"), "Klick klappt die gekuerzte Bubble wie gewohnt auf"
     assert page.locator('[data-testid="bubble-context-menu"]').count() == 0, "der Klick darf kein Kontextmenue oeffnen"
 
-    # naechster Klick: normales Verhalten (gekuerzte Bubble klappt auf)
-    lang_bubble.click()
-    assert lang_bubble.evaluate("el => el.classList.contains('full')"), "nach dem Stopp klappt der Klick die Bubble wie gewohnt auf"
+    # Doppelklick waehrend der Wiedergabe: stoppt sie
+    lang_bubble.dblclick()
+    assert page.evaluate(speaking) is False, "Doppelklick muss die Wiedergabe stoppen"
+    assert page.evaluate("() => window.__tts.cancelCalls") >= 1, "speechSynthesis.cancel() wurde gerufen"
+    assert lang_bubble.evaluate("el => el.dataset.mode") == "full", "Doppelklick aendert nicht den Modus"
+    assert page.locator('[data-testid="bubble-context-menu"]').count() == 0, "Doppelklick darf kein Kontextmenue oeffnen"
