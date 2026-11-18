@@ -211,6 +211,26 @@ def test_chat_abort_clears_stale_generating_flag(client, app, auth_headers, monk
     assert any(m["text"] == "Hallo Welt" for m in detail["messages"])
 
 
+def test_chat_heals_stale_generating_flag_instead_of_409(client, app, auth_headers, monkeypatch):
+    """Verwaistes generating=1 ohne laufende Task (z. B. Server-Neustart mitten in der
+    Generierung): der naechste POST /api/chat heilt das Flag im Service (unter dem
+    Session-Lock) und startet normal - statt dauerhaft 409 zu liefern."""
+    seen = _mock_llm(monkeypatch)
+    sid = _new_session(client, auth_headers)
+    _post_user_message(client, auth_headers, sid)
+    user = user_identity("test-secret", "alice@example.com")
+    asyncio.run(app.state.store.set_generating(user, sid, True))
+    assert client.get(f"/api/sessions/{sid}", headers=auth_headers).json()["generating"] is True
+    assert not any(st.generation for st in app.state.message_service._sessions.values())
+
+    res = _start_chat(client, auth_headers, sid)
+    assert res.status_code == 202, res.text
+    detail = _wait_generation(client, auth_headers, sid)
+    assert detail["generating"] is False
+    assert seen["body"]["messages"] == [{"role": "user", "content": "Hi"}]
+    assert any(m["text"] == "Hallo Welt" for m in detail["messages"])
+
+
 def test_chat_abort_without_generating_keeps_flag_zero(client, auth_headers):
     sid = _new_session(client, auth_headers)
     res = client.post("/api/chat/abort", json={"session_id": sid}, headers=auth_headers)

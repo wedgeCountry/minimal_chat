@@ -7,6 +7,12 @@ export function isBubbleVisible(m, s) {
   return true;
 }
 
+// System-Message aus der Session, die textlich identisch mit dem Settings-Prompt ist:
+// wird nicht zusaetzlich gerendert, wenn die synthetische Prompt-Bubble oben schon steht
+export function isDuplicateSystemPrompt(m, sysPrompt) {
+  return m.role === "system" && !!sysPrompt.trim() && (m.text || "").trim() === sysPrompt.trim();
+}
+
 export function isBubbleDeletable(s) {
   return s.bubbles_deletable !== false;
 }

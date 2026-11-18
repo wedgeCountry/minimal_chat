@@ -145,11 +145,12 @@ def test_db_rows_malformed_tool_text_do_not_crash():
     assert wire[-1] == {"role": "user", "content": ""}
 
 
-def test_parallel_toolcalls_compile_to_one_assistant_message_with_all_tool_calls():
+def test_parallel_toolcalls_group_into_one_assistant_message_before_their_tool_results():
     """Deep-Research-Stream mit parallelen Toolcalls: tool_calls [0,1] in einem Delta,
     danach tool_results [0,1] -> DB-Reihenfolge toolcall, toolcall, toolresult, toolresult.
     Daraus muss EIN assistant-Message mit beiden tool_calls direkt gefolgt von beiden
-    tool-Messages werden (sonst 422 bzw. das Modell sieht die Ergebnisse nicht)."""
+    tool-Messages werden - ein tool-Result vor dem assistant-Message (oder vor seinem
+    tool_call) waere ungueltig (422) bzw. das Modell sieht die Ergebnisse nicht."""
     rows = [
         _db_row(1, "user", "message", "Recherchiere X"),
         _db_row(2, "assistant", "toolcall", 'search({"q":"a"})'),
@@ -166,7 +167,7 @@ def test_parallel_toolcalls_compile_to_one_assistant_message_with_all_tool_calls
     tool_res = [m for m in wire if m["role"] == "tool"]
     assert [r["tool_call_id"] for r in tool_res] == ["call_2", "call_3"]
     assert [r["content"] for r in tool_res] == ["search: ERGEBNIS A", "search: ERGEBNIS B"]
-    # assistant-Message mit tool_calls steht direkt vor seinen tool-Messages
+    # assistant-Message mit tool_calls steht direkt vor ALLEN tool-Messages
     idx = wire.index(tool_call_msgs[0])
     assert wire[idx + 1]["role"] == "tool" and wire[idx + 2]["role"] == "tool"
     assert wire[0] == {"role": "user", "content": "Recherchiere X"}
@@ -209,6 +210,52 @@ def test_partially_deselected_results_keep_only_complete_pairs():
     assert tool_res[0]["content"] == "search: ERGEBNIS A"
 
 
+def test_tool_call_assistant_message_sends_empty_string_content():
+    """Reine tool_call-assistant-Messages senden "content": "" - weder null noch ein
+    fehlendes content-Feld passiert jedes Pydantic-Modell (str wie Optional[str]);
+    beides gibt sonst 422, bevor der Request den Completion-Endpoint erreicht."""
+    rows = [
+        _db_row(1, "user", "message", "Wetter?"),
+        _db_row(2, "assistant", "toolcall", 'get_weather({"city":"Berlin"})'),
+        _db_row(3, "assistant", "toolresult", "get_weather: 21C"),
+    ]
+    wire = build_llm_context(rows).compile()
+    tc_msg = next(m for m in wire if m.get("tool_calls"))
+    assert tc_msg["content"] == ""
+    assert tc_msg["tool_calls"][0]["id"] == "call_2"
+    assert wire[wire.index(tc_msg) + 1] == {"role": "tool", "tool_call_id": "call_2", "content": "get_weather: 21C"}
+
+
+def test_tool_calls_merge_into_preceding_assistant_content_message():
+    """assistant-Content direkt vor Toolcalls wird mit den tool_calls zu EINEM
+    assistant-Message gemerged - zwei assistant-Messages hintereinander liefern bei
+    strikten LLM-Servern 422."""
+    rows = [
+        _db_row(1, "user", "message", "Recherchiere X"),
+        _db_row(2, "assistant", "message", "Ich recherchiere das fuer dich ..."),
+        _db_row(3, "assistant", "toolcall", 'search({"q":"a"})'),
+        _db_row(4, "assistant", "toolcall", 'search({"q":"b"})'),
+        _db_row(5, "assistant", "toolresult", "search: ERG A"),
+        _db_row(6, "assistant", "toolresult", "search: ERG B"),
+        _db_row(7, "user", "message", "Danke"),
+    ]
+    wire = build_llm_context(rows).compile()
+    # keine zwei assistant-Messages hintereinander
+    for i in range(1, len(wire)):
+        assert not (wire[i]["role"] == "assistant" and wire[i - 1]["role"] == "assistant"), f"consecutive assistant at {i}"
+    assistant_msgs = [m for m in wire if m["role"] == "assistant"]
+    assert len(assistant_msgs) == 1
+    # beide tool_calls landen gemerged im vorausgehenden assistant-Content-Message
+    assert assistant_msgs[0]["content"] == "Ich recherchiere das fuer dich ..."
+    assert [c["id"] for c in assistant_msgs[0]["tool_calls"]] == ["call_3", "call_4"]
+    # die tool-Messages folgen direkt auf dieses eine assistant-Message (nicht dazwischen)
+    idx = wire.index(assistant_msgs[0])
+    tool_res = [m for m in wire if m["role"] == "tool"]
+    assert [wire[idx + 1], wire[idx + 2]] == tool_res
+    assert [r["tool_call_id"] for r in tool_res] == ["call_3", "call_4"]
+    assert wire[-1] == {"role": "user", "content": "Danke"}
+
+
 def test_toolresult_without_preceding_toolcall_is_skipped():
     """Eine tool-Message ohne passenden tool_call ist ungueltig (422 bei strikten Servern)."""
     rows = [
@@ -241,6 +288,34 @@ def test_empty_system_message_is_never_sent_to_llm():
     ]
     wire = build_llm_context(rows).compile()
     assert wire == [{"role": "user", "content": "Hallo"}]
+
+
+def test_whitespace_only_system_prompt_setting_is_not_sent():
+    """Whitespace-only-Prompt aus den Settings darf nicht als leere system-Message raus
+    (UI blendet die Bubble aus; strikte LLM-Server wuerden sonst 422 liefern)."""
+    wire = build_llm_context([_msg(1, "user", "message", "Hallo")], system_prompt="   ").compile()
+    assert wire == [{"role": "user", "content": "Hallo"}]
+
+
+def test_session_system_message_identical_to_settings_prompt_is_not_duplicated():
+    """Settings-Prompt + identische System-Message in der Session -> Prompt nur einmal im
+    Request (sonst steht er zweimal im Wire und die Bubble doppelt in der UI)."""
+    rows = [
+        _db_row(1, "system", "message", "Du bist nett."),
+        _db_row(2, "user", "message", "Hallo"),
+    ]
+    wire = build_llm_context(rows, system_prompt="Du bist nett.").compile()
+    assert [m for m in wire if m["role"] == "system"] == [{"role": "system", "content": "Du bist nett."}]
+    assert wire[-1] == {"role": "user", "content": "Hallo"}
+
+
+def test_session_system_message_different_from_settings_prompt_is_kept():
+    rows = [
+        _db_row(1, "system", "message", "Sei kurz."),
+        _db_row(2, "user", "message", "Hallo"),
+    ]
+    wire = build_llm_context(rows, system_prompt="Du bist nett.").compile()
+    assert [m["content"] for m in wire if m["role"] == "system"] == ["Du bist nett.", "Sei kurz."]
 
 
 def test_db_session_messages_roundtrip_through_api(client, auth_headers, monkeypatch):
@@ -322,10 +397,10 @@ def _run_generation(client, auth_headers, sid):
 
 def test_parallel_toolcalls_roundtrip_through_api_stay_valid_for_next_request(client, auth_headers, monkeypatch):
     """Deep-Research-Stream mit parallelen Toolcalls (tool_calls [0,1] in einem Delta,
-    dann tool_results [0,1]): Beim naechsten Request muss das Paar als EIN assistant-
-    Message mit beiden tool_calls direkt gefolgt von beiden tool-Messages an das LLM
-    gehen - sonst lehnt ein strikter Server das Request ab (422) bzw. sieht das Modell
-    die langen Tool-Ergebnisse nicht ('nicht genug Kontext')."""
+    dann tool_results [0,1]): Beim naechsten Request muessen beide tool_calls in EINEM
+    assistant-Message direkt gefolgt von beiden tool-Messages an das LLM gehen - sonst
+    lehnt ein strikter Server das Request ab (422) bzw. sieht das Modell die langen
+    Tool-Ergebnisse nicht ('nicht genug Kontext')."""
     sse = (
         b'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"name":"search","arguments":"{\\"q\\":\\"a\\"}"}},{"index":1,"function":{"name":"search","arguments":"{\\"q\\":\\"b\\"}"}}]}}]}\n\n'
         b'data: {"choices":[{"delta":{"tool_results":[{"index":0,"name":"search","result":"ERGEBNIS A"},{"index":1,"name":"search","result":"ERGEBNIS B"}]}}]}\n\n'
@@ -367,12 +442,12 @@ def test_parallel_toolcalls_roundtrip_through_api_stay_valid_for_next_request(cl
     assert len(tc_msgs) == 1 and tc_msgs[0]["role"] == "assistant"
     assert [c["id"] for c in tc_msgs[0]["tool_calls"]] == ["call_2", "call_3"]
     assert [c["function"]["name"] for c in tc_msgs[0]["tool_calls"]] == ["search", "search"]
-    idx = msgs.index(tc_msgs[0])
     tool_res = [m for m in msgs if m["role"] == "tool"]
     assert len(tool_res) == 2
     assert [r["tool_call_id"] for r in tool_res] == ["call_2", "call_3"]
     assert [r["content"] for r in tool_res] == ["search: ERGEBNIS A", "search: ERGEBNIS B"]
-    # tool-Messages folgen direkt auf das assistant-Message mit den tool_calls
+    # EIN assistant-Message mit beiden tool_calls, direkt gefolgt von beiden tool-Messages
+    idx = msgs.index(tc_msgs[0])
     assert msgs[idx + 1]["role"] == "tool" and msgs[idx + 2]["role"] == "tool"
     assert msgs[0] == {"role": "user", "content": "Recherchiere X"}
     assert msgs[-1] == {"role": "user", "content": "Was kam bei A raus?"}
