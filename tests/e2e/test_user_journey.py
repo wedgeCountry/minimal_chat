@@ -1550,6 +1550,22 @@ def test_minimalism_setting_hides_toolbar_until_hover_or_longpress(page, base_ur
     sel = page.evaluate("() => window.getSelection().toString()")
     assert llm_expect["default"] in sel, f"Select-All muss den Bubble-Text markieren, got {sel!r}"
 
+    # Langdruck auf dem Bubble-TEXT: natives Verhalten bleibt (kein preventDefault, kein eigenes
+    # Menue) — das Systemmenue des Geraets mit Select All/Kopieren darf nicht unterdrueckt werden
+    body_sel = f'{_bubble("assistant", "message")} .bubbleBody'
+    not_prevented = page.evaluate(
+        """(sel) => {
+          const body = document.querySelector(sel);
+          const ev = new MouseEvent('contextmenu', { bubbles: true, cancelable: true });
+          body.dispatchEvent(ev);
+          return !ev.defaultPrevented;
+        }""",
+        body_sel,
+    )
+    assert not_prevented, "contextmenu auf Bubble-Text darf nicht preventDefault sein (natives Systemmenue bleibt)"
+    page.wait_for_timeout(300)
+    assert page.locator('[data-testid="bubble-context-menu"]').count() == 0, "auf Bubble-Text darf kein eigenes Kontextmenue erscheinen"
+
     # Setting wieder aus -> Toolbar dauerhaft sichtbar, kein Kontextmenue
     res = api_client.put("/api/settings", json={"bubbles_minimal": False})
     assert res.status_code == 200, res.text

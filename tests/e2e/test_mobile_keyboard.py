@@ -126,3 +126,17 @@ def test_minimalism_hides_toolbar_on_touch_and_longpress_opens_menu(mobile_page,
     assert menu.locator('[data-testid="ctx-copy"]').count() == 1
     mobile_page.keyboard.press("Escape")
     mobile_page.wait_for_selector('[data-testid="bubble-context-menu"]', state="detached")
+
+    # Langdruck auf dem Bubble-Text: natives Systemmenue/Textauswahl bleibt unangetastet
+    not_prevented = mobile_page.evaluate(
+        """(sel) => {
+          const body = document.querySelector(sel);
+          const ev = new MouseEvent('contextmenu', { bubbles: true, cancelable: true });
+          body.dispatchEvent(ev);
+          return !ev.defaultPrevented;
+        }""",
+        f"{bubble} .bubbleBody",
+    )
+    assert not_prevented, "contextmenu auf Bubble-Text darf nicht preventDefault sein (natives Systemmenue bleibt)"
+    mobile_page.wait_for_timeout(300)
+    assert mobile_page.locator('[data-testid="bubble-context-menu"]').count() == 0, "auf Bubble-Text darf kein eigenes Kontextmenue erscheinen"

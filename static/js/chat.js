@@ -296,9 +296,10 @@ export function renderChatView() {
   renderChat(viewMessages());
 }
 
-// Minimalismus: Langdruck (contextmenu) auf einer Bubble oeffnet ein Kontextmenue mit
-// genau den Aktionen, die die versteckte Toolbar haette (je Button ein Menue-Eintrag,
-// Klick delegiert an den versteckten Button selbst).
+// Minimalismus: Langdruck (contextmenu) auf dem Bubble-Rahmen oeffnet ein Kontextmenue mit
+// den Aktionen der versteckten Toolbar plus Select-All/Kopieren. Auf dem Bubble-Text wird
+// NICHT intercepted: Webseiten koennen dem Systemmenue keine Eintraege anhaengen, also
+// bleibt dort das native Verhalten (Textauswahl + Systemmenue mit Select All/Kopieren) erhalten.
 let ctxMenu = null;
 let ctxMenuDocHandler = null;
 
@@ -317,6 +318,8 @@ export function onBubbleContextMenu(e) {
   if (!isToolbarMinimal(state.settings)) return; // ohne Minimalismus normales Verhalten
   const b = e.target.closest?.(".bubble");
   if (!b) return;
+  // Langdruck auf Text: natives Verhalten lassen (Auswahl + Systemmenue), nicht preventDefault
+  if (e.target.closest?.(".bubbleBody")) return;
   e.preventDefault();
   closeBubbleCtxMenu();
   const menu = document.createElement("div");
