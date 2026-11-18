@@ -296,12 +296,16 @@ export function renderChatView() {
   renderChat(viewMessages());
 }
 
-// Minimalismus: ein DOPPEL-Tap auf eine Bubble oeffnet das Kontextmenue an der Tap-Position;
-// ein Tap bei offenem Menue schliesst alle Kontextmenues wieder. Langdruck (contextmenu)
-// wird bewusst NICHT abgefangen — natives Systemmenue/Textauswahl bleibt erhalten (Webseiten
-// koennen dem Systemmenue keine Eintraege anhaengen).
+// Minimalismus: Kontextmenue je nach Geraet — Desktop (feiner Pointer): RECHTSKLICK
+// (contextmenu) ueberschreibt das Systemmenue und oeffnet das App-Menue; Klick/Doppelklick
+// oeffnen dort nichts. Touch (kein Hover): DOPPEL-Tap oeffnet das App-Menue, Langdruck bleibt
+// nativ (Systemmenue + Textauswahl — Webseiten koennen dem Systemmenue keine Eintraege anhaengen).
 let ctxMenu = null;
 let ctxMenuDocHandler = null;
+
+function isFinePointer() {
+  return !!(window.matchMedia && window.matchMedia("(hover:hover) and (pointer:fine)").matches);
+}
 
 export function closeBubbleCtxMenu() {
   if (ctxMenuDocHandler) {
@@ -371,6 +375,15 @@ export function onBubbleTap(e) {
   if (e.target.closest("button, input, textarea, a, .editRow")) return; // interaktive Elemente unveraendert
   const b = e.target.closest?.(".bubble");
   if (!b) return;
+  if (isFinePointer()) {
+    // Desktop: Klick/Doppelklick oeffnen nie das Menue (das kommt vom Rechtsklick/contextmenu);
+    // ein Klick bei offenem Menue schliesst es wieder
+    if (ctxMenu) {
+      closeBubbleCtxMenu();
+      lastTap = null;
+    }
+    return;
+  }
   const start = tapStart;
   tapStart = null;
   if (!start || Math.hypot(e.clientX - start.x, e.clientY - start.y) > TAP_MAX_MOVE_PX || e.timeStamp - start.t > TAP_MAX_MS) return; // kein kurzer Tap (z. B. Scroll-Geste)
@@ -396,9 +409,20 @@ export function onBubbleTap(e) {
   // einfacher Tap: nichts weiter — das click-Event laeuft normal durch (Expand bei gekuerztem Text)
 }
 
+// Desktop: Rechtsklick auf eine Bubble ueberschreibt das System-Kontextmenue durch das App-Menue
+export function onBubbleContextMenu(e) {
+  if (!isToolbarMinimal(state.settings)) return;
+  if (!isFinePointer()) return; // Touch: Langdruck bleibt nativ (Systemmenue + Textauswahl)
+  const b = e.target.closest?.(".bubble");
+  if (!b) return;
+  e.preventDefault();
+  openBubbleCtxMenu(b, e.clientX, e.clientY);
+}
+
 export function initBubbleMenu() {
   const chat = $("chat");
-  chat.addEventListener("click", onBubbleTap);
+  chat.addEventListener("click", onBubbleTap); // Touch: Doppel-Tap-Menue (Desktop: nur Schliessen)
+  chat.addEventListener("contextmenu", onBubbleContextMenu); // Desktop: Rechtsklick-Menue (Touch: nativ)
   chat.addEventListener("pointerdown", (e) => {
     if (!e.target.closest?.(".bubble")) {
       tapStart = null;
@@ -408,7 +432,6 @@ export function initBubbleMenu() {
     tapStart = { x: e.clientX, y: e.clientY, t: e.timeStamp, hadSelection: !!(sel && !sel.isCollapsed) };
   });
   chat.addEventListener("scroll", () => closeBubbleCtxMenu(), { passive: true });
-  // contextmenu ohne Listener: Langdruck/Rechtsklick bleiben nativ (Systemmenue + Textauswahl)
 }
 
 // Edit-Modus: id der Nutzernachricht, die gerade inline in ihrer Bubble bearbeitet wird

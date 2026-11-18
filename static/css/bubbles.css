@@ -133,12 +133,13 @@
 .copyBtn.ok svg{stroke:var(--accent)}
 .bubble.user .copyBtn.ok svg{stroke:var(--bubble-user-text)}
 
-/* Minimalismus (Setting bubbles_minimal): Toolbar im Bubble-Head ist auf ALLEN Geraeten
-   ausgeblendet — kein Header, keine Buttons. Kontextmenue via Tap/Langdruck (chat.js). */
+/* Minimalismus (Setting bubbles_minimal): Bubble-Head ist auf ALLEN Geraeten ausgeblendet —
+   kein Header, keine Buttons. App-Kontextmenue je nach Geraet (siehe chat.js): Desktop per
+   Rechtsklick (ueberschreibt das Systemmenue), Touch per Doppel-Tap; Langdruck auf Touch bleibt
+   nativ. */
 html.bubbles-minimal .bubbleHead,
 html.bubbles-minimal .collapseBtn{display:none}
 html.bubbles-minimal .bubble{padding-top:var(--bubble-padding)}
-/* Im Minimalismus bleibt Textauswahl/Langdruck nativ (kein user-select:none) — der Tap auf
-   eine Bubble oeffnet das App-Kontextmenue, der Langdruck das Systemmenue (siehe chat.js). */
+/* Im Minimalismus bleibt Textauswahl nativ (kein user-select:none) — Langdruck selektiert normal. */
 .attachChip{font-size:12px;opacity:.9;display:flex;gap:6px;align-items:center;margin-bottom:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .attachChip svg{width:13px;height:13px}
