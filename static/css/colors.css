@@ -1,14 +1,14 @@
 /* Palette "dark turquoise": tuerkiser Akzent auf kuehlen Neutral-Graustufen.
    Theme-unabhaengige Tokens nur hier (einmalig), damit beide Themes sie nicht auseinanderlaufen lassen */
 :root{
-  --on-danger:#fff; --bubble-user-text:#fff;
+  --on-danger:#fff; --bubble-user-text:#fff; --bubble-user-border:none;
   --overlay-bg:rgba(0,0,0,.4); --hover-bg:rgba(128,128,128,.12); --scrollbar-thumb:rgba(128,128,128,.3);
   --side-shadow:0 0 30px rgba(0,0,0,.25);
   /* hell */
   --accent:#0f766e; --accent-soft:rgba(15,118,110,.10); --on-accent:#fff;
   --bg:#f6f8f9; --panel:#ffffff; --chat-bg:#edf1f4;
   --text:#1e2429; --muted:#5f6b76; --border:#dfe4e9;
-  --bubble-ai:#ffffff; --system:#e8edf1; --bubble-user:#115e59;
+  --bubble-ai:#ffffff; --system:#e8edf1; --bubble-user:rgba(17,94,89,.80);
   --danger:#c24343; --ok:#2e7d52;
   --shadow:0 1px 3px rgba(0,0,0,.08);
 }
@@ -16,7 +16,8 @@ html.dark{
   --accent:#2dd4bf; --accent-soft:rgba(45,212,191,.16); --on-accent:#062a26;
   --bg:#0e1517; --panel:#151d21; --chat-bg:#0e1517;
   --text:#e6ecef; --muted:#93a1ab; --border:#26333a;
-  --bubble-ai:#1a2429; --system:#202a30; --bubble-user:#0f766e;
+  --bubble-ai:#1a2429; --system:#202a30; --bubble-user:rgba(15,118,110,.88);
+  --bubble-user-border:1px solid rgba(45,212,191,.30);
   --danger:#ef8080; --ok:#34d399;
   --shadow:0 1px 3px rgba(0,0,0,.5);
 }

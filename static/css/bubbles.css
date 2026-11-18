@@ -46,7 +46,7 @@
 .bubble.user{
   --bubble-bg:var(--bubble-user);
   --bubble-color:var(--bubble-user-text);
-  --bubble-border:none;
+  --bubble-border:var(--bubble-user-border); /* dunkel: dezente Kante, damit die transluzente Bubble nicht im Hintergrund untergeht */
   --bubble-align:flex-end;
   border-bottom-right-radius:var(--bubble-corner);
 }
