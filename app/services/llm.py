@@ -147,7 +147,7 @@ class LlmClient:
                     # Upstream-Body nicht an den Client reichen (Info-Leak bei internen Zielen)
                     detail = f"HTTP {res.status_code}"
                     if res.status_code == 422:
-                        detail += f" (Anfrage vom LLM-Server abgelehnt - {res.status_code}: {res.reason_phrase})"
+                        detail += " (Anfrage vom LLM-Server abgelehnt – evtl. zu großer Kontext; alte Nachrichten per Kontext-Checkbox abwählen)"
                     yield f"data: {json.dumps({'error': detail})}\n\n"
                     yield "data: [DONE]\n\n"
                     return
