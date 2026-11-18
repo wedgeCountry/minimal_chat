@@ -12,8 +12,9 @@
 .sessionRow{display:flex;align-items:center;gap:6px}
 .sessionName{flex:1;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .sessionName input{width:100%;font-size:13px;background:var(--panel);border:1px solid var(--accent);border-radius:4px;padding:2px 4px;outline:none}
-.tile .iconBtn{padding:3px;opacity:0;transition:opacity .12s}
-.tile:hover .iconBtn,.tile.active .iconBtn{opacity:1}
+.tile .iconBtn{padding:3px}
+.tile .editBtn{opacity:0;transition:opacity .12s}
+.tile:hover .editBtn,.tile.active .editBtn{opacity:1}
 .tile .iconBtn svg{width:13px;height:13px}
 .tile .delBtn:hover{color:var(--danger)}
 
