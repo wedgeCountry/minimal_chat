@@ -1,8 +1,9 @@
 import { api, openStream } from "./api.js";
 import { activeSession, normalizeMessage, normalizeMessages, state } from "./state.js";
-import { $, isNearBottom, captureScrollAnchor, restoreScrollAnchor } from "./util.js";
+import { $, isNearBottom, captureScrollAnchor, restoreScrollAnchor, isFinePointer } from "./util.js";
 import { ICONS } from "./icons.js";
-import { bubbleEl, setBubbleText, enterBubbleEdit, exitBubbleEdit, syncBubbleTts, syncBubbleDelete, copyBubbleText } from "./bubbles.js";
+import { bubbleEl, setBubbleMode, setBubbleText, enterBubbleEdit, exitBubbleEdit, syncBubbleTts, syncBubbleDelete, copyBubbleText } from "./bubbles.js";
+import { nextBubbleMode } from "./bubbleMode.js";
 import { loadSessions, newSession, changed } from "./sessions.js";
 import { uploadPendingAttachments } from "./attachments.js";
 import { confirmModal } from "./confirm.js";
@@ -300,12 +301,10 @@ export function renderChatView() {
 // (contextmenu) ueberschreibt das Systemmenue und oeffnet das App-Menue; Klick/Doppelklick
 // oeffnen dort nichts. Touch (kein Hover): DOPPEL-Tap oeffnet das App-Menue, Langdruck bleibt
 // nativ (Systemmenue + Textauswahl — Webseiten koennen dem Systemmenue keine Eintraege anhaengen).
+// Einfacher Tap auf Touch schaltet zusaetzlich den Expand-Modus der Bubble zyklisch weiter
+// (normal -> full -> collapsed -> normal), wie der Chevron im Normalmodus (siehe onBubbleTap).
 let ctxMenu = null;
 let ctxMenuDocHandler = null;
-
-function isFinePointer() {
-  return !!(window.matchMedia && window.matchMedia("(hover:hover) and (pointer:fine)").matches);
-}
 
 export function closeBubbleCtxMenu() {
   if (ctxMenuDocHandler) {
@@ -365,23 +364,31 @@ function openBubbleCtxMenu(b, x, y) {
 }
 
 // Nur ein kurzer Tap ohne Bewegung zaehlt — Scrollen/Pan mit dem Finger nicht. Das Menue
-// oeffnet erst beim DOPPEL-Tap; der einfache Tap bleibt frei fuer das Expand-Verhalten der
-// Bubble (Klick auf gekuerzten Text klappt auf, siehe bubbles.js). War beim pointerdown eine
+// oeffnet erst beim DOPPEL-Tap; der einfache Tap schaltet dafuer den Expand-Modus der Bubble
+// zyklisch weiter (wie der Chevron, siehe bubbles.js). War beim pointerdown eine
 // Textauswahl aktiv (System-Auswahlmenue offen), oeffnet der Tap kein Menue: er bricht die
 // Auswahl ab (hadSelection wird am pointerdown gemessen, weil der Browser die Auswahl schon
 // beim pointerdown kollabieren kann).
 let tapStart = null; // { x, y, t, hadSelection } des pointerdown auf einer Bubble
 let lastTap = null; // { t, x, y, bubble } des letzten kurzen Taps (Doppel-Tap-Erkennung)
+let pendingModeTap = null; // { timer, bubble } — Einfach-Tap-Expand, wartet das Doppel-Tap-Fenster ab
 const TAP_MAX_MOVE_PX = 10;
 const TAP_MAX_MS = 500;
 const DBL_TAP_MAX_MS = 350;
 const DBL_TAP_MAX_PX = 30;
 
+function cancelPendingModeTap() {
+  if (pendingModeTap) {
+    clearTimeout(pendingModeTap.timer);
+    pendingModeTap = null;
+  }
+}
+
 export function onBubbleTap(e) {
   if (!isToolbarMinimal(state.settings)) return; // ohne Minimalismus normales Klick-Verhalten
   if (e.target.closest("button, input, textarea, a, .editRow")) return; // interaktive Elemente unveraendert
   const b = e.target.closest?.(".bubble");
-  if (!b) return;
+  if (!b || b.dataset.editing === "true") return;
   if (isFinePointer()) {
     // Desktop: Klick/Doppelklick oeffnen nie das Menue (das kommt vom Rechtsklick/contextmenu);
     // ein Klick bei offenem Menue schliesst es wieder. lastTap wird trotzdem gefuehrt, damit das
@@ -402,6 +409,7 @@ export function onBubbleTap(e) {
     return;
   }
   if (ctxMenu) {
+    cancelPendingModeTap();
     closeBubbleCtxMenu(); // Tap bei offenem Menue schliesst alle Kontextmenues
     lastTap = null;
     return;
@@ -414,9 +422,21 @@ export function onBubbleTap(e) {
   lastTap = { t: e.timeStamp, x: e.clientX, y: e.clientY, bubble: b };
   if (dbl) {
     lastTap = null;
+    cancelPendingModeTap(); // Doppel-Tap ist eine eigene Aktion: oeffnet nur das Menue, aendert nicht den Expand-Modus
     openBubbleCtxMenu(b, e.clientX, e.clientY);
+    return;
   }
-  // einfacher Tap: nichts weiter — das click-Event laeuft normal durch (Expand bei gekuerztem Text)
+  // Einfacher Tap: Expand-Modus zyklisch weiterschalten (normal -> full -> collapsed -> normal).
+  // Verzoegert um das Doppel-Tap-Fenster, damit ein Doppel-Tap nicht zusaetzlich den Modus aendert;
+  // Scroll-Gesten kommen hier nie an (Bewegung/Zeit siehe oben) und bleiben unberuehrt.
+  cancelPendingModeTap();
+  pendingModeTap = {
+    bubble: b,
+    timer: setTimeout(() => {
+      pendingModeTap = null;
+      setBubbleMode(b, nextBubbleMode(b.dataset.mode || "normal"));
+    }, DBL_TAP_MAX_MS),
+  };
 }
 
 // Desktop: Rechtsklick auf eine Bubble ueberschreibt das System-Kontextmenue durch das App-Menue
@@ -431,7 +451,7 @@ export function onBubbleContextMenu(e) {
 
 export function initBubbleMenu() {
   const chat = $("chat");
-  chat.addEventListener("click", onBubbleTap); // Touch: Doppel-Tap-Menue (Desktop: nur Schliessen)
+  chat.addEventListener("click", onBubbleTap); // Touch: Einfach-Tap = Expand-Zyklus, Doppel-Tap-Menue (Desktop: nur Schliessen)
   chat.addEventListener("contextmenu", onBubbleContextMenu); // Desktop: Rechtsklick-Menue (Touch: nativ)
   chat.addEventListener("pointerdown", (e) => {
     const b = e.target.closest?.(".bubble");

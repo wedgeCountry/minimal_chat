@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { sortMessagesForRender, findLastUserMessage, hasMessagesAfter, applyLocalMessage, removeLocalMessage, removeLocalMessagesAfter } from "../../static/js/chat.js";
+import { sortMessagesForRender, findLastUserMessage, hasMessagesAfter, applyLocalMessage, removeLocalMessage, removeLocalMessagesAfter, onBubbleTap, initBubbleMenu, closeBubbleCtxMenu } from "../../static/js/chat.js";
 import { state } from "../../static/js/state.js";
 
 test("sortMessagesForRender: chronological by ts", () => {
@@ -202,4 +202,218 @@ test("hasMessagesAfter: true only when messages follow the given id (edit-trunca
   assert.equal(hasMessagesAfter(messages, 4), false, "letzte Nachricht: nichts folgt");
   assert.equal(hasMessagesAfter(messages, 999), false, "unbekannte id");
   assert.equal(hasMessagesAfter([], 1), false);
+});
+
+// --- onBubbleTap im Minimalismus: Touch Einfach-Tap = Expand-Zyklus, Doppel-Tap = nur Menue ---
+
+let tapClock = 1_000_000; // monoton steigende synthetische timeStamps ueber alle Tests hinweg
+
+function makeClassList() {
+  const set = new Set();
+  return {
+    add: (c) => set.add(c),
+    remove: (c) => set.delete(c),
+    toggle: (c, on) => (on ? set.add(c) : set.delete(c)),
+    contains: (c) => set.has(c),
+  };
+}
+
+function fakeTapBubble(chat) {
+  const classes = makeClassList();
+  classes.add("bubble");
+  classes.add("normal");
+  const body = { textContent: "", classList: makeClassList(), scrollHeight: 0, clientHeight: 0 };
+  const chev = { title: "" };
+  const collapseBtn = { style: {} };
+  const b = {
+    dataset: { mode: "normal", type: "message", testid: "bubble-msg-1" },
+    classList: classes,
+    _fullText: "Hallo Welt",
+    querySelector: (sel) => (sel === ".bubbleBody" ? body : sel === ".chev" ? chev : sel === ".collapseBtn" ? collapseBtn : null),
+    querySelectorAll: () => [],
+    closest: (sel) => (sel === ".bubble" ? b : sel === "#chat" ? chat : null),
+    getBoundingClientRect: () => ({ top: 10, bottom: 60, height: 50 }),
+    _body: body,
+  };
+  return b;
+}
+
+function installTapDom({ finePointer }) {
+  const listeners = {};
+  const appended = [];
+  const chat = {
+    scrollTop: 0,
+    addEventListener: (type, fn) => {
+      (listeners[type] ??= []).push(fn);
+    },
+    getBoundingClientRect: () => ({ top: 0, bottom: 600 }),
+  };
+  const savedDoc = globalThis.document;
+  const savedWin = globalThis.window;
+  const savedSettings = state.settings;
+  globalThis.document = {
+    getElementById: (id) => (id === "chat" ? chat : null),
+    createElement: () => ({
+      children: [],
+      style: {},
+      dataset: {},
+      className: "",
+      textContent: "",
+      onclick: null,
+      removed: false,
+      appendChild(c) {
+        this.children.push(c);
+      },
+      remove() {
+        this.removed = true;
+      },
+      contains: () => false,
+      getBoundingClientRect: () => ({ top: 0, left: 0, width: 120, height: 40 }),
+    }),
+    body: { appendChild: (el) => appended.push(el) },
+    addEventListener: () => {},
+    removeEventListener: () => {},
+  };
+  globalThis.window = {
+    matchMedia: () => ({ matches: finePointer }),
+    getSelection: () => ({ isCollapsed: true }),
+    innerWidth: 390,
+    innerHeight: 844,
+  };
+  state.settings = { ...state.settings, bubbles_minimal: true };
+  initBubbleMenu();
+  return {
+    listeners,
+    appended,
+    chat,
+    cleanup() {
+      closeBubbleCtxMenu();
+      if (savedDoc === undefined) delete globalThis.document;
+      else globalThis.document = savedDoc;
+      if (savedWin === undefined) delete globalThis.window;
+      else globalThis.window = savedWin;
+      state.settings = savedSettings;
+    },
+  };
+}
+
+function tapAt(dom, b, t0, { dt = 50, dx = 0, dy = 0 } = {}) {
+  const target = { closest: (sel) => (sel === ".bubble" ? b : null) };
+  const pd = { target, timeStamp: t0, clientX: 5, clientY: 5, preventDefault() {} };
+  const clk = { target, timeStamp: t0 + dt, clientX: 5 + dx, clientY: 5 + dy, preventDefault() {} };
+  for (const fn of dom.listeners.pointerdown ?? []) fn(pd);
+  for (const fn of dom.listeners.click ?? []) fn(clk);
+}
+
+function singleTap(dom, b) {
+  const t0 = tapClock;
+  tapClock += 1000; // Abstand > DBL_TAP_MAX_MS: kein Doppel-Tap
+  tapAt(dom, b, t0);
+}
+
+function dblTap(dom, b) {
+  const t0 = tapClock;
+  tapClock += 1000;
+  tapAt(dom, b, t0);
+  tapAt(dom, b, t0 + 200); // 200ms <= DBL_TAP_MAX_MS
+}
+
+function scrollTap(dom, b) {
+  const t0 = tapClock;
+  tapClock += 1000;
+  tapAt(dom, b, t0, { dy: 80 }); // click 80px versetzt -> > TAP_MAX_MOVE_PX
+}
+
+test("onBubbleTap Touch+Minimalismus: Einfach-Tap schaltet den Expand-Modus zyklisch weiter (normal -> full -> collapsed -> normal)", (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const dom = installTapDom({ finePointer: false });
+  try {
+    const b = fakeTapBubble(dom.chat);
+    singleTap(dom, b);
+    assert.equal(b.dataset.mode, "normal", "sofort nach dem Tap noch kein Modus-Wechsel (Doppel-Tap-Fenster abwarten)");
+    t.mock.timers.tick(400);
+    assert.equal(b.dataset.mode, "full");
+    assert.ok(b.classList.contains("full"));
+    singleTap(dom, b);
+    t.mock.timers.tick(400);
+    assert.equal(b.dataset.mode, "collapsed");
+    singleTap(dom, b);
+    t.mock.timers.tick(400);
+    assert.equal(b.dataset.mode, "normal", "voller Zyklus endet wieder bei normal");
+    assert.equal(dom.appended.length, 0, "Einfach-Taps oeffnen kein Kontextmenue");
+  } finally {
+    dom.cleanup();
+  }
+});
+
+test("onBubbleTap Touch+Minimalismus: Doppel-Tap oeffnet nur das Kontextmenue, aendert den Expand-Modus nicht", (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const dom = installTapDom({ finePointer: false });
+  try {
+    const b = fakeTapBubble(dom.chat);
+    dblTap(dom, b); // erste Tap-Haelfte plant einen Modus-Wechsel, die zweite cancelt ihn und oeffnet das Menue
+    assert.equal(dom.appended.length, 1, "Kontextmenue wurde geoeffnet");
+    assert.equal(dom.appended[0].dataset.testid, "bubble-context-menu");
+    t.mock.timers.tick(500);
+    assert.equal(b.dataset.mode, "normal", "Doppel-Tap darf den Expand-Modus nicht aendern");
+  } finally {
+    dom.cleanup();
+  }
+});
+
+test("onBubbleTap Touch+Minimalismus: Tap bei offenem Menue schliesst es ohne Modus-Wechsel", (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const dom = installTapDom({ finePointer: false });
+  try {
+    const b = fakeTapBubble(dom.chat);
+    dblTap(dom, b);
+    assert.equal(dom.appended.length, 1);
+    singleTap(dom, b); // Menue offen -> schliessen statt Expand
+    t.mock.timers.tick(500);
+    assert.equal(b.dataset.mode, "normal");
+    assert.ok(dom.appended[0].removed, "Menue wurde geschlossen");
+  } finally {
+    dom.cleanup();
+  }
+});
+
+test("onBubbleTap Touch+Minimalismus: Scroll-Geste (Pointer bewegt sich) weder Modus-Wechsel noch Menue", (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const dom = installTapDom({ finePointer: false });
+  try {
+    const b = fakeTapBubble(dom.chat);
+    scrollTap(dom, b);
+    t.mock.timers.tick(500);
+    assert.equal(b.dataset.mode, "normal", "Scroll-Geste darf keinen Expand ausloesen");
+    assert.equal(dom.appended.length, 0, "Scroll-Geste darf kein Menue oeffnen");
+  } finally {
+    dom.cleanup();
+  }
+});
+
+test("onBubbleTap: ohne Minimalismus kein Tap-Verhalten; auf Desktop (feiner Pointer) weder Menue noch Modus-Wechsel", (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const dom = installTapDom({ finePointer: false });
+  try {
+    state.settings = { ...state.settings, bubbles_minimal: false };
+    const b = fakeTapBubble(dom.chat);
+    singleTap(dom, b);
+    dblTap(dom, b);
+    t.mock.timers.tick(500);
+    assert.equal(b.dataset.mode, "normal", "ohne Minimalismus bleibt der Modus unangetastet");
+    assert.equal(dom.appended.length, 0);
+  } finally {
+    dom.cleanup();
+  }
+  const domDesk = installTapDom({ finePointer: true });
+  try {
+    const b = fakeTapBubble(domDesk.chat);
+    singleTap(domDesk, b);
+    dblTap(domDesk, b);
+    t.mock.timers.tick(500);
+    assert.equal(b.dataset.mode, "normal", "Desktop: Klick/Doppelklick aendern nicht den Modus (Expand laeuft ueber Body-Klick)");
+    assert.equal(domDesk.appended.length, 0, "Desktop: Klick/Doppelklick oeffnen kein Menue");
+  } finally {
+    domDesk.cleanup();
+  }
 });

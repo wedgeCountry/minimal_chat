@@ -218,3 +218,91 @@ def test_minimalism_hides_toolbar_on_touch_and_longpress_opens_menu(mobile_page,
     assert not_prevented, "contextmenu (Langdruck) darf nicht preventDefault sein — natives Systemmenue bleibt"
     mobile_page.wait_for_timeout(300)
     assert menu.count() == 0, "beim Langdruck darf kein eigenes Kontextmenue erscheinen"
+
+
+def test_minimalism_single_tap_cycles_expansion_mode(mobile_page, base_url, llm_expect):
+    """Minimalismus auf Touch: ein einfacher Tap auf eine Bubble schaltet den Expand-Modus
+    zyklisch weiter (normal -> full -> collapsed -> normal), wie der Expand-Button im
+    Normalmodus — auch bei nicht gekuerztem Text. Der Doppel-Tap oeffnet als eigene Aktion
+    nur das Kontextmenue (kein Modus-Wechsel); Scroll-Gesten loesen weder Menue noch
+    Modus-Wechsel aus."""
+    if llm_expect["default"] is None:
+        pytest.skip("Minimalismus-Tap-Test braucht den Mock-LLM")
+    email = "minimal-tap-user@example.com"
+    api_client = _register_client(base_url, email, "Geheim-123")
+    _login(mobile_page, base_url, email, "Geheim-123")
+
+    assert mobile_page.evaluate("() => matchMedia('(hover: none) and (pointer: coarse)').matches"), "Test braucht Touch-Emulation ohne Hover"
+
+    mobile_page.fill(T["chat_input"], "Hallo")
+    mobile_page.click(T["send_btn"])
+    mobile_page.wait_for_function(
+        "() => document.querySelectorAll('[data-testid=\"chat\"] .bubble[data-role=\"assistant\"][data-type=\"message\"]').length === 1"
+        " && !document.querySelector('[data-testid=\"send-btn\"]').classList.contains('abort')",
+        timeout=llm_expect["timeout_ms"],
+    )
+    bubble = '[data-testid="chat"] .bubble[data-role="assistant"][data-type="message"]'
+
+    res = api_client.put("/api/settings", json={"bubbles_minimal": True})
+    assert res.status_code == 200, res.text
+    mobile_page.reload()
+    mobile_page.wait_for_selector(bubble, timeout=llm_expect["timeout_ms"])
+    mobile_page.wait_for_function("() => document.documentElement.classList.contains('bubbles-minimal')")
+
+    menu = mobile_page.locator('[data-testid="bubble-context-menu"]')
+
+    def mode():
+        return mobile_page.locator(bubble).evaluate("el => el.dataset.mode")
+
+    def tap():
+        # Bubble-Hoehe aendert sich je Modus -> Zielpunkt jedes Mal neu messen
+        box = mobile_page.locator(bubble).bounding_box()
+        mobile_page.touchscreen.tap(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
+        # > Doppel-Tap-Fenster (350ms): der Einfach-Tap feuert, der naechste Tap zaehlt nicht als Doppel-Tap
+        mobile_page.wait_for_timeout(500)
+
+    assert mode() == "normal"
+    tap()
+    assert mode() == "full", "erster Tap: normal -> full (auch bei nicht gekuerztem Text)"
+    tap()
+    assert mode() == "collapsed", "zweiter Tap: full -> collapsed"
+    tap()
+    assert mode() == "normal", "dritter Tap: collapsed -> normal (voller Zyklus)"
+    assert menu.count() == 0, "Einfach-Taps duerfen kein Kontextmenue oeffnen"
+
+    # Doppel-Tap (zwei pointerdown+click-Paare in einem Tick): eigene Aktion — Menue ja, Modus-Wechsel nein
+    mobile_page.wait_for_timeout(400)  # evtl. stale lastTap ablaufen lassen
+    opened = mobile_page.evaluate(
+        """(sel) => {
+          const el = document.querySelector(sel);
+          const r = el.getBoundingClientRect();
+          const x = r.x + r.width / 2, y = r.y + r.height / 2;
+          for (let i = 0; i < 2; i++) {
+            el.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, clientX: x, clientY: y }));
+            el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, clientX: x, clientY: y }));
+          }
+          return !!document.querySelector('[data-testid="bubble-context-menu"]');
+        }""",
+        bubble,
+    )
+    assert opened is True, "Doppel-Tap muss das Kontextmenue oeffnen"
+    mobile_page.wait_for_timeout(500)  # ein von der ersten Tap-Haelfte geplanter Modus-Wechsel darf nicht feuern
+    assert mode() == "normal", "Doppel-Tap darf den Expand-Modus nicht aendern"
+    menu.wait_for(state="visible")
+    mobile_page.keyboard.press("Escape")
+    mobile_page.wait_for_selector('[data-testid="bubble-context-menu"]', state="detached")
+
+    # Scroll-Geste (Pointer wird bewegt, click landet versetzt): weder Menue noch Modus-Wechsel
+    mobile_page.evaluate(
+        """(sel) => {
+          const el = document.querySelector(sel);
+          const r = el.getBoundingClientRect();
+          const x = r.x + r.width / 2, y = r.y + r.height / 2;
+          el.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, clientX: x, clientY: y }));
+          el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, clientX: x, clientY: y + 60 }));
+        }""",
+        bubble,
+    )
+    mobile_page.wait_for_timeout(500)
+    assert mode() == "normal", "Scroll-Geste darf den Expand-Modus nicht aendern"
+    assert menu.count() == 0, "Scroll-Geste darf kein Kontextmenue oeffnen"

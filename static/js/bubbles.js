@@ -1,7 +1,7 @@
-import { esc } from "./util.js";
+import { esc, isFinePointer } from "./util.js";
 import { ICONS } from "./icons.js";
 import { state } from "./state.js";
-import { isBubbleDeletable, isBubbleContextToggleable, isBubbleSpeaker } from "./visibility.js";
+import { isBubbleDeletable, isBubbleContextToggleable, isBubbleSpeaker, isToolbarMinimal } from "./visibility.js";
 import { controlsVisible, speak, isSpeaking, stopSpeech } from "./ttsDetectionService.js";
 import { showError } from "./confirm.js";
 import { BUBBLE_MODES, clampText, isClamped, nextBubbleMode, bubbleModeTitle, defaultBubbleMode } from "./bubbleMode.js";
@@ -136,8 +136,10 @@ export function bubbleEl(m, handlers = {}, opts = {}) {
   const body = b.querySelector(".bubbleBody");
   if (body)
     body.addEventListener("click", () => {
-      // Klick auf gekuerzten Text ([...]) schaltet wie der Chevron weiter; im Minimalismus
-      // oeffnet erst der Doppel-Tap das Kontextmenue (onBubbleTap in chat.js)
+      // Klick auf gekuerzten Text ([...]) schaltet wie der Chevron weiter. Im Minimalismus auf
+      // Touch-Geraeten uebernimmt stattdessen onBubbleTap in chat.js jeden Tap (jede Bubble,
+      // nicht nur gekuerzte) und achtet dabei auf Doppel-Tap (Kontextmenue) und Scroll-Gesten.
+      if (isToolbarMinimal(state.settings) && !isFinePointer()) return;
       if (body.classList.contains("clamped")) setBubbleMode(b, nextBubbleMode(b.dataset.mode || "normal"));
     });
   b.querySelector(".copyBtn").onclick = () => copyBubbleText(b);
