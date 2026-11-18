@@ -140,7 +140,8 @@
 html.bubbles-minimal .bubbleHead,
 html.bubbles-minimal .collapseBtn{display:none}
 /* touch-action:manipulation schaltet das systemeigene Doppel-Tap-Zoom (z. B. Firefox Android)
-   auf den Bubbles ab — der Doppel-Tap ist unserer (App-Kontextmenue, onBubbleTap in chat.js);
+   auf den Bubbles ab — der Doppel-Tap ist unserer (App-Kontextmenue), der einfache Tap schaltet
+   den Expand-Modus zyklisch weiter (onBubbleTap in chat.js);
    Scrollen/Pan und Pinch-Zoom bleiben erhalten. */
 html.bubbles-minimal .bubble{padding-top:var(--bubble-padding);touch-action:manipulation}
 /* Im Minimalismus bleibt Textauswahl nativ (kein user-select:none) — Langdruck selektiert normal. */

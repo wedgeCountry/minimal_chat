@@ -14,6 +14,22 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 E2E_DIR = Path(__file__).resolve().parent
 E2E_SECRET = "e2e-secret"
 
+# Init-Skript, das speechSynthesis/SpeechSynthesisUtterance stubbt (System-TTS ohne echtes
+# Audio in headless Chromium); Zaehler liegen auf window.__tts. speechSynthesis ist ein
+# getter-only Property auf window -> per defineProperty ueberschreiben (Zuweisung no-op).
+SPEECH_STUB = """
+window.__tts = { speakCalls: 0, cancelCalls: 0 };
+Object.defineProperty(window, "speechSynthesis", {
+  configurable: true,
+  value: {
+    speak() { window.__tts.speakCalls++; },
+    cancel() { window.__tts.cancelCalls++; },
+    getVoices() { return []; },
+  },
+});
+window.SpeechSynthesisUtterance = class { constructor(text) { this.text = text; } };
+"""
+
 
 def _free_port() -> int:
     with socket.socket() as s:

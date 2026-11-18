@@ -1,5 +1,10 @@
 export const $ = (id) => document.getElementById(id);
 
+// Desktop mit Maus/Trackpad (Hover + feiner Pointer) vs. Touch-Geraet
+export function isFinePointer() {
+  return !!(window.matchMedia && window.matchMedia("(hover:hover) and (pointer:fine)").matches);
+}
+
 // true, wenn der Scroll-Container (fast) ganz unten steht - dann darf beim
 // Re-Render ans Ende gescrollt werden, ohne den Nutzer beim Lesen hochzureissen.
 export function isNearBottom(el, threshold = 80) {
