@@ -156,7 +156,7 @@ def test_full_user_journey(page, base_url, tmp_path, llm_expect):
     # Setup: User per API anlegen, System-Prompt-Anzeige serverseitig deaktivieren
     # (damit er in der Journey "am Anfang versteckt" ist).
     api_client = _register_client(base_url, USER["email"], USER["password"])
-    res = api_client.put("/api/settings", json={"show_system_prompt": False})
+    res = api_client.put("/api/settings", json={"show_system_prompt": False, "bubbles_deletable": True})
     assert res.status_code == 200, res.text
 
     # 1. Anmelden
@@ -980,6 +980,8 @@ def test_delete_message_via_ui_persists_server_side_and_across_reload(page, base
     die API sichtbar) und nach Reload weiterhin weg."""
     email = "del-user@example.com"
     api_client = _register_client(base_url, email, "Geheim-123")
+    res = api_client.put("/api/settings", json={"bubbles_deletable": True})  # Default ist jetzt False
+    assert res.status_code == 200, res.text
     _login(page, base_url, email, "Geheim-123")
     sid = _new_named_session(page, api_client)
     _chat_once(page, "Loesch mich", 1, llm_expect["default"], llm_expect["timeout_ms"])
@@ -1010,6 +1012,41 @@ def test_delete_message_via_ui_persists_server_side_and_across_reload(page, base
     assert _no_user_msg()
 
 
+def test_delete_last_user_message_shows_resend_on_new_last_without_reload(page, base_url, llm_expect):
+    """Regression: Loescht man die letzte User-Message, muss der 'Erneut senden'-Button an der
+    nun letzten User-Bubble sofort erscheinen (ohne Reload). Grund: resendBtn/editBtn wurden
+    bisher nur beim Anlegen der Bubble erzeugt, wenn sie gerade die letzte User-Message war —
+    jetzt existieren sie fuer alle User-Messages und werden nur per display umgeschaltet."""
+    if llm_expect["default"] is None:
+        pytest.skip("Test braucht den Mock-LLM")
+    email = "resend-after-delete-user@example.com"
+    api_client = _register_client(base_url, email, "Geheim-123")
+    res = api_client.put("/api/settings", json={"bubbles_deletable": True})  # Default ist jetzt False
+    assert res.status_code == 200, res.text
+    _login(page, base_url, email, "Geheim-123")
+    _new_named_session(page, api_client)
+
+    _chat_once(page, "Nachricht 1", 1, llm_expect["default"], llm_expect["timeout_ms"])
+    _chat_once(page, "Nachricht 2", 2, llm_expect["default"], llm_expect["timeout_ms"])
+
+    users = page.locator(_bubble("user"))
+    resend_btn = '[data-testid="bubble-resend-btn"]'
+    assert users.count() == 2
+    assert users.nth(0).locator(resend_btn).evaluate("el => getComputedStyle(el).display") == "none", "nur die letzte User-Bubble darf resend zeigen"
+    assert users.nth(1).locator(resend_btn).evaluate("el => getComputedStyle(el).display") != "none"
+
+    # letzte User-Message loeschen -> die erste wird zur letzten und muss resend sofort zeigen
+    users.nth(1).locator('[data-testid="bubble-delete-btn"]').click()
+    _confirm_delete(page)
+    page.wait_for_function(
+        "() => document.querySelectorAll('[data-testid=\"chat\"] .bubble[data-role=\"user\"]').length === 1",
+        timeout=llm_expect["timeout_ms"],
+    )
+    btn = users.nth(0).locator(resend_btn)
+    btn.wait_for(state="visible", timeout=5000)
+    assert btn.evaluate("el => getComputedStyle(el).display") != "none", "Erneut-senden muss ohne Reload an der neuen letzten User-Bubble erscheinen"
+
+
 def test_deleted_messages_excluded_from_llm_request(page, base_url, llm_expect, mock_llm_port):
     """Geloeschte Nachrichten (User-Message + Assistant-Message) duerfen im naechsten LLM-Request
     nicht mehr vorkommen; das Toolcall/Toolresult-Paar und die neue Nachricht bleiben erhalten."""
@@ -1017,6 +1054,8 @@ def test_deleted_messages_excluded_from_llm_request(page, base_url, llm_expect, 
         pytest.skip("Request-Aufzeichnung nur beim Mock-LLM (Real-LLM-Lauf aktiv)")
     email = "del-llm-user@example.com"
     api_client = _register_client(base_url, email, "Geheim-123")
+    res = api_client.put("/api/settings", json={"bubbles_deletable": True})  # Default ist jetzt False
+    assert res.status_code == 200, res.text
     _login(page, base_url, email, "Geheim-123")
     sid = _new_named_session(page, api_client)
 
