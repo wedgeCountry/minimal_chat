@@ -23,9 +23,6 @@ export function setBubbleMode(b, mode) {
   b.dataset.mode = mode;
   const chev = b.querySelector(".chev");
   if (chev) chev.title = bubbleModeTitle(mode);
-  // Einklapp-Button unten rechts nur im voll ausgeklappten Zustand anbieten
-  const collapseBtn = b.querySelector(".collapseBtn");
-  if (collapseBtn) collapseBtn.style.display = mode === "full" ? "" : "none";
   renderBubbleBody(b); // liest body.scrollHeight -> Layout ist danach synchron aktualisiert
   if (chat) {
     const shrink = prevH - b.getBoundingClientRect().height; // >0 beim Einklappen
@@ -60,6 +57,7 @@ function renderBubbleBody(b) {
   // (CSS line-clamp) ueberschreitet - unabhaengig von Textzeilenumbruechen
   const clipped = body.scrollHeight > body.clientHeight + 1;
   body.classList.toggle("clamped", clipped || isClamped(display, mode));
+  b._normalTruncated = isClamped(display, "normal") || (mode === "normal" && clipped);
 }
 
 // Inline-Edit: der Bubble-Body wird durch ein Textarea + Speichern/Abbrechen ersetzt.
@@ -121,8 +119,8 @@ export function bubbleEl(m, handlers = {}, opts = {}) {
       <span class="role" data-testid="bubble-role">${esc(label)}</span>
       <span class="grow"></span>
       ${showChk ? `<input type="checkbox" class="chk" data-testid="bubble-context-chk" ${m.inContext !== false ? "checked" : ""} title="Im Kontext senden" />` : ""}
-      ${canEditResend ? `<button class="iconBtn editBtn" data-testid="bubble-edit-btn" title="Bearbeiten"${showEdit ? "" : ' style="display:none"'}>${ICONS.edit}</button>` : ""}
-      ${canEditResend ? `<button class="iconBtn resendBtn" data-testid="bubble-resend-btn" title="Erneut senden"${showResend ? "" : ' style="display:none"'}>${ICONS.refresh}</button>` : ""}
+      ${canEditResend ? `<button class="iconBtn editBtn${showEdit ? "" : " u-hidden"}" data-testid="bubble-edit-btn" title="Bearbeiten">${ICONS.edit}</button>` : ""}
+      ${canEditResend ? `<button class="iconBtn resendBtn${showResend ? "" : " u-hidden"}" data-testid="bubble-resend-btn" title="Erneut senden">${ICONS.refresh}</button>` : ""}
       ${showTts ? `<button class="iconBtn ttsBtn" data-testid="bubble-tts-btn" title="Vorlesen">${ICONS.tts}</button>` : ""}
       <button class="iconBtn copyBtn" data-testid="bubble-copy-btn" title="Kopieren">${ICONS.copy}</button>
       <button class="iconBtn chev" data-testid="bubble-toggle-btn" title="${bubbleModeTitle(mode)}">${ICONS.chev}</button>
@@ -132,23 +130,15 @@ export function bubbleEl(m, handlers = {}, opts = {}) {
   setBubbleText(b, m.text || "");
   const chev = b.querySelector(".chev");
   if (chev)
-    chev.onclick = () => setBubbleMode(b, nextBubbleMode(b.dataset.mode || "normal"));
+    chev.onclick = () => setBubbleMode(b, nextBubbleMode(b.dataset.mode || "normal", b._normalTruncated));
   const body = b.querySelector(".bubbleBody");
   if (body)
     body.addEventListener("click", () => {
       // Klick auf gekuerzten Text ([...]) schaltet wie der Chevron weiter. Im Minimalismus auf
       // Touch-Geraeten uebernimmt stattdessen onBubbleTap in chat.js jeden Tap (jede Bubble,
       // nicht nur gekuerzte) und achtet dabei auf Doppel-Tap (Kontextmenue) und Scroll-Gesten.
-      if (isToolbarMinimal(state.settings)) {
-        if (!isFinePointer()) return;
-        // Desktop: Klick waehrend laufender Wiedergabe stoppt sie einmalig und wird
-        // unterdrueckt (kein Expand) — auf Touch macht das onBubbleTap in chat.js
-        if (isSpeaking()) {
-          stopSpeech();
-          return;
-        }
-      }
-      if (body.classList.contains("clamped")) setBubbleMode(b, nextBubbleMode(b.dataset.mode || "normal"));
+      if (isToolbarMinimal(state.settings) && !isFinePointer()) return; // Touch: Doppel-Tap/Tap behandelt onBubbleTap in chat.js
+      if (body.classList.contains("clamped")) setBubbleMode(b, nextBubbleMode(b.dataset.mode || "normal", b._normalTruncated));
     });
   b.querySelector(".copyBtn").onclick = () => copyBubbleText(b);
   const chk = b.querySelector(".chk");
@@ -170,7 +160,6 @@ export function bubbleEl(m, handlers = {}, opts = {}) {
   collapseBtn.dataset.testid = "bubble-collapse-btn";
   collapseBtn.title = "Einklappen";
   collapseBtn.innerHTML = ICONS.chev;
-  collapseBtn.style.display = mode === "full" ? "" : "none";
   collapseBtn.onclick = () => setBubbleMode(b, "collapsed");
   b.appendChild(collapseBtn);
   const tts = b.querySelector(".ttsBtn");

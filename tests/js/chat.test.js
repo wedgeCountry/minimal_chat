@@ -3,6 +3,9 @@ import assert from "node:assert/strict";
 import { sortMessagesForRender, findLastUserMessage, hasMessagesAfter, applyLocalMessage, removeLocalMessage, removeLocalMessagesAfter, onBubbleTap, initBubbleMenu, closeBubbleCtxMenu } from "../../static/js/chat.js";
 import { state } from "../../static/js/state.js";
 import { speak, isSpeaking, stopSpeech } from "../../static/js/ttsDetectionService.js";
+import { setBubbleText } from "../../static/js/bubbles.js";
+
+const LONG_TEXT = Array.from({ length: 15 }, (_, i) => `Zeile ${i + 1}`).join("\n");
 
 test("sortMessagesForRender: chronological by ts", () => {
   const messages = [
@@ -272,7 +275,9 @@ function installTapDom({ finePointer }) {
       getBoundingClientRect: () => ({ top: 0, left: 0, width: 120, height: 40 }),
     }),
     body: { appendChild: (el) => appended.push(el) },
-    addEventListener: () => {},
+    addEventListener: (type, fn) => {
+      (listeners[type] ??= []).push(fn);
+    },
     removeEventListener: () => {},
     querySelectorAll: () => [],
   };
@@ -331,6 +336,8 @@ test("onBubbleTap Touch+Minimalismus: Einfach-Tap schaltet den Expand-Modus zykl
   const dom = installTapDom({ finePointer: false });
   try {
     const b = fakeTapBubble(dom.chat);
+    setBubbleText(b, LONG_TEXT); // in normal gekuerzt -> voller Dreier-Zyklus
+    assert.equal(b._normalTruncated, true);
     singleTap(dom, b);
     assert.equal(b.dataset.mode, "normal", "sofort nach dem Tap noch kein Modus-Wechsel (Doppel-Tap-Fenster abwarten)");
     t.mock.timers.tick(400);
@@ -343,6 +350,25 @@ test("onBubbleTap Touch+Minimalismus: Einfach-Tap schaltet den Expand-Modus zykl
     t.mock.timers.tick(400);
     assert.equal(b.dataset.mode, "normal", "voller Zyklus endet wieder bei normal");
     assert.equal(dom.appended.length, 0, "Einfach-Taps oeffnen kein Kontextmenue");
+  } finally {
+    dom.cleanup();
+  }
+});
+
+test("onBubbleTap Touch+Minimalismus: ungekuerzte Bubble springt direkt normal -> collapsed -> normal (full == normal)", (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const dom = installTapDom({ finePointer: false });
+  try {
+    const b = fakeTapBubble(dom.chat); // "Hallo Welt": in normal weder geclippt noch geclamped
+    setBubbleText(b, "Hallo Welt");
+    assert.equal(b._normalTruncated, false);
+    singleTap(dom, b);
+    t.mock.timers.tick(400);
+    assert.equal(b.dataset.mode, "collapsed", "full wird uebersprungen, weil full == normal");
+    assert.ok(b.classList.contains("collapsed"));
+    singleTap(dom, b);
+    t.mock.timers.tick(400);
+    assert.equal(b.dataset.mode, "normal", "von collapsed immer zurueck zu normal");
   } finally {
     dom.cleanup();
   }
@@ -464,38 +490,42 @@ async function startSystemSpeech() {
   };
 }
 
-test("onBubbleTap Touch+Minimalismus: Einfach-Tap waehrend Wiedergabe stoppt sie einmalig (kein Expand), danach normaler Zyklus", async (t) => {
+test("onBubbleTap Touch+Minimalismus: Einfach-Tap waehrend Wiedergabe stoppt nicht, sondern Expand-Zyklus; Doppel-Tap stoppt", async (t) => {
   t.mock.timers.enable({ apis: ["setTimeout"] });
   const dom = installTapDom({ finePointer: false });
   const speech = await startSystemSpeech();
   try {
     const b = fakeTapBubble(dom.chat);
+    setBubbleText(b, LONG_TEXT); // gekuerzt in normal -> Zyklus erreicht full
     singleTap(dom, b);
     t.mock.timers.tick(400);
-    assert.equal(isSpeaking(), false, "Tap stoppt die Wiedergabe");
-    assert.ok(speech.calls.cancel >= 1, "speechSynthesis.cancel() wurde gerufen");
-    assert.equal(b.dataset.mode, "normal", "der Tap wird einmalig unterdrueckt: kein Expand-Wechsel");
+    assert.equal(isSpeaking(), true, "Einfach-Tap stoppt die Wiedergabe nicht mehr");
+    assert.equal(speech.calls.cancel, 0);
+    assert.equal(b.dataset.mode, "full", "Einfach-Tap feuert den normalen Expand-Zyklus");
     assert.equal(dom.appended.length, 0, "kein Kontextmenue");
-    singleTap(dom, b); // naechster Tap verhaelt sich wieder normal
-    t.mock.timers.tick(400);
-    assert.equal(b.dataset.mode, "full", "nach dem Stopp feuert der Expand-Zyklus wieder");
+    dblTap(dom, b); // Doppel-Tap waehrend Wiedergabe: stoppen statt Menue
+    t.mock.timers.tick(500);
+    assert.equal(isSpeaking(), false, "Doppel-Tap stoppt die Wiedergabe");
+    assert.ok(speech.calls.cancel >= 1, "speechSynthesis.cancel() wurde gerufen");
+    assert.equal(b.dataset.mode, "full", "Doppel-Tap aendert nicht den Modus");
+    assert.equal(dom.appended.length, 0, "Doppel-Tap oeffnet bei laufender Wiedergabe kein Menue");
   } finally {
     speech.restore();
     dom.cleanup();
   }
 });
 
-test("onBubbleTap Touch+Minimalismus: Doppel-Tap waehrend Wiedergabe oeffnet nur das Menue (Wiedergabe laeuft weiter)", async (t) => {
+test("onBubbleTap Touch+Minimalismus: Doppel-Tap waehrend Wiedergabe stoppt sie statt Menue zu oeffnen", async (t) => {
   t.mock.timers.enable({ apis: ["setTimeout"] });
   const dom = installTapDom({ finePointer: false });
   const speech = await startSystemSpeech();
   try {
     const b = fakeTapBubble(dom.chat);
     dblTap(dom, b);
-    assert.equal(dom.appended.length, 1, "Kontextmenue wurde geoeffnet");
     t.mock.timers.tick(500);
-    assert.equal(isSpeaking(), true, "Doppel-Tap stoppt die Wiedergabe nicht (eigene Aktion: nur Menue)");
-    assert.equal(speech.calls.cancel, 0);
+    assert.equal(isSpeaking(), false, "Doppel-Tap stoppt die Wiedergabe");
+    assert.ok(speech.calls.cancel >= 1, "speechSynthesis.cancel() wurde gerufen");
+    assert.equal(dom.appended.length, 0, "waehrend der Wiedergabe oeffnet der Doppel-Tap kein Menue");
     assert.equal(b.dataset.mode, "normal", "Doppel-Tap aendert nicht den Modus");
   } finally {
     speech.restore();
@@ -503,17 +533,40 @@ test("onBubbleTap Touch+Minimalismus: Doppel-Tap waehrend Wiedergabe oeffnet nur
   }
 });
 
-test("onBubbleTap Desktop+Minimalismus: Klick waehrend Wiedergabe stoppt sie einmalig (kein Expand, kein Menue)", async (t) => {
+test("onBubbleTap Desktop+Minimalismus: einzelner Klick waehrend Wiedergabe stoppt nicht; Doppelklick stoppt", async (t) => {
   t.mock.timers.enable({ apis: ["setTimeout"] });
   const dom = installTapDom({ finePointer: true });
   const speech = await startSystemSpeech();
   try {
     const b = fakeTapBubble(dom.chat);
     singleTap(dom, b);
-    assert.equal(isSpeaking(), false, "Klick stoppt die Wiedergabe sofort");
     t.mock.timers.tick(500);
-    assert.equal(b.dataset.mode, "normal", "der Klick wird unterdrueckt: kein Expand-Wechsel");
+    assert.equal(isSpeaking(), true, "einzelner Klick stoppt die Wiedergabe nicht");
+    assert.equal(speech.calls.cancel, 0);
+    assert.equal(b.dataset.mode, "normal", "kein Expand-Wechsel auf Desktop");
     assert.equal(dom.appended.length, 0, "kein Kontextmenue");
+    dblTap(dom, b); // Doppelklick
+    assert.equal(isSpeaking(), false, "Doppelklick stoppt die Wiedergabe");
+    assert.ok(speech.calls.cancel >= 1, "speechSynthesis.cancel() wurde gerufen");
+    assert.equal(b.dataset.mode, "normal", "Doppelklick aendert nicht den Modus");
+    assert.equal(dom.appended.length, 0, "Desktop oeffnet per Klick/Doppelklick kein Menue");
+  } finally {
+    speech.restore();
+    dom.cleanup();
+  }
+});
+
+test("Escape (keydown auf document) stoppt die laufende Wiedergabe; andere Tasten nicht", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const dom = installTapDom({ finePointer: false });
+  const speech = await startSystemSpeech();
+  try {
+    assert.ok(isSpeaking(), "Vorbedingung: Wiedergabe laeuft");
+    for (const fn of dom.listeners.keydown ?? []) fn({ key: "Enter" });
+    assert.ok(isSpeaking(), "andere Tasten stoppen die Wiedergabe nicht");
+    for (const fn of dom.listeners.keydown ?? []) fn({ key: "Escape" });
+    assert.equal(isSpeaking(), false, "Escape stoppt die Wiedergabe");
+    assert.ok(speech.calls.cancel >= 1, "speechSynthesis.cancel() wurde gerufen");
   } finally {
     speech.restore();
     dom.cleanup();

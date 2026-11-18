@@ -20,7 +20,8 @@ export function isClamped(text, mode) {
   return clampText(text, mode) !== (text || "");
 }
 
-export function nextBubbleMode(mode) {
+export function nextBubbleMode(mode, normalTruncated = true) {
+  if (mode === "normal" && !normalTruncated) return "collapsed";
   return BUBBLE_MODES[(BUBBLE_MODES.indexOf(mode) + 1) % BUBBLE_MODES.length];
 }
 

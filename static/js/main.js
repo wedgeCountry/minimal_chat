@@ -19,8 +19,6 @@ let autoLoginEnabled = false;
 function applyAutoLoginUI() {
   if (!autoLoginEnabled) return;
   document.documentElement.classList.add("auto-login");
-  $("logoutBtn").style.display = "none";
-  $("changePwBtn").style.display = "none";
 }
 function setSideHidden(hidden) {
   $("side").classList.toggle("hidden", hidden);
@@ -53,9 +51,9 @@ async function refreshChat() {
 }
 
 function applyComposerButtons() {
-  $("attachBtn").style.display = state.settings.show_file_button === false ? "none" : "";
-  $("camBtn").style.display = state.settings.show_image_button === false ? "none" : "";
-  $("micBtn").style.display = controlsVisible("stt") ? "" : "none";
+  $("attachBtn").classList.toggle("u-hidden", state.settings.show_file_button === false);
+  $("camBtn").classList.toggle("u-hidden", state.settings.show_image_button === false);
+  $("micBtn").classList.toggle("u-hidden", !controlsVisible("stt"));
 }
 
 function renderAll() {
