@@ -117,26 +117,36 @@ def test_minimalism_hides_toolbar_on_touch_and_longpress_opens_menu(mobile_page,
         "Rollen-Label muss im Minimalismus ausgeblendet sein"
     )
 
-    # Langdruck (contextmenu) oeffnet das Kontextmenue mit den Bubble-Aktionen
+    # Touch + Minimalismus: Textauswahl per CSS deaktiviert, Langdruck oeffnet das App-Menue
+    body_sel = f"{bubble} .bubbleBody"
+    assert mobile_page.locator(body_sel).evaluate("el => getComputedStyle(el).userSelect") == "none", "Textauswahl muss im Minimalismus deaktiviert sein"
     mobile_page.dispatch_event(bubble, "contextmenu")
     menu = mobile_page.locator('[data-testid="bubble-context-menu"]')
     menu.wait_for(state="visible")
-    assert menu.locator("button").count() >= 4, "Kontextmenue muss Select-All, Kopieren und die Bubble-Aktionen enthalten"
-    assert menu.locator('[data-testid="ctx-select-all"]').count() == 1
-    assert menu.locator('[data-testid="ctx-copy"]').count() == 1
-    mobile_page.keyboard.press("Escape")
-    mobile_page.wait_for_selector('[data-testid="bubble-context-menu"]', state="detached")
+    assert menu.locator("button").count() >= 5, "Kontextmenue muss Text-Auswahl, Select-All, Kopieren und die Bubble-Aktionen enthalten"
+    for tid in ("ctx-select-text", "ctx-select-all", "ctx-copy"):
+        assert menu.locator(f'[data-testid="{tid}"]').count() == 1, f"Menue-Eintrag fehlt: {tid}"
 
-    # Langdruck auf dem Bubble-Text: natives Systemmenue/Textauswahl bleibt unangetastet
+    # "Text auswählen" -> Auswahlmodus: nächster Langdruck ist nativ (Systemmenue, kein preventDefault)
+    menu.locator('[data-testid="ctx-select-text"]').click()
+    mobile_page.wait_for_selector('[data-testid="bubble-context-menu"]', state="detached")
+    mobile_page.wait_for_timeout(50)  # Auswahlmodus armieren lassen (setTimeout im Handler)
+    assert mobile_page.locator(bubble).evaluate("el => el.classList.contains('selecting')"), "Bubble muss im Textauswahl-Modus sein"
+    assert mobile_page.locator(body_sel).evaluate("el => getComputedStyle(el).userSelect") in ("text", "auto"), "user-select muss im Auswahlmodus wieder aktiv sein"
     not_prevented = mobile_page.evaluate(
         """(sel) => {
-          const body = document.querySelector(sel);
+          const el = document.querySelector(sel);
           const ev = new MouseEvent('contextmenu', { bubbles: true, cancelable: true });
-          body.dispatchEvent(ev);
+          el.dispatchEvent(ev);
           return !ev.defaultPrevented;
         }""",
-        f"{bubble} .bubbleBody",
+        body_sel,
     )
-    assert not_prevented, "contextmenu auf Bubble-Text darf nicht preventDefault sein (natives Systemmenue bleibt)"
+    assert not_prevented, "im Textauswahl-Modus darf contextmenu nicht preventDefault sein (natives Systemmenue bleibt)"
     mobile_page.wait_for_timeout(300)
-    assert mobile_page.locator('[data-testid="bubble-context-menu"]').count() == 0, "auf Bubble-Text darf kein eigenes Kontextmenue erscheinen"
+    assert mobile_page.locator('[data-testid="bubble-context-menu"]').count() == 0, "im Textauswahl-Modus darf kein eigenes Kontextmenue erscheinen"
+
+    # Auswahl aufheben beendet den Modus
+    mobile_page.evaluate("() => window.getSelection().removeAllRanges()")
+    mobile_page.wait_for_timeout(50)
+    assert not mobile_page.locator(bubble).evaluate("el => el.classList.contains('selecting')"), "Textauswahl-Modus muss bei leerer Auswahl enden"

@@ -296,12 +296,45 @@ export function renderChatView() {
   renderChat(viewMessages());
 }
 
-// Minimalismus: Langdruck (contextmenu) auf dem Bubble-Rahmen oeffnet ein Kontextmenue mit
-// den Aktionen der versteckten Toolbar plus Select-All/Kopieren. Auf dem Bubble-Text wird
-// NICHT intercepted: Webseiten koennen dem Systemmenue keine Eintraege anhaengen, also
-// bleibt dort das native Verhalten (Textauswahl + Systemmenue mit Select All/Kopieren) erhalten.
+// Minimalismus: Langdruck (contextmenu) auf einer Bubble oeffnet ein Kontextmenue mit den
+// Aktionen der versteckten Toolbar. Textauswahl ist in dem Modus per CSS deaktiviert
+// (user-select:none), damit Langdruck nicht mit der nativen Auswahl konkurriert. Der
+// Menue-Eintrag "Text auswählen" schaltet die Auswahl fuer diese Bubble wieder frei und
+// laesst danach das native Systemmenue durch (kein preventDefault mehr), bis die Auswahl
+// kollabiert/gecancelt wird (selectionchange) — dann ist der App-Menue-Modus wieder aktiv.
 let ctxMenu = null;
 let ctxMenuDocHandler = null;
+let selectModeBubble = null;
+let selectModeArmed = false;
+
+function enterSelectMode(b) {
+  exitSelectMode();
+  selectModeBubble = b;
+  selectModeArmed = false;
+  b.classList.add("selecting");
+  // erst nach dem aktuellen Event armieren: der Klick auf den Menue-Eintrag kann eine
+  // bestehende Auswahl kollabieren (selectionchange) und darf den Modus nicht sofort beenden
+  setTimeout(() => {
+    if (selectModeBubble === b) selectModeArmed = true;
+  }, 0);
+}
+
+export function exitSelectMode() {
+  if (selectModeBubble) selectModeBubble.classList.remove("selecting");
+  selectModeBubble = null;
+  selectModeArmed = false;
+}
+
+// Einmalige Listener: Kontextmenue am Chat + Ende des Textauswahl-Modus bei leerer Auswahl
+export function initBubbleContextMenu() {
+  $("chat").addEventListener("contextmenu", onBubbleContextMenu);
+  document.addEventListener("selectionchange", () => {
+    if (selectModeBubble && selectModeArmed) {
+      const sel = window.getSelection();
+      if (!sel || sel.isCollapsed) exitSelectMode();
+    }
+  });
+}
 
 export function closeBubbleCtxMenu() {
   if (ctxMenuDocHandler) {
@@ -316,10 +349,14 @@ export function closeBubbleCtxMenu() {
 
 export function onBubbleContextMenu(e) {
   if (!isToolbarMinimal(state.settings)) return; // ohne Minimalismus normales Verhalten
+  if (selectModeBubble) {
+    // Textauswahl-Modus aktiv: natives Systemmenue durchlassen (Webseiten koennen dem
+    // Systemmenue keine Eintraege anhaengen); haengt die Bubble noch im DOM?
+    if (!selectModeBubble.isConnected) exitSelectMode();
+    else return;
+  }
   const b = e.target.closest?.(".bubble");
   if (!b) return;
-  // Langdruck auf Text: natives Verhalten lassen (Auswahl + Systemmenue), nicht preventDefault
-  if (e.target.closest?.(".bubbleBody")) return;
   e.preventDefault();
   closeBubbleCtxMenu();
   const menu = document.createElement("div");
@@ -336,6 +373,7 @@ export function onBubbleContextMenu(e) {
     menu.appendChild(item);
   };
   // immer oben: Textaktionen der Bubble
+  addItem("ctx-select-text", ICONS.selectAll, "Text auswählen", () => enterSelectMode(b));
   addItem("ctx-select-all", ICONS.selectAll, "Alles auswählen", () => selectBubbleText(b));
   addItem("ctx-copy", ICONS.copy, "Kopieren", () => copyBubbleText(b));
   // danach die Aktionen der (versteckten) Toolbar — Kopieren ist als ctx-copy schon oben
