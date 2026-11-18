@@ -354,6 +354,51 @@ def test_tool_results_persisted_in_db_even_when_tool_output_hidden(client, app, 
     assert any("42 Grad" in (m.get("content") or "") for m in tool_msgs)
 
 
+def test_context_compile_sends_only_selected_messages_even_when_tool_output_hidden(client, auth_headers, monkeypatch):
+    """Beim Kompilieren des LLM-Kontexts zaehlt AUSSCHLIESSLICH die Auswahl (in_context), nie
+    die Anzeige: Tool-Ergebnisse, die bei show_tool_output=false persistiert wurden, landen
+    standardmaessig (in_context=true) im Request; erst das Abwaehlen per Kontext-Checkbox
+    (PATCH in_context=false) haelt das Tool-Paar aus dem naechsten Request, waehrend alle
+    uebrigen selektierten Nachrichten weiterhin anhaengen."""
+    seen = _mock_llm(monkeypatch, SSE_BODY_TOOLS)
+    client.put("/api/settings", json={"show_tool_output": False}, headers=auth_headers)
+    sid = _new_session(client, auth_headers)
+    _post_user_message(client, auth_headers, sid, "Wetter in Berlin?")
+    assert _start_chat(client, auth_headers, sid).status_code == 202
+    detail = _wait_generation(client, auth_headers, sid)
+    by_type = {(m["role"], m["type"]): m for m in detail["messages"]}
+    tr_id = by_type[("assistant", "toolresult")]["id"]
+
+    # noch selektiert (Default) -> Tool-Paar im naechsten Request trotz abgewaehlter Anzeige
+    _post_user_message(client, auth_headers, sid, "Und morgen?")
+    assert _start_chat(client, auth_headers, sid).status_code == 202
+    _wait_generation(client, auth_headers, sid)
+    msgs = seen["body"]["messages"]
+    assert any(m.get("role") == "tool" and "42 Grad" in (m.get("content") or "") for m in msgs)
+    assert any(m.get("tool_calls") for m in msgs)
+
+    # alle Toolresults abwaehlen -> naechster Request enthaelt weder tool-Message noch
+    # tool_calls (orphan tool waere ungueltig), die uebrigen selektierten Nachrichten aber schon
+    detail = client.get(f"/api/sessions/{sid}", headers=auth_headers).json()
+    tr_ids = [m["id"] for m in detail["messages"] if m["type"] == "toolresult"]
+    assert tr_ids and tr_id in tr_ids
+    for mid in tr_ids:
+        res = client.patch(f"/api/sessions/{sid}/messages/{mid}", json={"in_context": False}, headers=auth_headers)
+        assert res.status_code == 200, res.text
+        assert res.json()["in_context"] is False
+    _post_user_message(client, auth_headers, sid, "Noch eine Frage")
+    assert _start_chat(client, auth_headers, sid).status_code == 202
+    _wait_generation(client, auth_headers, sid)
+    msgs = seen["body"]["messages"]
+    assert not any(m.get("role") == "tool" for m in msgs)
+    assert not any(m.get("tool_calls") for m in msgs)
+    assert "42 Grad" not in json.dumps(msgs)
+    assert {"role": "user", "content": "Wetter in Berlin?"} in msgs
+    assert {"role": "user", "content": "Und morgen?"} in msgs
+    assert {"role": "user", "content": "Noch eine Frage"} in msgs
+    assert any(m.get("role") == "assistant" and m.get("content") == "Antwort" for m in msgs)
+
+
 def test_chat_filters_system_prompt_from_request_server_side(client, auth_headers, monkeypatch):
     seen = _mock_llm(monkeypatch)
     client.put("/api/settings", json={"show_system_prompt": False}, headers=auth_headers)
