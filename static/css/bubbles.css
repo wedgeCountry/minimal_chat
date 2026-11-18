@@ -133,15 +133,16 @@
 .copyBtn.ok svg{stroke:var(--accent)}
 .bubble.user .copyBtn.ok svg{stroke:var(--bubble-user-text)}
 
-/* Minimalismus (Setting bubbles_minimal): Toolbar im Bubble-Head ausgeblendet, auf
-   Desktop mit Hover wieder eingeblendet; auf Touch-Geraeten (kein Hover) bleibt sie
-   weg und oeffnet sich per Langdruck als Kontextmenue (siehe onBubbleContextMenu). */
+/* Minimalismus (Setting bubbles_minimal): Toolbar im Bubble-Head ist auf ALLEN Geraeten
+   ausgeblendet; nur auf Desktop mit Hover wird sie beim Hovern der Bubble wieder
+   eingeblendet. Auf Touch-Geraeten (kein Hover) oeffnet stattdessen Langdruck
+   (contextmenu) das Kontextmenue (siehe onBubbleContextMenu). */
+html.bubbles-minimal .bubbleHead .iconBtn,
+html.bubbles-minimal .bubbleHead .chk,
+html.bubbles-minimal .collapseBtn{display:none}
 @media (hover:hover) and (pointer:fine){
-  html.bubbles-minimal .bubbleHead .iconBtn,
-  html.bubbles-minimal .bubbleHead .chk{display:none}
   html.bubbles-minimal .bubble:hover .bubbleHead .iconBtn{display:inline-flex}
   html.bubbles-minimal .bubble:hover .bubbleHead .chk{display:inline-block}
-  html.bubbles-minimal .collapseBtn{display:none}
 }
 html.bubbles-minimal .bubble{-webkit-touch-callout:none}
 html.bubbles-minimal .bubbleHead{user-select:none}

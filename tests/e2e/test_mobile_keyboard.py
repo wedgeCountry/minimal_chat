@@ -80,3 +80,44 @@ def test_composer_stays_at_bottom_of_visual_viewport_when_keyboard_open(mobile_p
     assert result["scrollY"] == 0, "bestehender Fenster-Pan muss zurueckgesetzt werden"
     assert abs(result["wrapBottom"] - 400) < 1, f"Composer muss am unteren Rand des sichtbaren Bereichs kleben, bottom={result['wrapBottom']}"
     assert result["inputBottom"] <= 400 + 0.5, f"Eingabefeld muss vollstaendig sichtbar sein, bottom={result['inputBottom']}"
+
+
+def test_minimalism_hides_toolbar_on_touch_and_longpress_opens_menu(mobile_page, base_url, llm_expect):
+    """Minimalismus auf Touch-Geraet (kein Hover): Bubble-Toolbar ist dauerhaft ausgeblendet —
+    auch ohne Hover-Event — und oeffnet sich per Langdruck (contextmenu) als Kontextmenue."""
+    if llm_expect["default"] is None:
+        pytest.skip("Minimalismus-Touch-Test braucht den Mock-LLM")
+    email = "minimal-touch-user@example.com"
+    api_client = _register_client(base_url, email, "Geheim-123")
+    _login(mobile_page, base_url, email, "Geheim-123")
+
+    assert mobile_page.evaluate("() => matchMedia('(hover: none) and (pointer: coarse)').matches"), "Test braucht Touch-Emulation ohne Hover"
+
+    mobile_page.fill(T["chat_input"], "Hallo")
+    mobile_page.click(T["send_btn"])
+    mobile_page.wait_for_function(
+        "() => document.querySelectorAll('[data-testid=\"chat\"] .bubble[data-role=\"assistant\"][data-type=\"message\"]').length === 1"
+        " && !document.querySelector('[data-testid=\"send-btn\"]').classList.contains('abort')",
+        timeout=llm_expect["timeout_ms"],
+    )
+    bubble = '[data-testid="chat"] .bubble[data-role="assistant"][data-type="message"]'
+    toolbar_btn = f"{bubble} .bubbleHead .iconBtn"
+
+    res = api_client.put("/api/settings", json={"bubbles_minimal": True})
+    assert res.status_code == 200, res.text
+    mobile_page.reload()
+    mobile_page.wait_for_selector(bubble, timeout=llm_expect["timeout_ms"])
+    mobile_page.wait_for_function("() => document.documentElement.classList.contains('bubbles-minimal')")
+
+    # Touch-Geraet: es gibt kein Hover — die Toolbar muss trotzdem ausgeblendet sein
+    assert mobile_page.locator(toolbar_btn).first.evaluate("el => getComputedStyle(el).display") == "none", (
+        "Toolbar muss im Minimalismus auf Touch-Geraeten ausgeblendet sein"
+    )
+
+    # Langdruck (contextmenu) oeffnet das Kontextmenue mit den Bubble-Aktionen
+    mobile_page.dispatch_event(bubble, "contextmenu")
+    menu = mobile_page.locator('[data-testid="bubble-context-menu"]')
+    menu.wait_for(state="visible")
+    assert menu.locator("button").count() >= 2, "Kontextmenue muss die Bubble-Aktionen enthalten"
+    mobile_page.keyboard.press("Escape")
+    mobile_page.wait_for_selector('[data-testid="bubble-context-menu"]', state="detached")
