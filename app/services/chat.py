@@ -248,13 +248,26 @@ class MessageService:
         api_key: str,
         payload: dict[str, Any],
         settings: dict[str, bool] | None = None,
-    ) -> None:
-        """Heissen Zustand anlegen und die Generierung als Hintergrund-Task starten."""
+    ) -> str:
+        """Heissen Zustand anlegen und die Generierung als Hintergrund-Task starten.
+
+        Rueckgabe: "ok" (Task gestartet) | "busy" (bereits laufende Generierung) |
+        "missing" (Session unbekannt). Das generating-Flag wird atomar unter dem
+        Session-Lock gesetzt (TOCTOU-frei bei parallelen POSTs). Ein verwaistes Flag
+        (z. B. Server-Neustart mitten in der Generierung) wird geheilt: unter dem Lock
+        laeuft bei generation=None sicher keine Task, dann ist ein gesetztes DB-Flag stale.
+        """
         state = await self._hot(user, sid)  # SessionNotFound -> Router mappt auf 404
         key = self._key(user, sid)
         async with state.lock:
             if state.generation is not None:
-                return  # busy (Router prueft vorher atomar per try_start_generating)
+                return "busy"
+            status = await self._store.try_start_generating(user, sid)
+            if status == "busy":
+                await self._store.set_generating(user, sid, False)
+                status = await self._store.try_start_generating(user, sid)
+            if status != "ok":
+                return status
             active = _ActiveGeneration()
             state.generation = active
             if key in self._abort_requested:
@@ -263,6 +276,7 @@ class MessageService:
             task = asyncio.create_task(self._run_task(user, sid, key, state, active, base_url, api_key, payload, settings))
             self._tasks.add(task)
             task.add_done_callback(self._tasks.discard)
+            return "ok"
 
     async def generate(
         self,

@@ -25,7 +25,9 @@ async function request(path, { method = "GET", body, signal } = {}) {
     throw new Error("Nicht authentifiziert");
   }
   if (!res.ok) {
-    throw new Error(await parseErrorResponse(res));
+    const err = new Error(await parseErrorResponse(res));
+    err.status = res.status;
+    throw err;
   }
   if (res.status === 204) return null;
   return res.json();

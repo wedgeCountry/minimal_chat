@@ -44,7 +44,9 @@ def build_llm_context(
 ) -> LlmContext:
     """Session-Nachrichten (DB-Format) -> LlmContext; ``compile()`` liefert die Wire-Messages."""
     ctx = LlmContext()
-    if system_prompt:
+    # Whitespace-only-Prompt nicht senden (UI blendet ihn ebenso aus; sonst 422 vom LLM-Server)
+    prompt = (system_prompt or "").strip()
+    if prompt:
         ctx.add_system_prompt(system_prompt)
     wire: list[dict[str, Any]] = []
     pending_calls: list[dict[str, Any]] = []  # gepufferte tool_calls der aktuellen Tool-Gruppe
@@ -52,14 +54,20 @@ def build_llm_context(
     tool_seq = 0
 
     def _flush_tool_group() -> None:
-        # Nur vollstaendige Paare als EIN assistant-Message (alle tool_calls der Gruppe)
-        # direkt gefolgt von ihren tool-Messages senden: parallele Toolcalls landen so als
-        # mehrere tool_calls in einem assistant-Message, und ein tool_call ohne
-        # tool_result (z. B. Result per Kontext-Checkbox abwaehlt) wuerde das Request
-        # ungueltig machen (422 bei strikten LLM-Servern)
+        # Nur vollstaendige Paare senden: alle tool_calls der Gruppe in EIN assistant-
+        # Message (kanonische Form fuer parallele Calls), direkt gefolgt von ihren
+        # tool-Messages in derselben Reihenfolge. Ein tool_call ohne tool_result (z. B.
+        # Result per Kontext-Checkbox abwaehlt) wuerde das Request ungueltig machen (422).
+        # Zwei weitere 422-Fallen strikter Server werden vermieden: reine tool_call-
+        # Messages senden "content": "" (leerer String statt null/fehlendem Feld) und
+        # die tool_calls werden in eine unmittelbar vorausgehende assistant-Content-
+        # Message gemerged statt ein zweites assistant-Message hintereinander zu erzeugen.
         n = min(len(pending_calls), len(pending_results))
         if n:
-            wire.append({"role": "assistant", "content": None, "tool_calls": pending_calls[:n]})
+            if wire and wire[-1]["role"] == "assistant":
+                wire[-1].setdefault("tool_calls", []).extend(pending_calls[:n])
+            else:
+                wire.append({"role": "assistant", "content": "", "tool_calls": pending_calls[:n]})
             for call, text in zip(pending_calls[:n], pending_results[:n]):
                 wire.append({"role": "tool", "tool_call_id": call["id"], "content": text})
         pending_calls.clear()
@@ -85,6 +93,10 @@ def build_llm_context(
             _flush_tool_group()
             # leere System-Nachricht nicht an das LLM senden (sonst 422) und nie anzeigen
             if role == "system" and not text.strip():
+                continue
+            # System-Message aus der Session, die identisch mit dem Settings-Prompt ist,
+            # nicht doppelt senden (sonst steht der Prompt zweimal im Request)
+            if role == "system" and prompt and text.strip() == prompt:
                 continue
             content: Any = text
             atts = m.get("attachments") or []

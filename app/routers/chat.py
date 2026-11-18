@@ -44,12 +44,6 @@ async def chat(
         await asyncio.to_thread(validate_llm_base_url, base_url, config.allow_private_llm)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
-    # vor Task-Start atomar setzen, sonst TOCTOU-Race bei parallelen POSTs
-    status = await store.try_start_generating(user, req.session_id)
-    if status == "missing":
-        raise HTTPException(status_code=404, detail="Session nicht gefunden")
-    if status == "busy":
-        raise HTTPException(status_code=409, detail="Es laeuft bereits eine Generierung fuer diese Session")
     api_key = stored.get("api_key") or config.default_api_key
     flags = {key: stored_bool(stored, key) for key in BOOL_SETTINGS}
     # Chat-History serverseitig aus der DB bauen (gueltiges Format inkl. Tool-Calls),
@@ -60,7 +54,13 @@ async def chat(
         "stream": True,
         "messages": llm_ctx.compile(),
     }
-    await service.start_generation(user, req.session_id, base_url, api_key, payload, flags)
+    # generating-Flag atomar unter dem Session-Lock setzen (TOCTOU-frei); ein verwaistes
+    # Flag nach Server-Neustart wird im Service geheilt
+    status = await service.start_generation(user, req.session_id, base_url, api_key, payload, flags)
+    if status == "missing":
+        raise HTTPException(status_code=404, detail="Session nicht gefunden")
+    if status == "busy":
+        raise HTTPException(status_code=409, detail="Es laeuft bereits eine Generierung fuer diese Session")
     return {"status": "started"}
 
 
