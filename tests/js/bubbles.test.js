@@ -26,8 +26,8 @@ function fakeBubble() {
   };
 }
 
-const { setBubbleMode, setBubbleText, syncBubbleTts, syncBubbleDelete } = await import("../../static/js/bubbles.js");
-const { state } = await import("../../static/js/state.js");
+const { setBubbleMode, setBubbleText, syncBubbleTts, syncBubbleDelete } = await import("../../app/static/js/bubbles.js");
+const { state } = await import("../../app/static/js/state.js");
 
 const LONG = Array.from({ length: 12 }, (_, i) => `Zeile ${i + 1}`).join("\n");
 

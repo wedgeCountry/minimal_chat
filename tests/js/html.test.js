@@ -38,7 +38,7 @@ test("initPartials loads each placeholder and replaces it with the partial conte
     return { ok: true, text: async () => "<div>panel</div>" };
   };
 
-  const { initPartials } = await import("../../static/js/html.js");
+  const { initPartials } = await import("../../app/static/js/html.js");
   await initPartials();
   assert.deepEqual(el.replacedWith, [{ node: "<div>panel</div>" }]);
 });
@@ -51,7 +51,7 @@ test("initPartials throws when a partial cannot be loaded", async () => {
   };
   globalThis.fetch = async () => ({ ok: false, status: 404 });
 
-  const { initPartials } = await import("../../static/js/html.js");
+  const { initPartials } = await import("../../app/static/js/html.js");
   await assert.rejects(initPartials(), /Partial nicht geladen/);
 });
 

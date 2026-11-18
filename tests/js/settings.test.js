@@ -1,8 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildBaseUrl, updateSpeechStatus } from "../../static/js/settings.js";
-import { state } from "../../static/js/state.js";
-import { controlsVisible, refreshSpeechAvailability } from "../../static/js/ttsDetectionService.js";
+import { buildBaseUrl, updateSpeechStatus } from "../../app/static/js/settings.js";
+import { state } from "../../app/static/js/state.js";
+import { controlsVisible, refreshSpeechAvailability } from "../../app/static/js/ttsDetectionService.js";
 
 test("buildBaseUrl: host + port -> http://host:port/v1", () => {
   assert.equal(buildBaseUrl("192.168.1.10", "8000"), "http://192.168.1.10:8000/v1");

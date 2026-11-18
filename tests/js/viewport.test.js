@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { applyVisualViewport, initViewportSync } from "../../static/js/viewport.js";
+import { applyVisualViewport, initViewportSync } from "../../app/static/js/viewport.js";
 
 test("applyVisualViewport koppelt die Root-Hoehe an den Visual Viewport und resettet den Pan", () => {
   const root = { style: {} };

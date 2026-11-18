@@ -19,7 +19,7 @@ function stubEnv({ status = 200, body = "{}", headers = {} } = {}) {
   return { events, calls };
 }
 
-const { api } = await import("../../static/js/api.js");
+const { api } = await import("../../app/static/js/api.js");
 
 test("api.get returns parsed json and calls /api prefix", async () => {
   const { calls } = stubEnv({ body: '{"ok":true}' });

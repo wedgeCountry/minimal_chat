@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { applySseState, applyToLiveState, pickViewMessages } from "../../static/js/chat.js";
+import { applySseState, applyToLiveState, pickViewMessages } from "../../app/static/js/chat.js";
 
 test("applySseState: state-Event mit hoeherem seq wird uebernommen", () => {
   const cur = { seq: 2, messages: [{ id: 1, text: "alt", in_context: true }] };

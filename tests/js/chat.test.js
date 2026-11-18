@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { sortMessagesForRender, findLastUserMessage, hasMessagesAfter, applyLocalMessage, removeLocalMessage, removeLocalMessagesAfter } from "../../static/js/chat.js";
-import { state } from "../../static/js/state.js";
+import { sortMessagesForRender, findLastUserMessage, hasMessagesAfter, applyLocalMessage, removeLocalMessage, removeLocalMessagesAfter } from "../../app/static/js/chat.js";
+import { state } from "../../app/static/js/state.js";
 
 test("sortMessagesForRender: chronological by ts", () => {
   const messages = [

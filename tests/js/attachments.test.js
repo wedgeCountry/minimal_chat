@@ -19,8 +19,8 @@ globalThis.document = {
   dispatchEvent: () => {},
 };
 
-const { state } = await import("../../static/js/state.js");
-const { addAttachments, renderAttachments, uploadPendingAttachments } = await import("../../static/js/attachments.js");
+const { state } = await import("../../app/static/js/state.js");
+const { addAttachments, renderAttachments, uploadPendingAttachments } = await import("../../app/static/js/attachments.js");
 
 test("addAttachments pushes files to pendingAttachments and renders chips", () => {
   state.pendingAttachments = [];

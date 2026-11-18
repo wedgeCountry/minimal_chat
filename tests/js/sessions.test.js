@@ -7,8 +7,8 @@ function stubDom() {
   return events;
 }
 
-const { openSession, newSession, sortedSessions, loadSessions, renameSession } = await import("../../static/js/sessions.js");
-const { state } = await import("../../static/js/state.js");
+const { openSession, newSession, sortedSessions, loadSessions, renameSession } = await import("../../app/static/js/sessions.js");
+const { state } = await import("../../app/static/js/state.js");
 
 test("openSession dispatches leanchat:session-selected", () => {
   const events = stubDom();

@@ -1,8 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { speechControlsVisible } from "../../static/js/visibility.js";
-import { speechStatusLabel, SPEECH_MODES, mergeTranscript, effectiveModeFor, controlsVisible, refreshSpeechAvailability } from "../../static/js/ttsDetectionService.js";
-import { state } from "../../static/js/state.js";
+import { speechControlsVisible } from "../../app/static/js/visibility.js";
+import { speechStatusLabel, SPEECH_MODES, mergeTranscript, effectiveModeFor, controlsVisible, refreshSpeechAvailability } from "../../app/static/js/ttsDetectionService.js";
+import { state } from "../../app/static/js/state.js";
 
 const avail = { systemStt: true, systemTts: true, serverStt: true, serverTts: true };
 const availOff = { systemStt: false, systemTts: false, serverStt: false, serverTts: false };

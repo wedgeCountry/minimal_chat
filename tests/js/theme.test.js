@@ -9,8 +9,8 @@ globalThis.document = { documentElement: { classList: {
   contains: (c) => classes.has(c),
 } } };
 
-const { state } = await import("../../static/js/state.js");
-const { applyTheme } = await import("../../static/js/theme.js");
+const { state } = await import("../../app/static/js/state.js");
+const { applyTheme } = await import("../../app/static/js/theme.js");
 
 test("applyTheme adds dark class when theme is dark", () => {
   state.settings.theme = "dark";

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { isBubbleDeletable, isBubbleCheckable, isBubbleContextToggleable, isBubbleSpeaker, isBubbleVisible, isDuplicateSystemPrompt, isToolbarMinimal } from "../../static/js/visibility.js";
+import { isBubbleDeletable, isBubbleCheckable, isBubbleContextToggleable, isBubbleSpeaker, isBubbleVisible, isDuplicateSystemPrompt, isToolbarMinimal } from "../../app/static/js/visibility.js";
 
 const allOn = {
   bubbles_deletable: true,

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { BUBBLE_MODES, NORMAL_MAX_LINES, clampText, isClamped, nextBubbleMode, bubbleModeTitle, defaultBubbleMode } from "../../static/js/bubbleMode.js";
+import { BUBBLE_MODES, NORMAL_MAX_LINES, clampText, isClamped, nextBubbleMode, bubbleModeTitle, defaultBubbleMode } from "../../app/static/js/bubbleMode.js";
 
 const long = Array.from({ length: 15 }, (_, i) => `Zeile ${i + 1}`).join("\n");
 

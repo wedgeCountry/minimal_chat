@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { normalizeErrorMessage, ERROR_AUTO_CLOSE_MS } from "../../static/js/errors.js";
+import { normalizeErrorMessage, ERROR_AUTO_CLOSE_MS } from "../../app/static/js/errors.js";
 
 test("normalizeErrorMessage: Error uses stack or message", () => {
   const err = new Error("boom");

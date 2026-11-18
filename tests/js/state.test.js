@@ -8,7 +8,7 @@ globalThis.sessionStorage = {
   removeItem: (k) => store.delete(k),
 };
 
-const { state, activeSession, setActiveId, normalizeMessage, normalizeMessages } = await import("../../static/js/state.js");
+const { state, activeSession, setActiveId, normalizeMessage, normalizeMessages } = await import("../../app/static/js/state.js");
 
 test("setActiveId sets state and persists to sessionStorage", () => {
   setActiveId("s1");
@@ -51,7 +51,7 @@ test("normalizeMessages handles lists and null", () => {
 });
 
 test("state.settings enthaelt alle BOOL_SETTING_KEYS mit ihren Defaults (Single Source of Truth)", async () => {
-  const { BOOL_SETTING_KEYS, BOOL_SETTING_DEFAULTS, defaultBoolSettings } = await import("../../static/js/settingsKeys.js");
+  const { BOOL_SETTING_KEYS, BOOL_SETTING_DEFAULTS, defaultBoolSettings } = await import("../../app/static/js/settingsKeys.js");
   assert.deepEqual(defaultBoolSettings(), BOOL_SETTING_DEFAULTS);
   for (const k of BOOL_SETTING_KEYS) {
     assert.ok(k in BOOL_SETTING_DEFAULTS, `Default fehlt fuer ${k}`);

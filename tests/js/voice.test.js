@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { encodeWav, voiceStatus, voiceAvailable, transcribeAudio, synthesizeSpeech, VOICE_UNAVAILABLE_MSG } from "../../static/js/voice.js";
+import { encodeWav, voiceStatus, voiceAvailable, transcribeAudio, synthesizeSpeech, VOICE_UNAVAILABLE_MSG } from "../../app/static/js/voice.js";
 
 test("encodeWav erzeugt gueltigen RIFF/WAVE-Header", async () => {
   const samples = new Float32Array([0, 0.5, -0.5, 1, -1]);

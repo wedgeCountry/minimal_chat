@@ -32,7 +32,7 @@ function stubDom() {
   return { els, docListeners };
 }
 
-const { initConfirm, confirmModal, showError } = await import("../../static/js/confirm.js");
+const { initConfirm, confirmModal, showError } = await import("../../app/static/js/confirm.js");
 
 test("confirmModal resolves true on OK and closes the overlay", async () => {
   const { els } = stubDom();

@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 
 globalThis.window = { location: { href: "" } };
 
-const { goToLogin } = await import("../../static/js/auth.js");
+const { goToLogin } = await import("../../app/static/js/auth.js");
 
 test("goToLogin redirects to the auth login page", () => {
   goToLogin();

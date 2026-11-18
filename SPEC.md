@@ -108,7 +108,7 @@ Speicherung: serverseitig in der verschlüsselten per-user SQLite (`user_setting
 
 ## 7. Technische Rahmenbedingungen
 
-- FastAPI-Backend (`app/`) + statisches Frontend (`static/`, ES-Module ohne Build-Tools)
+- FastAPI-Backend (`app/`) + statisches Frontend (`app/static`, ES-Module ohne Build-Tools)
 - Datei-Uploads per Multipart (`POST /api/sessions/{id}/attachments`), serverseitige Verarbeitung
 - OpenAI-kompatibles Protokoll: `POST {baseURL}/chat/completions`, `Authorization: Bearer {key}`
 - Fehlerbehandlung: Netzwerk-/Auth-Fehler als System-Bubble im Chat; antwortet das LLM mit HTTP 422 (z. B. zu großer Request-Body), wird ein System-Bubble mit Hinweis auf die Kontext-Checkbox persistiert (ältere Nachrichten abwählbar, `in_context=false`); ein `toolresult` ohne passenden `toolcall` wird serverseitig verworfen, damit der Request gültig bleibt
