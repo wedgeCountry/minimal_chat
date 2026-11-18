@@ -56,7 +56,7 @@ test("initPartials throws when a partial cannot be loaded", async () => {
 });
 
 test("side-panel partial ist ab dem ersten Render eingeklappt (kein Aufflackern beim Laden/Refresh)", () => {
-  const partial = readFileSync(fileURLToPath(new URL("../../static/partials/side-panel.html", import.meta.url)), "utf-8");
+  const partial = readFileSync(fileURLToPath(new URL("../../app/static/partials/side-panel.html", import.meta.url)), "utf-8");
   const aside = partial.match(/<aside[^>]*>/);
   assert.ok(aside, "side-panel.html enthaelt ein <aside>");
   assert.match(aside[0], /id="side"/);
