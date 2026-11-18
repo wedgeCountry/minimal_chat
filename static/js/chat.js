@@ -1,12 +1,12 @@
 import { api, openStream } from "./api.js";
 import { activeSession, normalizeMessage, normalizeMessages, state } from "./state.js";
-import { $, isNearBottom, captureScrollAnchor, restoreScrollAnchor } from "./util.js";
+import { $, isNearBottom, captureScrollAnchor, restoreScrollAnchor, esc } from "./util.js";
 import { ICONS } from "./icons.js";
-import { bubbleEl, setBubbleText, enterBubbleEdit, exitBubbleEdit, syncBubbleTts, syncBubbleDelete } from "./bubbles.js";
+import { bubbleEl, setBubbleText, enterBubbleEdit, exitBubbleEdit, syncBubbleTts, syncBubbleDelete, copyBubbleText } from "./bubbles.js";
 import { loadSessions, newSession, changed } from "./sessions.js";
 import { uploadPendingAttachments } from "./attachments.js";
 import { confirmModal } from "./confirm.js";
-import { isBubbleVisible, isDuplicateSystemPrompt } from "./visibility.js";
+import { isBubbleVisible, isDuplicateSystemPrompt, isToolbarMinimal } from "./visibility.js";
 import { stopRecording } from "./ttsDetectionService.js";
 
 export function setStreamingUI(on) {
@@ -294,6 +294,144 @@ export function renderChat(messages) {
 // den offenen Live-Block aus der Ansicht wirft.
 export function renderChatView() {
   renderChat(viewMessages());
+}
+
+// Minimalismus: Kontextmenue je nach Geraet — Desktop (feiner Pointer): RECHTSKLICK
+// (contextmenu) ueberschreibt das Systemmenue und oeffnet das App-Menue; Klick/Doppelklick
+// oeffnen dort nichts. Touch (kein Hover): DOPPEL-Tap oeffnet das App-Menue, Langdruck bleibt
+// nativ (Systemmenue + Textauswahl — Webseiten koennen dem Systemmenue keine Eintraege anhaengen).
+let ctxMenu = null;
+let ctxMenuDocHandler = null;
+
+function isFinePointer() {
+  return !!(window.matchMedia && window.matchMedia("(hover:hover) and (pointer:fine)").matches);
+}
+
+export function closeBubbleCtxMenu() {
+  if (ctxMenuDocHandler) {
+    document.removeEventListener("pointerdown", ctxMenuDocHandler);
+    ctxMenuDocHandler = null;
+  }
+  if (ctxMenu) {
+    ctxMenu.remove();
+    ctxMenu = null;
+  }
+}
+
+function openBubbleCtxMenu(b, x, y) {
+  closeBubbleCtxMenu();
+  const menu = document.createElement("div");
+  menu.className = "ctxMenu";
+  menu.dataset.testid = "bubble-context-menu";
+  const addItem = (testid, icon, label, fn) => {
+    const item = document.createElement("button");
+    item.dataset.testid = testid;
+    item.innerHTML = `${icon}<span>${esc(label)}</span>`;
+    item.onclick = () => {
+      closeBubbleCtxMenu();
+      fn();
+    };
+    menu.appendChild(item);
+  };
+  // immer oben: Textaktionen der Bubble
+  addItem("ctx-copy", ICONS.copy, "Kopieren", () => copyBubbleText(b));
+  // danach die Aktionen der (versteckten) Toolbar — Kopieren ist als ctx-copy schon oben
+  for (const ctl of b.querySelectorAll(".bubbleHead .iconBtn, .bubbleHead .chk")) {
+    if (ctl.classList.contains("copyBtn")) continue;
+    addItem(`ctx-${ctl.dataset.testid || "action"}`, ctl.innerHTML, ctl.title || "Aktion", () => ctl.click());
+  }
+  if (!menu.children.length) return;
+  menu.style.left = "0px";
+  menu.style.top = "0px";
+  document.body.appendChild(menu);
+  const r = menu.getBoundingClientRect();
+  menu.style.left = `${Math.max(8, Math.min(x || 8, window.innerWidth - r.width - 8))}px`;
+  menu.style.top = `${Math.max(8, Math.min(y || 8, window.innerHeight - r.height - 8))}px`;
+  ctxMenu = menu;
+  ctxMenuDocHandler = (ev) => {
+    // Tap ausserhalb des Menues und ausserhalb von Bubbles schliesst es sofort;
+    // Taps auf Bubbles werden im click-Handler (onBubbleTap) als Toggle behandelt
+    if (ctxMenu && !ctxMenu.contains(ev.target) && !ev.target.closest?.(".bubble")) closeBubbleCtxMenu();
+  };
+  document.addEventListener("pointerdown", ctxMenuDocHandler);
+  document.addEventListener("keydown", (ev) => ev.key === "Escape" && closeBubbleCtxMenu(), { once: true });
+}
+
+// Nur ein kurzer Tap ohne Bewegung zaehlt — Scrollen/Pan mit dem Finger nicht. Das Menue
+// oeffnet erst beim DOPPEL-Tap; der einfache Tap bleibt frei fuer das Expand-Verhalten der
+// Bubble (Klick auf gekuerzten Text klappt auf, siehe bubbles.js). War beim pointerdown eine
+// Textauswahl aktiv (System-Auswahlmenue offen), oeffnet der Tap kein Menue: er bricht die
+// Auswahl ab (hadSelection wird am pointerdown gemessen, weil der Browser die Auswahl schon
+// beim pointerdown kollabieren kann).
+let tapStart = null; // { x, y, t, hadSelection } des pointerdown auf einer Bubble
+let lastTap = null; // { t, x, y, bubble } des letzten kurzen Taps (Doppel-Tap-Erkennung)
+const TAP_MAX_MOVE_PX = 10;
+const TAP_MAX_MS = 500;
+const DBL_TAP_MAX_MS = 350;
+const DBL_TAP_MAX_PX = 30;
+
+export function onBubbleTap(e) {
+  if (!isToolbarMinimal(state.settings)) return; // ohne Minimalismus normales Klick-Verhalten
+  if (e.target.closest("button, input, textarea, a, .editRow")) return; // interaktive Elemente unveraendert
+  const b = e.target.closest?.(".bubble");
+  if (!b) return;
+  if (isFinePointer()) {
+    // Desktop: Klick/Doppelklick oeffnen nie das Menue (das kommt vom Rechtsklick/contextmenu);
+    // ein Klick bei offenem Menue schliesst es wieder
+    if (ctxMenu) {
+      closeBubbleCtxMenu();
+      lastTap = null;
+    }
+    return;
+  }
+  const start = tapStart;
+  tapStart = null;
+  if (!start || Math.hypot(e.clientX - start.x, e.clientY - start.y) > TAP_MAX_MOVE_PX || e.timeStamp - start.t > TAP_MAX_MS) return; // kein kurzer Tap (z. B. Scroll-Geste)
+  if (start.hadSelection) {
+    lastTap = null; // System-Auswahlmenue war offen -> Tap bricht Auswahl ab, zaehlt nicht als Tap
+    return;
+  }
+  if (ctxMenu) {
+    closeBubbleCtxMenu(); // Tap bei offenem Menue schliesst alle Kontextmenues
+    lastTap = null;
+    return;
+  }
+  const dbl =
+    lastTap &&
+    e.timeStamp - lastTap.t <= DBL_TAP_MAX_MS &&
+    Math.hypot(e.clientX - lastTap.x, e.clientY - lastTap.y) <= DBL_TAP_MAX_PX &&
+    lastTap.bubble === b;
+  lastTap = { t: e.timeStamp, x: e.clientX, y: e.clientY, bubble: b };
+  if (dbl) {
+    lastTap = null;
+    openBubbleCtxMenu(b, e.clientX, e.clientY);
+  }
+  // einfacher Tap: nichts weiter — das click-Event laeuft normal durch (Expand bei gekuerztem Text)
+}
+
+// Desktop: Rechtsklick auf eine Bubble ueberschreibt das System-Kontextmenue durch das App-Menue
+export function onBubbleContextMenu(e) {
+  if (!isToolbarMinimal(state.settings)) return;
+  if (!isFinePointer()) return; // Touch: Langdruck bleibt nativ (Systemmenue + Textauswahl)
+  const b = e.target.closest?.(".bubble");
+  if (!b) return;
+  e.preventDefault();
+  openBubbleCtxMenu(b, e.clientX, e.clientY);
+}
+
+export function initBubbleMenu() {
+  const chat = $("chat");
+  chat.addEventListener("click", onBubbleTap); // Touch: Doppel-Tap-Menue (Desktop: nur Schliessen)
+  chat.addEventListener("contextmenu", onBubbleContextMenu); // Desktop: Rechtsklick-Menue (Touch: nativ)
+  chat.addEventListener("pointerdown", (e) => {
+    if (!e.target.closest?.(".bubble")) {
+      tapStart = null;
+      return;
+    }
+    const sel = window.getSelection();
+    tapStart = { x: e.clientX, y: e.clientY, t: e.timeStamp, hadSelection: !!(sel && !sel.isCollapsed) };
+  });
+  chat.addEventListener("scroll", () => closeBubbleCtxMenu(), { passive: true });
 }
 
 // Edit-Modus: id der Nutzernachricht, die gerade inline in ihrer Bubble bearbeitet wird

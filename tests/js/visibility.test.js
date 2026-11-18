@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { isBubbleDeletable, isBubbleCheckable, isBubbleContextToggleable, isBubbleSpeaker, isBubbleVisible, isDuplicateSystemPrompt } from "../../static/js/visibility.js";
+import { isBubbleDeletable, isBubbleCheckable, isBubbleContextToggleable, isBubbleSpeaker, isBubbleVisible, isDuplicateSystemPrompt, isToolbarMinimal } from "../../static/js/visibility.js";
 
 const allOn = {
   bubbles_deletable: true,
@@ -34,6 +34,12 @@ test("show_tool_output=false blendet Tool-Calls und Tool-Results aus", () => {
 test("show_system_prompt=false blendet System-Bubbles aus", () => {
   const s = { ...allOn, show_system_prompt: false };
   assert.equal(isBubbleVisible({ role: "system", type: "message" }, s), false);
+});
+
+test("isToolbarMinimal: nur bei explizitem bubbles_minimal=true (Default aus)", () => {
+  assert.equal(isToolbarMinimal({ ...allOn }), false, "Default: Toolbar immer sichtbar");
+  assert.equal(isToolbarMinimal({ ...allOn, bubbles_minimal: false }), false);
+  assert.equal(isToolbarMinimal({ ...allOn, bubbles_minimal: true }), true, "Minimalismus aktiv: Toolbar nur per Hover/Langdruck");
 });
 
 test("leere System-Prompt-Bubble wird nie angezeigt", () => {

@@ -133,21 +133,11 @@ export function bubbleEl(m, handlers = {}, opts = {}) {
   const body = b.querySelector(".bubbleBody");
   if (body)
     body.addEventListener("click", () => {
-      // Klick auf gekuerzten Text ([...]) schaltet wie der Chevron weiter
+      // Klick auf gekuerzten Text ([...]) schaltet wie der Chevron weiter; im Minimalismus
+      // oeffnet erst der Doppel-Tap das Kontextmenue (onBubbleTap in chat.js)
       if (body.classList.contains("clamped")) setBubbleMode(b, nextBubbleMode(b.dataset.mode || "normal"));
     });
-  b.querySelector(".copyBtn").onclick = async (e) => {
-    const btn = e.currentTarget;
-    const text = b._msg?.text || "";
-    try {
-      await navigator.clipboard.writeText(text);
-    } catch {
-      await showError("Kopieren fehlgeschlagen – Zwischenablage nicht verfügbar.");
-      return;
-    }
-    btn.classList.add("ok");
-    setTimeout(() => btn.classList.remove("ok"), 900);
-  };
+  b.querySelector(".copyBtn").onclick = () => copyBubbleText(b);
   const chk = b.querySelector(".chk");
   if (chk)
     chk.onchange = () => {
@@ -177,6 +167,23 @@ export function bubbleEl(m, handlers = {}, opts = {}) {
 
 function wireDelButton(b, del) {
   del.onclick = () => b._handlers?.onDelete?.(b._msg);
+}
+
+// Bubble-Text in die Zwischenablage (Toolbar-Button und Kontextmenue); true bei Erfolg
+export async function copyBubbleText(b) {
+  const text = b._msg?.text || "";
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch {
+    await showError("Kopieren fehlgeschlagen – Zwischenablage nicht verfügbar.");
+    return false;
+  }
+  const btn = b.querySelector(".copyBtn");
+  if (btn) {
+    btn.classList.add("ok");
+    setTimeout(() => btn.classList.remove("ok"), 900);
+  }
+  return true;
 }
 
 // Loeschen-Button (Muelleimer) folgt dem Setting auch bei wiederverwendeten Bubbles

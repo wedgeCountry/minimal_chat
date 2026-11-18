@@ -80,3 +80,129 @@ def test_composer_stays_at_bottom_of_visual_viewport_when_keyboard_open(mobile_p
     assert result["scrollY"] == 0, "bestehender Fenster-Pan muss zurueckgesetzt werden"
     assert abs(result["wrapBottom"] - 400) < 1, f"Composer muss am unteren Rand des sichtbaren Bereichs kleben, bottom={result['wrapBottom']}"
     assert result["inputBottom"] <= 400 + 0.5, f"Eingabefeld muss vollstaendig sichtbar sein, bottom={result['inputBottom']}"
+
+
+def test_minimalism_hides_toolbar_on_touch_and_longpress_opens_menu(mobile_page, base_url, llm_expect):
+    """Minimalismus auf Touch-Geraet (kein Hover): Bubble-Toolbar ist dauerhaft ausgeblendet —
+    auch ohne Hover-Event — und oeffnet sich per Langdruck (contextmenu) als Kontextmenue."""
+    if llm_expect["default"] is None:
+        pytest.skip("Minimalismus-Touch-Test braucht den Mock-LLM")
+    email = "minimal-touch-user@example.com"
+    api_client = _register_client(base_url, email, "Geheim-123")
+    _login(mobile_page, base_url, email, "Geheim-123")
+
+    assert mobile_page.evaluate("() => matchMedia('(hover: none) and (pointer: coarse)').matches"), "Test braucht Touch-Emulation ohne Hover"
+
+    mobile_page.fill(T["chat_input"], "Hallo")
+    mobile_page.click(T["send_btn"])
+    mobile_page.wait_for_function(
+        "() => document.querySelectorAll('[data-testid=\"chat\"] .bubble[data-role=\"assistant\"][data-type=\"message\"]').length === 1"
+        " && !document.querySelector('[data-testid=\"send-btn\"]').classList.contains('abort')",
+        timeout=llm_expect["timeout_ms"],
+    )
+    bubble = '[data-testid="chat"] .bubble[data-role="assistant"][data-type="message"]'
+    toolbar_btn = f"{bubble} .bubbleHead .iconBtn"
+
+    res = api_client.put("/api/settings", json={"bubbles_minimal": True})
+    assert res.status_code == 200, res.text
+    mobile_page.reload()
+    mobile_page.wait_for_selector(bubble, timeout=llm_expect["timeout_ms"])
+    mobile_page.wait_for_function("() => document.documentElement.classList.contains('bubbles-minimal')")
+
+    # Touch-Geraet: es gibt kein Hover — die Toolbar muss trotzdem ausgeblendet sein
+    assert mobile_page.locator(toolbar_btn).first.evaluate("el => getComputedStyle(el).display") == "none", (
+        "Toolbar muss im Minimalismus auf Touch-Geraeten ausgeblendet sein"
+    )
+    assert mobile_page.locator(f"{bubble} .bubbleHead .role").evaluate("el => getComputedStyle(el).display") == "none", (
+        "Rollen-Label muss im Minimalismus ausgeblendet sein"
+    )
+
+    # Touch + Minimalismus: Textauswahl bleibt aktiv (Langdruck = natives Systemmenue),
+    # Doppel-Tap oeffnet das App-Menue, Tap bei offenem Menue schliesst, Scroll-Geste oeffnet nichts
+    body_sel = f"{bubble} .bubbleBody"
+    assert mobile_page.locator(body_sel).evaluate("el => getComputedStyle(el).userSelect") in ("text", "auto"), "Textauswahl darf im Minimalismus nicht per CSS deaktiviert sein"
+    menu = mobile_page.locator('[data-testid="bubble-context-menu"]')
+
+    box = mobile_page.locator(bubble).bounding_box()
+    cx, cy = box["x"] + box["width"] / 2, box["y"] + box["height"] / 2
+    mobile_page.touchscreen.tap(cx, cy)  # einfacher Tap -> KEIN Menue
+    mobile_page.wait_for_timeout(300)
+    assert menu.count() == 0, "einfacher Tap darf im Minimalismus kein Kontextmenue oeffnen"
+    # Doppel-Tap (zwei pointerdown+click-Paare in einem Tick -> deterministisch schnell genug)
+    mobile_page.evaluate(
+        """(sel) => {
+          const el = document.querySelector(sel);
+          const r = el.getBoundingClientRect();
+          const x = r.x + r.width / 2, y = r.y + r.height / 2;
+          for (let i = 0; i < 2; i++) {
+            el.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, clientX: x, clientY: y }));
+            el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, clientX: x, clientY: y }));
+          }
+        }""",
+        bubble,
+    )
+    menu.wait_for(state="visible")
+    assert menu.locator("button").count() >= 2, "Kontextmenue muss Kopieren und die Bubble-Aktionen enthalten"
+    assert menu.locator('[data-testid="ctx-copy"]').count() == 1, "Menue-Eintrag fehlt: ctx-copy"
+    mobile_page.touchscreen.tap(cx, cy)  # Tap bei offenem Menue -> alle Kontextmenues zu
+    mobile_page.wait_for_selector('[data-testid="bubble-context-menu"]', state="detached")
+
+    # System-Auswahlmenue offen (aktive Textauswahl): Tap darf kein App-Menue oeffnen
+    mobile_page.evaluate(
+        """(sel) => {
+          const el = document.querySelector(sel);
+          const r = document.createRange();
+          r.selectNodeContents(el);
+          const s = window.getSelection();
+          s.removeAllRanges();
+          s.addRange(r);
+        }""",
+        body_sel,
+    )
+    mobile_page.touchscreen.tap(cx, cy)
+    mobile_page.wait_for_timeout(300)
+    assert menu.count() == 0, "bei aktiver System-Auswahl darf ein Tap kein App-Menue oeffnen"
+    mobile_page.evaluate("() => window.getSelection().removeAllRanges()")
+    mobile_page.evaluate(
+        """(sel) => {
+          const el = document.querySelector(sel);
+          const r = el.getBoundingClientRect();
+          const x = r.x + r.width / 2, y = r.y + r.height / 2;
+          for (let i = 0; i < 2; i++) {
+            el.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, clientX: x, clientY: y }));
+            el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, clientX: x, clientY: y }));
+          }
+        }""",
+        bubble,
+    )
+    menu.wait_for(state="visible")
+    mobile_page.keyboard.press("Escape")
+    mobile_page.wait_for_selector('[data-testid="bubble-context-menu"]', state="detached")
+
+    # Scroll-Geste (Pointer wird bewegt, click landet versetzt) darf kein Menue oeffnen
+    opened = mobile_page.evaluate(
+        """(sel) => {
+          const el = document.querySelector(sel);
+          const r = el.getBoundingClientRect();
+          const x = r.x + r.width / 2, y = r.y + r.height / 2;
+          el.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, clientX: x, clientY: y }));
+          el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, clientX: x, clientY: y + 60 }));
+          return !!document.querySelector('[data-testid="bubble-context-menu"]');
+        }""",
+        bubble,
+    )
+    assert opened is False, "Scroll/Pan-Geste darf kein Kontextmenue oeffnen"
+
+    # Langdruck (contextmenu) bleibt nativ: kein preventDefault, kein eigenes Menue
+    not_prevented = mobile_page.evaluate(
+        """(sel) => {
+          const el = document.querySelector(sel);
+          const ev = new MouseEvent('contextmenu', { bubbles: true, cancelable: true });
+          el.dispatchEvent(ev);
+          return !ev.defaultPrevented;
+        }""",
+        body_sel,
+    )
+    assert not_prevented, "contextmenu (Langdruck) darf nicht preventDefault sein — natives Systemmenue bleibt"
+    mobile_page.wait_for_timeout(300)
+    assert menu.count() == 0, "beim Langdruck darf kein eigenes Kontextmenue erscheinen"

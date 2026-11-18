@@ -1499,3 +1499,120 @@ def test_stream_end_bubble_never_vanishes(page, base_url, llm_expect):
     assert page.locator(_bubble("assistant", "message")).count() == 1
     body = page.locator(_bubble("assistant", "message")).first.locator('[data-testid="bubble-body"]')
     assert llm_expect["default"] in body.inner_text()
+
+
+def test_minimalism_desktop_hides_head_and_overrides_context_menu(page, base_url, llm_expect):
+    """Minimalismus-Setting (Allgemein), Desktop: Bubble-Head ist komplett ausgeblendet (auch
+    beim Hover). Klick/Doppelklick oeffnen kein Menue — der Rechtsklick (contextmenu) ueber-
+    schreibt das Systemmenue durch das App-Kontextmenue. Einfacher Klick klappt weiterhin
+    gekuerzte Bubbles auf. Ohne Setting bleibt der Head sichtbar."""
+    if llm_expect["default"] is None:
+        pytest.skip("Minimalismus-Test braucht den Mock-LLM")
+    email = "minimal-user@example.com"
+    api_client = _register_client(base_url, email, "Geheim-123")
+    _login(page, base_url, email, "Geheim-123")
+    _new_named_session(page, api_client)
+
+    page.fill(T["chat_input"], "Hallo")
+    page.click(T["send_btn"])
+    page.wait_for_function(
+        "() => document.querySelectorAll('[data-testid=\"chat\"] .bubble[data-role=\"assistant\"][data-type=\"message\"]').length === 1"
+        " && !document.querySelector('[data-testid=\"send-btn\"]').classList.contains('abort')",
+        timeout=llm_expect["timeout_ms"],
+    )
+    toolbar_btn = f'{_bubble("assistant", "message")} .bubbleHead .iconBtn'
+
+    # Setting serverseitig setzen, dann Seite neu laden (Cookie bleibt -> kein erneuter Login)
+    res = api_client.put("/api/settings", json={"bubbles_minimal": True})
+    assert res.status_code == 200, res.text
+    assert res.json()["bubbles_minimal"] is True
+    page.reload()
+    page.wait_for_selector(_bubble("assistant", "message"), timeout=llm_expect["timeout_ms"])
+    page.wait_for_function("() => document.documentElement.classList.contains('bubbles-minimal')")
+
+    assert page.locator(toolbar_btn).first.evaluate("el => getComputedStyle(el).display") == "none", "Toolbar muss im Minimalismus ausgeblendet sein"
+    head = f'{_bubble("assistant", "message")} .bubbleHead'
+    assert page.locator(head).evaluate("el => getComputedStyle(el).display") == "none", "Bubble-Head muss im Minimalismus komplett ausgeblendet sein"
+
+    # Desktop: auch beim Hover bleibt der Head ausgeblendet (kein Hover-Reveal mehr)
+    page.hover(_bubble("assistant", "message"))
+    assert page.locator(head).evaluate("el => getComputedStyle(el).display") == "none", "Hover darf den Bubble-Head im Minimalismus nicht einblenden"
+
+    # Minimalismus: Textauswahl bleibt aktiv (kein user-select:none)
+    bubble_sel = _bubble("assistant", "message")
+    body_sel = f"{bubble_sel} .bubbleBody"
+    assert page.locator(body_sel).evaluate("el => getComputedStyle(el).userSelect") in ("text", "auto"), "Textauswahl darf im Minimalismus nicht per CSS deaktiviert sein"
+
+    menu = page.locator('[data-testid="bubble-context-menu"]')
+    # Desktop: Klick UND Doppelklick oeffnen kein Menue
+    page.click(bubble_sel)
+    page.wait_for_timeout(300)
+    assert menu.count() == 0, "einfacher Klick darf auf Desktop kein Kontextmenue oeffnen"
+    page.dblclick(bubble_sel)
+    page.wait_for_timeout(300)
+    assert menu.count() == 0, "Doppelklick darf auf Desktop kein Kontextmenue oeffnen"
+
+    # Rechtsklick (contextmenu) auf der Bubble ueberschreibt das Systemmenue durch das App-Menue
+    prevented = page.evaluate(
+        """(sel) => {
+          const el = document.querySelector(sel);
+          const ev = new MouseEvent('contextmenu', { bubbles: true, cancelable: true });
+          el.dispatchEvent(ev);
+          return ev.defaultPrevented;
+        }""",
+        bubble_sel,
+    )
+    assert prevented, "Desktop: contextmenu auf Bubble muss preventDefault sein (App-Menue ueberschreibt Systemmenue)"
+    menu.wait_for(state="visible")
+    assert menu.locator("button").count() >= 2, "Kontextmenue muss Kopieren und die Bubble-Aktionen enthalten"
+    assert menu.locator('[data-testid="ctx-copy"]').count() == 1
+    # Klick bei offenem Menue schliesst es wieder
+    page.click(bubble_sel)
+    page.wait_for_selector('[data-testid="bubble-context-menu"]', state="detached")
+
+    # System-Auswahlmenue offen (aktive Textauswahl): Klick darf kein App-Menue oeffnen
+    page.evaluate(
+        """(sel) => {
+          const el = document.querySelector(sel);
+          const r = document.createRange();
+          r.selectNodeContents(el);
+          const s = window.getSelection();
+          s.removeAllRanges();
+          s.addRange(r);
+        }""",
+        body_sel,
+    )
+    assert not page.evaluate("() => window.getSelection().isCollapsed"), "Vorbedingung: Textauswahl aktiv (Systemmenue offen)"
+    page.click(bubble_sel)  # Klick bricht die Auswahl ab — darf kein Menue oeffnen
+    page.wait_for_timeout(300)
+    assert menu.count() == 0, "bei aktiver System-Auswahl darf ein Klick kein App-Menue oeffnen"
+
+    # Expand-Behavior wiederhergestellt: langer Text ist gekuerzt, einfacher Tap klappt die Bubble auf
+    _chat_once(page, "lang bitte", 2, None, llm_expect["timeout_ms"])
+    lang_bubble = page.locator(_bubble("assistant", "message")).nth(1)
+    assert lang_bubble.evaluate("el => el.querySelector('.bubbleBody').classList.contains('clamped')"), "Vorbedingung: lange Antwort ist gekuerzt"
+    lang_bubble.click()  # einfacher Tap -> Expand, kein Menue
+    assert lang_bubble.evaluate("el => el.classList.contains('full')"), "einfacher Tap muss die gekuerzte Bubble aufklappen"
+    page.wait_for_timeout(200)
+    assert menu.count() == 0, "einfacher Tap darf auch bei gekuerzter Bubble kein Menue oeffnen"
+
+    # Ziehen/Scrollen (Pointer bewegt sich) darf kein Menue oeffnen
+    box = page.locator(bubble_sel).bounding_box()
+    page.mouse.move(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
+    page.mouse.down()
+    page.mouse.move(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2 + 80, steps=8)
+    page.mouse.up()
+    page.wait_for_timeout(300)
+    assert page.locator('[data-testid="bubble-context-menu"]').count() == 0, "Scroll/Pan-Geste darf kein Kontextmenue oeffnen"
+
+    # Setting wieder aus -> Head/Toolbar dauerhaft sichtbar, kein Kontextmenue
+    res = api_client.put("/api/settings", json={"bubbles_minimal": False})
+    assert res.status_code == 200, res.text
+    page.reload()
+    page.wait_for_selector(_bubble("assistant", "message"), timeout=llm_expect["timeout_ms"])
+    page.wait_for_function("() => !document.documentElement.classList.contains('bubbles-minimal')")
+    assert page.locator(toolbar_btn).first.evaluate("el => getComputedStyle(el).display") != "none"
+    assert page.locator(f'{_bubble("assistant", "message")} .bubbleHead .role').evaluate("el => getComputedStyle(el).display") != "none"
+    page.dispatch_event(_bubble("assistant", "message"), "contextmenu")
+    page.wait_for_timeout(300)
+    assert page.locator('[data-testid="bubble-context-menu"]').count() == 0, "ohne Minimalismus darf kein Kontextmenue erscheinen"

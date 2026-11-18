@@ -3,6 +3,7 @@ export const BOOL_SETTING_KEYS = [
   "bubbles_deletable",
   "bubbles_checkable",
   "bubbles_speaker",
+  "bubbles_minimal",
   "show_system_prompt",
   "show_tool_output",
   "show_reasoning",
@@ -11,9 +12,10 @@ export const BOOL_SETTING_KEYS = [
 ];
 
 export const BOOL_SETTING_DEFAULTS = {
-  bubbles_deletable: true,
-  bubbles_checkable: true,
+  bubbles_deletable: false,
+  bubbles_checkable: false,
   bubbles_speaker: true,
+  bubbles_minimal: true,
   show_system_prompt: true,
   show_tool_output: true,
   show_reasoning: true,

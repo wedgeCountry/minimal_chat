@@ -9,6 +9,7 @@ const CHECK_IDS = {
   bubbles_deletable: "setDeletableAll",
   bubbles_checkable: "setCheckable",
   bubbles_speaker: "setSpeaker",
+  bubbles_minimal: "setMinimalism",
   show_system_prompt: "setShowSystem",
   show_tool_output: "setShowTool",
   show_reasoning: "setShowReasoning",
