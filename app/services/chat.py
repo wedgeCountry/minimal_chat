@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import asyncio
 import time
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from typing import Any
 
 from ..db.database import now_ms
@@ -98,6 +98,51 @@ class _StreamAccumulator:
     def sync_tool(self, a: dict[str, Any]) -> None:
         a["msg"].text = _render_toolcall(a) if a["kind"] == "toolcall" else _render_toolresult(a)
 
+    def feed_event(self, j: dict[str, Any]) -> str | None:
+        """Ein geparstes SSE-Event des LLM-Streams in die Bloecke einspeisen. Liefert die
+        Fehlermeldung, wenn das Event ein ``error`` traegt, sonst None."""
+        if j.get("error"):
+            return str(j["error"])
+        choices = j.get("choices") or [{}]
+        delta = choices[0].get("delta") or {}
+        reasoning = delta.get("reasoning_content")
+        if reasoning is None:
+            reasoning = delta.get("reasoning")
+        if reasoning:
+            self.touch("reasoning")
+            self.text_block("reasoning").text += reasoning
+        if delta.get("content"):
+            self.touch("message")
+            self.text_block("message").text += delta["content"]
+        for tc in delta.get("tool_calls") or []:
+            idx = tc.get("index")
+            if idx is None:
+                idx = sum(1 for m in self.block_msgs if m.type == "toolcall")
+            self.touch("toolcall", idx)
+            a = self.tool_block("toolcall", idx)
+            fn = tc.get("function") or {}
+            a["name"] += fn.get("name") or ""
+            a["args"] += fn.get("arguments") or ""
+            self.sync_tool(a)
+        for tr in delta.get("tool_results") or []:
+            idx = tr.get("index")
+            if idx is None:
+                idx = sum(1 for m in self.block_msgs if m.type == "toolresult")
+            self.touch("toolresult", idx)
+            if tr.get("signal"):
+                # Signal-Chunk des LLM-Servers (z. B. "toolcall_done"): schliesst den
+                # offenen Block, traegt aber keinen Toolresult-Inhalt
+                continue
+            a = self.tool_block("toolresult", idx)
+            fn = tr.get("function") or {}
+            a["name"] += tr.get("name") or fn.get("name") or ""
+            a["result"] += (
+                tr.get("result") or tr.get("content") or tr.get("output") or tr.get("text")
+                or fn.get("result") or fn.get("arguments") or ""
+            )
+            self.sync_tool(a)
+        return None
+
     def closed_unpersisted(self) -> list[Message]:
         """Abgeschlossene, noch nicht persistierte Bloecke (ein DB-Oeffnen pro Batch)."""
         return [m for m in self.block_msgs if m.ts != 0 and m.id is None and m.text]
@@ -121,6 +166,98 @@ class _SessionState:
         self.subscribers: set[asyncio.Queue[dict[str, Any] | None]] = set()
         self.generation: asyncio.Event | None = None  # Abort-Event der laufenden Generierung
         self.last_touch = time.monotonic()
+
+
+class _GenerationRun:
+    """Ein laufender Generierungs-Durchlauf: LLM-Stream -> _StreamAccumulator -> persistierte
+    Bloecke + SSE-Publish. Nur abgeschlossene Bloecke werden persistiert (ein DB-Oeffnen pro
+    Block-Abschluss plus eins am Ende); der offene Block wird bei Abort/Fehler verworfen
+    (aus dem Memory entfernt, nie persistiert)."""
+
+    def __init__(
+        self,
+        store: UserStoreProtocol,
+        user: UserIdentity,
+        sid: str,
+        state: _SessionState,
+        abort: asyncio.Event,
+        base_url: str,
+        api_key: str,
+        payload: dict[str, Any],
+        settings: dict[str, bool] | None,
+        publish: Callable[[_SessionState], None],
+    ) -> None:
+        self._store = store
+        self._user = user
+        self._sid = sid
+        self._state = state
+        self._abort = abort
+        self._base_url = base_url
+        self._api_key = api_key
+        self._payload = payload
+        self._settings = settings
+        self._publish = publish
+        self.acc = _StreamAccumulator(state.messages)
+        self.error: str | None = None
+
+    async def run(self) -> None:
+        parser = SseParser()
+        try:
+            # Existenz ist ueber _hot beim Start geprueft; das generating-Flag setzt
+            # der Aufrufer atomar (try_start_generating)
+            async for chunk in stream_completion(self._base_url, self._api_key, self._payload, settings=self._settings, abort=self._abort):
+                if self._abort.is_set():
+                    break
+                for j in parser.feed(chunk):
+                    err = self.acc.feed_event(j)
+                    if err is not None:
+                        self.error = err
+                        break
+                self._state.seq += 1
+                self._publish(self._state)
+                await self._persist_closed()
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:  # noqa: BLE001 - Fehler wird als System-Message persistiert
+            self.error = self.error or str(exc)
+        finally:
+            await self._final_flush()
+
+    async def _persist_closed(self) -> None:
+        """Persistiert abgeschlossene Bloecke sofort (beim Typwechsel im Stream).
+        Der offene Block wird nie geschrieben. Pro Batch genau ein DB-Oeffnen."""
+        closed = self.acc.closed_unpersisted()
+        if not closed:
+            return
+        stored = await self._store.add_messages(self._user, self._sid, [_to_message_input(m) for m in closed])
+        for m, s in zip(closed, stored):
+            m.id = s.id
+            m.ts = s.ts
+
+    async def _final_flush(self) -> None:
+        """Ein einziges DB-Oeffnen am Stream-Ende: bei normalem Ende wird der letzte
+        offene Block abgeschlossen und persistiert; bei Abort/Fehler werden die
+        verworfenen Live-Messages aus dem Memory entfernt. Ausserdem Fehler-System-
+        Message (falls error) und generating=0."""
+        state = self._state
+        msgs = state.messages
+        discard_open = self._abort.is_set() or self.error is not None
+        targets: list[Message] = []
+        rows: list[MessageInput] = []
+        if not discard_open:
+            self.acc.close_open_blocks()
+            targets = self.acc.unpersisted()
+            rows = [_to_message_input(m) for m in targets]
+        stored = await self._store.finalize_generation(self._user, self._sid, rows, self.error)
+        if discard_open:
+            state.messages[:] = [m for m in msgs if m.id is not None]
+        for m, s in zip(targets, stored[: len(targets)]):
+            m.id = s.id
+            m.ts = s.ts
+        for s in stored[len(targets):]:  # Fehler-System-Message uebernehmen
+            state.messages.append(s)
+        state.seq += 1
+        self._publish(state)
 
 
 class MessageService:
@@ -433,100 +570,5 @@ class MessageService:
         eins am Ende); der offene Block bleibt im Speicher und wird bei Abort/Fehler
         verworfen (aus dem Memory entfernt, nie persistiert).
         """
-        ev = abort
-        msgs = state.messages
-        acc = _StreamAccumulator(msgs)
-        error: str | None = None
-        parser = SseParser()
-
-        async def _persist_closed() -> None:
-            """Persistiert abgeschlossene Bloecke sofort (beim Typwechsel im Stream).
-            Der offene Block wird nie geschrieben. Pro Batch genau ein DB-Oeffnen."""
-            closed = acc.closed_unpersisted()
-            if not closed:
-                return
-            stored = await self._store.add_messages(user, sid, [_to_message_input(m) for m in closed])
-            for m, s in zip(closed, stored):
-                m.id = s.id
-                m.ts = s.ts
-
-        async def _final_flush() -> None:
-            """Ein einziges DB-Oeffnen am Stream-Ende: bei normalem Ende wird der letzte
-            offene Block abgeschlossen und persistiert; bei Abort/Fehler werden die
-            verworfenen Live-Messages aus dem Memory entfernt. Ausserdem Fehler-System-
-            Message (falls error) und generating=0."""
-            discard_open = ev.is_set() or error is not None
-            targets: list[Message] = []
-            rows: list[MessageInput] = []
-            if not discard_open:
-                acc.close_open_blocks()
-                targets = acc.unpersisted()
-                rows = [_to_message_input(m) for m in targets]
-            stored = await self._store.finalize_generation(user, sid, rows, error)
-            if discard_open:
-                state.messages[:] = [m for m in msgs if m.id is not None]
-            for m, s in zip(targets, stored[: len(targets)]):
-                m.id = s.id
-                m.ts = s.ts
-            for s in stored[len(targets):]:  # Fehler-System-Message uebernehmen
-                state.messages.append(s)
-            state.seq += 1
-            self._publish(state)
-
-        try:
-            # Existenz ist ueber _hot beim Start geprueft; das generating-Flag setzt
-            # der Router atomar (try_start_generating)
-            async for chunk in stream_completion(base_url, api_key, payload, settings=settings, abort=ev):
-                if ev.is_set():
-                    break
-                for j in parser.feed(chunk):
-                    if j.get("error"):
-                        error = str(j["error"])
-                        break
-                    choices = j.get("choices") or [{}]
-                    delta = choices[0].get("delta") or {}
-                    reasoning = delta.get("reasoning_content")
-                    if reasoning is None:
-                        reasoning = delta.get("reasoning")
-                    if reasoning:
-                        acc.touch("reasoning")
-                        acc.text_block("reasoning").text += reasoning
-                    if delta.get("content"):
-                        acc.touch("message")
-                        acc.text_block("message").text += delta["content"]
-                    for tc in delta.get("tool_calls") or []:
-                        idx = tc.get("index")
-                        if idx is None:
-                            idx = sum(1 for m in acc.block_msgs if m.type == "toolcall")
-                        acc.touch("toolcall", idx)
-                        a = acc.tool_block("toolcall", idx)
-                        fn = tc.get("function") or {}
-                        a["name"] += fn.get("name") or ""
-                        a["args"] += fn.get("arguments") or ""
-                        acc.sync_tool(a)
-                    for tr in delta.get("tool_results") or []:
-                        idx = tr.get("index")
-                        if idx is None:
-                            idx = sum(1 for m in acc.block_msgs if m.type == "toolresult")
-                        acc.touch("toolresult", idx)
-                        if tr.get("signal"):
-                            # Signal-Chunk des LLM-Servers (z. B. "toolcall_done"): schliesst den
-                            # offenen Block, traegt aber keinen Toolresult-Inhalt
-                            continue
-                        a = acc.tool_block("toolresult", idx)
-                        fn = tr.get("function") or {}
-                        a["name"] += tr.get("name") or fn.get("name") or ""
-                        a["result"] += (
-                            tr.get("result") or tr.get("content") or tr.get("output") or tr.get("text")
-                            or fn.get("result") or fn.get("arguments") or ""
-                        )
-                        acc.sync_tool(a)
-                state.seq += 1
-                self._publish(state)
-                await _persist_closed()
-        except asyncio.CancelledError:
-            raise
-        except Exception as exc:  # noqa: BLE001 - Fehler wird als System-Message persistiert
-            error = error or str(exc)
-        finally:
-            await _final_flush()
+        run = _GenerationRun(self._store, user, sid, state, abort, base_url, api_key, payload, settings, publish=self._publish)
+        await run.run()
