@@ -185,17 +185,6 @@ export async function copyBubbleText(b) {
   return true;
 }
 
-// Gesamten Bubble-Text markieren ("Alles auswählen" im Kontextmenue)
-export function selectBubbleText(b) {
-  const body = b.querySelector(".bubbleBody");
-  if (!body || typeof window.getSelection !== "function") return;
-  const range = document.createRange();
-  range.selectNodeContents(body);
-  const sel = window.getSelection();
-  sel.removeAllRanges();
-  sel.addRange(range);
-}
-
 // Loeschen-Button (Muelleimer) folgt dem Setting auch bei wiederverwendeten Bubbles
 export function syncBubbleDelete(b) {
   const show = isBubbleDeletable(state.settings);
