@@ -1537,20 +1537,22 @@ def test_minimalism_setting_hides_toolbar_until_hover_or_longpress(page, base_ur
     page.hover(_bubble("assistant", "message"))
     assert page.locator(toolbar_btn).first.evaluate("el => getComputedStyle(el).display") != "none", "Hover muss die Toolbar einblenden"
 
-    # Minimalismus: Textauswahl bleibt aktiv (Langdruck = natives Systemmenue); kurzer Tap oeffnet das App-Menue
+    # Minimalismus: Textauswahl bleibt aktiv (Langdruck = natives Systemmenue); Doppel-Tap oeffnet das App-Menue
     bubble_sel = _bubble("assistant", "message")
     body_sel = f"{bubble_sel} .bubbleBody"
     assert page.locator(body_sel).evaluate("el => getComputedStyle(el).userSelect") in ("text", "auto"), "Textauswahl darf im Minimalismus nicht per CSS deaktiviert sein (Langdruck bleibt nativ)"
 
     menu = page.locator('[data-testid="bubble-context-menu"]')
-    page.click(bubble_sel)  # kurzer Tap -> Menue an der Tap-Position
+    # einfacher Tap oeffnet KEIN Menue (Expand-Behavior bleibt erhalten, siehe unten)
+    page.click(bubble_sel)
+    page.wait_for_timeout(300)
+    assert menu.count() == 0, "einfacher Tap darf im Minimalismus kein Kontextmenue oeffnen"
+    # Doppel-Tap oeffnet das Menue
+    page.dblclick(bubble_sel)
     menu.wait_for(state="visible")
     assert menu.locator("button").count() >= 2, "Kontextmenue muss Kopieren und die Bubble-Aktionen enthalten"
     assert menu.locator('[data-testid="ctx-copy"]').count() == 1
-
-    # zweiter Tap auf eine Bubble schliesst alle Kontextmenues wieder
-    page.click(bubble_sel)
-    menu.wait_for(state="visible")
+    # Tap bei offenem Menue schliesst alle Kontextmenues wieder
     page.click(bubble_sel)
     page.wait_for_selector('[data-testid="bubble-context-menu"]', state="detached")
 
@@ -1569,12 +1571,22 @@ def test_minimalism_setting_hides_toolbar_until_hover_or_longpress(page, base_ur
     assert not page.evaluate("() => window.getSelection().isCollapsed"), "Vorbedingung: Textauswahl aktiv (Systemmenue offen)"
     page.click(bubble_sel)  # Tap bricht die Auswahl ab — darf kein Menue oeffnen
     page.wait_for_timeout(300)
-    assert page.locator('[data-testid="bubble-context-menu"]').count() == 0, "bei aktiver System-Auswahl darf ein Tap kein App-Menue oeffnen"
-    # Auswahl kollabiert -> Tap oeffnet wieder normal
-    page.click(bubble_sel)
+    assert menu.count() == 0, "bei aktiver System-Auswahl darf ein Tap kein App-Menue oeffnen"
+    # Auswahl kollabiert -> Doppel-Tap oeffnet wieder normal
+    page.evaluate("() => window.getSelection().removeAllRanges()")
+    page.dblclick(bubble_sel)
     menu.wait_for(state="visible")
     page.keyboard.press("Escape")
     page.wait_for_selector('[data-testid="bubble-context-menu"]', state="detached")
+
+    # Expand-Behavior wiederhergestellt: langer Text ist gekuerzt, einfacher Tap klappt die Bubble auf
+    _chat_once(page, "lang bitte", 2, None, llm_expect["timeout_ms"])
+    lang_bubble = page.locator(_bubble("assistant", "message")).nth(1)
+    assert lang_bubble.evaluate("el => el.querySelector('.bubbleBody').classList.contains('clamped')"), "Vorbedingung: lange Antwort ist gekuerzt"
+    lang_bubble.click()  # einfacher Tap -> Expand, kein Menue
+    assert lang_bubble.evaluate("el => el.classList.contains('full')"), "einfacher Tap muss die gekuerzte Bubble aufklappen"
+    page.wait_for_timeout(200)
+    assert menu.count() == 0, "einfacher Tap darf auch bei gekuerzter Bubble kein Menue oeffnen"
 
     # Ziehen/Scrollen (Pointer bewegt sich) darf kein Menue oeffnen
     box = page.locator(bubble_sel).bounding_box()

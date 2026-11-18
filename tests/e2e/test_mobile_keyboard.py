@@ -118,18 +118,33 @@ def test_minimalism_hides_toolbar_on_touch_and_longpress_opens_menu(mobile_page,
     )
 
     # Touch + Minimalismus: Textauswahl bleibt aktiv (Langdruck = natives Systemmenue),
-    # kurzer Tap oeffnet das App-Menue, zweiter Tap schliesst wieder, Scroll-Geste oeffnet nichts
+    # Doppel-Tap oeffnet das App-Menue, Tap bei offenem Menue schliesst, Scroll-Geste oeffnet nichts
     body_sel = f"{bubble} .bubbleBody"
     assert mobile_page.locator(body_sel).evaluate("el => getComputedStyle(el).userSelect") in ("text", "auto"), "Textauswahl darf im Minimalismus nicht per CSS deaktiviert sein"
     menu = mobile_page.locator('[data-testid="bubble-context-menu"]')
 
     box = mobile_page.locator(bubble).bounding_box()
     cx, cy = box["x"] + box["width"] / 2, box["y"] + box["height"] / 2
-    mobile_page.touchscreen.tap(cx, cy)  # kurzer Tap -> Menue
+    mobile_page.touchscreen.tap(cx, cy)  # einfacher Tap -> KEIN Menue
+    mobile_page.wait_for_timeout(300)
+    assert menu.count() == 0, "einfacher Tap darf im Minimalismus kein Kontextmenue oeffnen"
+    # Doppel-Tap (zwei pointerdown+click-Paare in einem Tick -> deterministisch schnell genug)
+    mobile_page.evaluate(
+        """(sel) => {
+          const el = document.querySelector(sel);
+          const r = el.getBoundingClientRect();
+          const x = r.x + r.width / 2, y = r.y + r.height / 2;
+          for (let i = 0; i < 2; i++) {
+            el.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, clientX: x, clientY: y }));
+            el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, clientX: x, clientY: y }));
+          }
+        }""",
+        bubble,
+    )
     menu.wait_for(state="visible")
     assert menu.locator("button").count() >= 2, "Kontextmenue muss Kopieren und die Bubble-Aktionen enthalten"
     assert menu.locator('[data-testid="ctx-copy"]').count() == 1, "Menue-Eintrag fehlt: ctx-copy"
-    mobile_page.touchscreen.tap(cx, cy)  # zweiter Tap -> alle Kontextmenues zu
+    mobile_page.touchscreen.tap(cx, cy)  # Tap bei offenem Menue -> alle Kontextmenues zu
     mobile_page.wait_for_selector('[data-testid="bubble-context-menu"]', state="detached")
 
     # System-Auswahlmenue offen (aktive Textauswahl): Tap darf kein App-Menue oeffnen
@@ -148,7 +163,18 @@ def test_minimalism_hides_toolbar_on_touch_and_longpress_opens_menu(mobile_page,
     mobile_page.wait_for_timeout(300)
     assert menu.count() == 0, "bei aktiver System-Auswahl darf ein Tap kein App-Menue oeffnen"
     mobile_page.evaluate("() => window.getSelection().removeAllRanges()")
-    mobile_page.touchscreen.tap(cx, cy)
+    mobile_page.evaluate(
+        """(sel) => {
+          const el = document.querySelector(sel);
+          const r = el.getBoundingClientRect();
+          const x = r.x + r.width / 2, y = r.y + r.height / 2;
+          for (let i = 0; i < 2; i++) {
+            el.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, clientX: x, clientY: y }));
+            el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, clientX: x, clientY: y }));
+          }
+        }""",
+        bubble,
+    )
     menu.wait_for(state="visible")
     mobile_page.keyboard.press("Escape")
     mobile_page.wait_for_selector('[data-testid="bubble-context-menu"]', state="detached")
