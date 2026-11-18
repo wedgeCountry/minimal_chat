@@ -50,7 +50,7 @@
 .modal h2{font-size:16px;margin-bottom:16px}
 .field{margin-bottom:14px}
 .field label{display:block;font-size:12px;color:var(--muted);margin-bottom:5px}
-.field input,.field select,.field textarea{width:100%;padding:9px 10px;border:1px solid var(--border);border-radius:9px;background:var(--bg);outline:none;font-size:14px;font-family:inherit}
+.field input,.field select,.field textarea{width:100%;padding:9px 10px;border:1px solid var(--border);border-radius:9px;background:var(--bg);color:var(--text);outline:none;font-size:14px;font-family:inherit}
 .field textarea{resize:vertical}
 .field input:focus,.field select:focus{border-color:var(--accent)}
 .checkRow{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--text);padding:3px 0;cursor:pointer}
