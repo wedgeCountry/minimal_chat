@@ -113,6 +113,9 @@ def test_minimalism_hides_toolbar_on_touch_and_longpress_opens_menu(mobile_page,
     assert mobile_page.locator(toolbar_btn).first.evaluate("el => getComputedStyle(el).display") == "none", (
         "Toolbar muss im Minimalismus auf Touch-Geraeten ausgeblendet sein"
     )
+    assert mobile_page.locator(f"{bubble} .bubbleHead .role").evaluate("el => getComputedStyle(el).display") == "none", (
+        "Rollen-Label muss im Minimalismus ausgeblendet sein"
+    )
 
     # Langdruck (contextmenu) oeffnet das Kontextmenue mit den Bubble-Aktionen
     mobile_page.dispatch_event(bubble, "contextmenu")

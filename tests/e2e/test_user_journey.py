@@ -1530,6 +1530,8 @@ def test_minimalism_setting_hides_toolbar_until_hover_or_longpress(page, base_ur
     page.wait_for_function("() => document.documentElement.classList.contains('bubbles-minimal')")
 
     assert page.locator(toolbar_btn).first.evaluate("el => getComputedStyle(el).display") == "none", "Toolbar muss im Minimalismus ausgeblendet sein"
+    role_label = f'{_bubble("assistant", "message")} .bubbleHead .role'
+    assert page.locator(role_label).evaluate("el => getComputedStyle(el).display") == "none", "Rollen-Label (assistant/user) muss im Minimalismus ausgeblendet sein"
 
     # Desktop: Hover blendet die Toolbar der Bubble ein
     page.hover(_bubble("assistant", "message"))
@@ -1550,6 +1552,7 @@ def test_minimalism_setting_hides_toolbar_until_hover_or_longpress(page, base_ur
     page.wait_for_selector(_bubble("assistant", "message"), timeout=llm_expect["timeout_ms"])
     page.wait_for_function("() => !document.documentElement.classList.contains('bubbles-minimal')")
     assert page.locator(toolbar_btn).first.evaluate("el => getComputedStyle(el).display") != "none"
+    assert page.locator(f'{_bubble("assistant", "message")} .bubbleHead .role').evaluate("el => getComputedStyle(el).display") != "none"
     page.dispatch_event(_bubble("assistant", "message"), "contextmenu")
     page.wait_for_timeout(300)
     assert page.locator('[data-testid="bubble-context-menu"]').count() == 0, "ohne Minimalismus darf kein Kontextmenue erscheinen"

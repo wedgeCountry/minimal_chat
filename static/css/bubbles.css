@@ -140,6 +140,10 @@
 html.bubbles-minimal .bubbleHead .iconBtn,
 html.bubbles-minimal .bubbleHead .chk,
 html.bubbles-minimal .collapseBtn{display:none}
+/* Bei reinen Nachrichten (user/assistant) sagt die Position die Rolle — Label weg.
+   Sondertypen (Thinking/Tool-Call/...) behalten ihr Label, dort ist die Position nicht aussagekraeftig. */
+html.bubbles-minimal .bubble.message .bubbleHead .role{display:none}
+html.bubbles-minimal .bubbleHead{margin-bottom:0}
 @media (hover:hover) and (pointer:fine){
   html.bubbles-minimal .bubble:hover .bubbleHead .iconBtn{display:inline-flex}
   html.bubbles-minimal .bubble:hover .bubbleHead .chk{display:inline-block}
