@@ -3,7 +3,7 @@ import { state, activeSession, normalizeMessages } from "./state.js";
 import { $ } from "./util.js";
 import { goToLogin } from "./auth.js";
 import { loadSessions, renderSessions, newSession } from "./sessions.js";
-import { abortStream, pollOnce, renderChat, renderHeader, send, setStreamingUI, syncAllBubbleTts } from "./chat.js";
+import { abortStream, pollOnce, renderChatView, renderHeader, send, setStreamingUI, syncAllBubbleTts } from "./chat.js";
 import { addAttachments } from "./attachments.js";
 import { initSettings, loadSettings, openSettings } from "./settings.js";
 import { initConfirm } from "./confirm.js";
@@ -48,7 +48,7 @@ async function refreshChat() {
       state.messagesSid = null; // naechster Aufruf versucht es erneut
     }
   }
-  renderChat(state.messages);
+  renderChatView(); // SSE-Live-Stand (falls aktiv) statt des evtl. aelteren Poll-Stands
 }
 
 function applyComposerButtons() {

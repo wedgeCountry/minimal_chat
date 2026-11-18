@@ -33,7 +33,7 @@ export function abortStream() {
 // Der Poll (GET /api/sessions/{id}) bleibt Quelle der Wahrheit fuer den persistierten
 // Stand und ueberschreibt den SSE-Stand, sobald die Generierung endet und ein Poll den
 // persistierten Stand frisch gelesen hat (generating=0 + erfolgreicher Detail-Fetch).
-let sseState = null; // { seq, messages } — letzter Stand aus der Service-Layer
+let sseState = null; // { seq, messages, sid } — letzter Stand aus der Service-Layer
 let liveStream = null;
 
 // Reines Merge (testbar): state-Event uebernehmen, wenn seq neuer; veraltete Events verwerfen.
@@ -46,15 +46,29 @@ export function applySseState(ev, cur) {
   return { seq: ev.seq, messages };
 }
 
-// Die Ansicht folgt dem SSE-Stand, solange einer vorliegt — auch kurz nach Stream-Ende,
-// wo der zuletzt gepollte Stand noch der aeltere ist; sonst wuerde die fertig gestreamte
-// Bubble verschwinden, bis der naechste Poll nachliefert (Flicker + Scroll-Sprung).
-export function pickViewMessages(sse, messages) {
-  return sse ? sse.messages : messages;
+// Die Ansicht folgt dem SSE-Stand, solange einer zur aktiven Session vorliegt — auch kurz
+// nach Stream-Ende, wo der zuletzt gepollte Stand noch der aeltere ist; sonst wuerde die
+// fertig gestreamte Bubble verschwinden, bis der naechste Poll nachliefert (Flicker +
+// Scroll-Sprung). Ein SSE-Stand einer anderen Session wird ignoriert.
+export function pickViewMessages(sse, messages, activeId) {
+  return sse && sse.sid === activeId ? sse.messages : messages;
 }
 
 function viewMessages() {
-  return pickViewMessages(sseState, state.messages);
+  return pickViewMessages(sseState, state.messages, activeSession()?.id ?? null);
+}
+
+// Wendet eine Listen-Mutation zusaetzlich auf den Live-SSE-Stand an (nur wenn er zur
+// aktiven Session gehoert). Ohne das Spiegeln wuerde die naechste Ansicht den alten Stand
+// zeigen und eine lokal geloeschte/geaenderte Bubble kurz wieder auftauchen, bis das
+// naechste SSE-Event (seq+1) vom Server ankommt.
+export function applyToLiveState(sse, activeId, mutate) {
+  if (!sse || sse.sid !== activeId) return sse;
+  return { ...sse, messages: mutate(sse.messages) };
+}
+
+function liveId() {
+  return activeSession()?.id ?? null;
 }
 
 function closeStreamSocket() {
@@ -85,7 +99,7 @@ function openLiveStream(s) {
     if (ev.type === "state") {
       const merged = applySseState(ev, sseState);
       if (merged !== sseState) {
-        sseState = merged;
+        sseState = { ...merged, sid: s.id };
         renderChat(viewMessages());
       }
     } else if (ev.type === "done" || ev.type === "idle" || ev.type === "error") {
@@ -147,21 +161,33 @@ export function hasMessagesAfter(messages, id) {
 let lastMessages = [];
 
 // Lokales Uebernehmen einer erfolgreichen Mutation (keyed by id; ids sind AUTOINCREMENT-
-// monoton pro Session). Der naechste Poll/Fetch ueberschreibt mit dem serverseitigen Stand.
+// monoton pro Session). Der naechste Poll/Fetch bzw. das naechste SSE-Event ueberschreibt
+// mit dem serverseitigen Stand. Die Mutation wird auch auf den Live-SSE-Stand gespiegelt,
+// damit die Ansicht waehrend der Generierung nicht kurz den alten Stand zeigt.
 export function applyLocalMessage(m) {
   const n = normalizeMessage(m);
-  const i = state.messages.findIndex((x) => x.id === n.id);
-  if (i >= 0) state.messages[i] = n;
-  else state.messages.push(n);
+  const upsert = (list) => {
+    const i = list.findIndex((x) => x.id === n.id);
+    if (i < 0) return [...list, n];
+    const copy = list.slice();
+    copy[i] = n;
+    return copy;
+  };
+  state.messages = upsert(state.messages);
+  sseState = applyToLiveState(sseState, liveId(), upsert);
 }
 
 export function removeLocalMessage(mid) {
   state.messages = state.messages.filter((x) => x.id !== mid);
+  sseState = applyToLiveState(sseState, liveId(), (msgs) => msgs.filter((x) => x.id !== mid));
 }
 
 export function removeLocalMessagesAfter(mid) {
-  // id > mid ist genau die serverseitig geloeschte Menge (q_delete_messages_after)
-  state.messages = state.messages.filter((x) => x.id <= mid);
+  // id > mid ist genau die serverseitig geloeschte Menge (q_delete_messages_after);
+  // Live-Messages (id=null) bleiben erhalten (null <= mid)
+  const keep = (msgs) => msgs.filter((x) => x.id <= mid);
+  state.messages = keep(state.messages);
+  sseState = applyToLiveState(sseState, liveId(), keep);
 }
 
 // Keyed reconciliation: Bubbles werden pro Nachricht wiederverwendet und nur
@@ -261,6 +287,13 @@ export function renderChat(messages) {
   }
   if (pinToBottom) chat.scrollTop = chat.scrollHeight;
   else restoreScrollAnchor(chat, anchor);
+}
+
+// Rendert die aktuelle Ansicht (SSE-Live-Stand der aktiven Session, sonst Poll-Stand) —
+// refreshChat in main.js nutzt das, damit ein changed() waehrend der Generierung nicht
+// den offenen Live-Block aus der Ansicht wirft.
+export function renderChatView() {
+  renderChat(viewMessages());
 }
 
 // Edit-Modus: id der Nutzernachricht, die gerade inline in ihrer Bubble bearbeitet wird
