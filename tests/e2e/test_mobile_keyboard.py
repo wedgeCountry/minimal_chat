@@ -117,22 +117,37 @@ def test_minimalism_hides_toolbar_on_touch_and_longpress_opens_menu(mobile_page,
         "Rollen-Label muss im Minimalismus ausgeblendet sein"
     )
 
-    # Touch + Minimalismus: Textauswahl per CSS deaktiviert, Langdruck oeffnet das App-Menue
+    # Touch + Minimalismus: Textauswahl bleibt aktiv (Langdruck = natives Systemmenue),
+    # kurzer Tap oeffnet das App-Menue, zweiter Tap schliesst wieder, Scroll-Geste oeffnet nichts
     body_sel = f"{bubble} .bubbleBody"
-    assert mobile_page.locator(body_sel).evaluate("el => getComputedStyle(el).userSelect") == "none", "Textauswahl muss im Minimalismus deaktiviert sein"
-    mobile_page.dispatch_event(bubble, "contextmenu")
+    assert mobile_page.locator(body_sel).evaluate("el => getComputedStyle(el).userSelect") in ("text", "auto"), "Textauswahl darf im Minimalismus nicht per CSS deaktiviert sein"
     menu = mobile_page.locator('[data-testid="bubble-context-menu"]')
-    menu.wait_for(state="visible")
-    assert menu.locator("button").count() >= 5, "Kontextmenue muss Text-Auswahl, Select-All, Kopieren und die Bubble-Aktionen enthalten"
-    for tid in ("ctx-select-text", "ctx-select-all", "ctx-copy"):
-        assert menu.locator(f'[data-testid="{tid}"]').count() == 1, f"Menue-Eintrag fehlt: {tid}"
 
-    # "Text auswählen" -> Auswahlmodus: nächster Langdruck ist nativ (Systemmenue, kein preventDefault)
-    menu.locator('[data-testid="ctx-select-text"]').click()
+    box = mobile_page.locator(bubble).bounding_box()
+    cx, cy = box["x"] + box["width"] / 2, box["y"] + box["height"] / 2
+    mobile_page.touchscreen.tap(cx, cy)  # kurzer Tap -> Menue
+    menu.wait_for(state="visible")
+    assert menu.locator("button").count() >= 4, "Kontextmenue muss Select-All, Kopieren und die Bubble-Aktionen enthalten"
+    for tid in ("ctx-select-all", "ctx-copy"):
+        assert menu.locator(f'[data-testid="{tid}"]').count() == 1, f"Menue-Eintrag fehlt: {tid}"
+    mobile_page.touchscreen.tap(cx, cy)  # zweiter Tap -> alle Kontextmenues zu
     mobile_page.wait_for_selector('[data-testid="bubble-context-menu"]', state="detached")
-    mobile_page.wait_for_timeout(50)  # Auswahlmodus armieren lassen (setTimeout im Handler)
-    assert mobile_page.locator(bubble).evaluate("el => el.classList.contains('selecting')"), "Bubble muss im Textauswahl-Modus sein"
-    assert mobile_page.locator(body_sel).evaluate("el => getComputedStyle(el).userSelect") in ("text", "auto"), "user-select muss im Auswahlmodus wieder aktiv sein"
+
+    # Scroll-Geste (Pointer wird bewegt, click landet versetzt) darf kein Menue oeffnen
+    opened = mobile_page.evaluate(
+        """(sel) => {
+          const el = document.querySelector(sel);
+          const r = el.getBoundingClientRect();
+          const x = r.x + r.width / 2, y = r.y + r.height / 2;
+          el.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, clientX: x, clientY: y }));
+          el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, clientX: x, clientY: y + 60 }));
+          return !!document.querySelector('[data-testid="bubble-context-menu"]');
+        }""",
+        bubble,
+    )
+    assert opened is False, "Scroll/Pan-Geste darf kein Kontextmenue oeffnen"
+
+    # Langdruck (contextmenu) bleibt nativ: kein preventDefault, kein eigenes Menue
     not_prevented = mobile_page.evaluate(
         """(sel) => {
           const el = document.querySelector(sel);
@@ -142,11 +157,6 @@ def test_minimalism_hides_toolbar_on_touch_and_longpress_opens_menu(mobile_page,
         }""",
         body_sel,
     )
-    assert not_prevented, "im Textauswahl-Modus darf contextmenu nicht preventDefault sein (natives Systemmenue bleibt)"
+    assert not_prevented, "contextmenu (Langdruck) darf nicht preventDefault sein — natives Systemmenue bleibt"
     mobile_page.wait_for_timeout(300)
-    assert mobile_page.locator('[data-testid="bubble-context-menu"]').count() == 0, "im Textauswahl-Modus darf kein eigenes Kontextmenue erscheinen"
-
-    # Touch ausserhalb der Bubble beendet den Modus sofort
-    mobile_page.evaluate("() => document.body.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }))")
-    mobile_page.wait_for_timeout(50)
-    assert not mobile_page.locator(bubble).evaluate("el => el.classList.contains('selecting')"), "Touch ausserhalb der Bubble muss den Textauswahl-Modus beenden"
+    assert menu.count() == 0, "beim Langdruck darf kein eigenes Kontextmenue erscheinen"

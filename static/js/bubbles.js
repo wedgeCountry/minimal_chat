@@ -1,7 +1,7 @@
 import { esc } from "./util.js";
 import { ICONS } from "./icons.js";
 import { state } from "./state.js";
-import { isBubbleDeletable, isBubbleContextToggleable, isBubbleSpeaker } from "./visibility.js";
+import { isBubbleDeletable, isBubbleContextToggleable, isBubbleSpeaker, isToolbarMinimal } from "./visibility.js";
 import { controlsVisible, speak, isSpeaking, stopSpeech } from "./ttsDetectionService.js";
 import { showError } from "./confirm.js";
 import { BUBBLE_MODES, clampText, isClamped, nextBubbleMode, bubbleModeTitle, defaultBubbleMode } from "./bubbleMode.js";
@@ -133,7 +133,9 @@ export function bubbleEl(m, handlers = {}, opts = {}) {
   const body = b.querySelector(".bubbleBody");
   if (body)
     body.addEventListener("click", () => {
-      // Klick auf gekuerzten Text ([...]) schaltet wie der Chevron weiter
+      // Klick auf gekuerzten Text ([...]) schaltet wie der Chevron weiter; im Minimalismus
+      // oeffnet der Tap stattdessen das Kontextmenue (onBubbleTap in chat.js)
+      if (isToolbarMinimal(state.settings)) return;
       if (body.classList.contains("clamped")) setBubbleMode(b, nextBubbleMode(b.dataset.mode || "normal"));
     });
   b.querySelector(".copyBtn").onclick = () => copyBubbleText(b);

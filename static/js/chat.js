@@ -2,7 +2,7 @@ import { api, openStream } from "./api.js";
 import { activeSession, normalizeMessage, normalizeMessages, state } from "./state.js";
 import { $, isNearBottom, captureScrollAnchor, restoreScrollAnchor, esc } from "./util.js";
 import { ICONS } from "./icons.js";
-import { bubbleEl, setBubbleText, enterBubbleEdit, exitBubbleEdit, syncBubbleTts, syncBubbleDelete, copyBubbleText } from "./bubbles.js";
+import { bubbleEl, setBubbleText, enterBubbleEdit, exitBubbleEdit, syncBubbleTts, syncBubbleDelete, copyBubbleText, selectBubbleText } from "./bubbles.js";
 import { loadSessions, newSession, changed } from "./sessions.js";
 import { uploadPendingAttachments } from "./attachments.js";
 import { confirmModal } from "./confirm.js";
@@ -296,49 +296,12 @@ export function renderChatView() {
   renderChat(viewMessages());
 }
 
-// Minimalismus: Langdruck (contextmenu) auf einer Bubble oeffnet ein Kontextmenue mit den
-// Aktionen der versteckten Toolbar. Textauswahl ist in dem Modus per CSS deaktiviert
-// (user-select:none), damit Langdruck nicht mit der nativen Auswahl konkurriert. Der
-// Menue-Eintrag "Text auswählen" schaltet die Auswahl fuer diese Bubble wieder frei und
-// laesst danach das native Systemmenue durch (kein preventDefault mehr), bis die Auswahl
-// kollabiert/gecancelt wird (selectionchange) — dann ist der App-Menue-Modus wieder aktiv.
+// Minimalismus: ein einzelner Tap (click) auf eine Bubble oeffnet das Kontextmenue an der
+// Tap-Position; ein zweiter Tap schliesst alle Kontextmenues wieder. Langdruck (contextmenu)
+// wird bewusst NICHT abgefangen — natives Systemmenue/Textauswahl bleibt erhalten (Webseiten
+// koennen dem Systemmenue keine Eintraege anhaengen).
 let ctxMenu = null;
 let ctxMenuDocHandler = null;
-let selectModeBubble = null;
-let selectModeArmed = false;
-
-function enterSelectMode(b) {
-  exitSelectMode();
-  selectModeBubble = b;
-  selectModeArmed = false;
-  b.classList.add("selecting");
-  // erst nach dem aktuellen Event armieren: der Klick auf den Menue-Eintrag kann eine
-  // bestehende Auswahl kollabieren (selectionchange) und darf den Modus nicht sofort beenden
-  setTimeout(() => {
-    if (selectModeBubble === b) selectModeArmed = true;
-  }, 0);
-}
-
-export function exitSelectMode() {
-  if (selectModeBubble) selectModeBubble.classList.remove("selecting");
-  selectModeBubble = null;
-  selectModeArmed = false;
-}
-
-// Einmalige Listener: Kontextmenue am Chat + Ende des Textauswahl-Modus — entweder bei
-// leerer Auswahl (selectionchange) oder sofort beim Touch/Pointer ausserhalb der Bubble
-export function initBubbleContextMenu() {
-  $("chat").addEventListener("contextmenu", onBubbleContextMenu);
-  document.addEventListener("selectionchange", () => {
-    if (selectModeBubble && selectModeArmed) {
-      const sel = window.getSelection();
-      if (!sel || sel.isCollapsed) exitSelectMode();
-    }
-  });
-  document.addEventListener("pointerdown", (e) => {
-    if (selectModeBubble && !selectModeBubble.contains(e.target)) exitSelectMode();
-  });
-}
 
 export function closeBubbleCtxMenu() {
   if (ctxMenuDocHandler) {
@@ -351,17 +314,7 @@ export function closeBubbleCtxMenu() {
   }
 }
 
-export function onBubbleContextMenu(e) {
-  if (!isToolbarMinimal(state.settings)) return; // ohne Minimalismus normales Verhalten
-  if (selectModeBubble) {
-    // Textauswahl-Modus aktiv: natives Systemmenue durchlassen (Webseiten koennen dem
-    // Systemmenue keine Eintraege anhaengen); haengt die Bubble noch im DOM?
-    if (!selectModeBubble.isConnected) exitSelectMode();
-    else return;
-  }
-  const b = e.target.closest?.(".bubble");
-  if (!b) return;
-  e.preventDefault();
+function openBubbleCtxMenu(b, x, y) {
   closeBubbleCtxMenu();
   const menu = document.createElement("div");
   menu.className = "ctxMenu";
@@ -377,7 +330,7 @@ export function onBubbleContextMenu(e) {
     menu.appendChild(item);
   };
   // immer oben: Textaktionen der Bubble
-  addItem("ctx-select-text", ICONS.selectAll, "Text auswählen", () => enterSelectMode(b));
+  addItem("ctx-select-all", ICONS.selectAll, "Alles auswählen", () => selectBubbleText(b));
   addItem("ctx-copy", ICONS.copy, "Kopieren", () => copyBubbleText(b));
   // danach die Aktionen der (versteckten) Toolbar — Kopieren ist als ctx-copy schon oben
   for (const ctl of b.querySelectorAll(".bubbleHead .iconBtn, .bubbleHead .chk")) {
@@ -389,14 +342,47 @@ export function onBubbleContextMenu(e) {
   menu.style.top = "0px";
   document.body.appendChild(menu);
   const r = menu.getBoundingClientRect();
-  menu.style.left = `${Math.max(8, Math.min(e.clientX || 8, window.innerWidth - r.width - 8))}px`;
-  menu.style.top = `${Math.max(8, Math.min(e.clientY || 8, window.innerHeight - r.height - 8))}px`;
+  menu.style.left = `${Math.max(8, Math.min(x || 8, window.innerWidth - r.width - 8))}px`;
+  menu.style.top = `${Math.max(8, Math.min(y || 8, window.innerHeight - r.height - 8))}px`;
   ctxMenu = menu;
   ctxMenuDocHandler = (ev) => {
-    if (ctxMenu && !ctxMenu.contains(ev.target)) closeBubbleCtxMenu();
+    // Tap ausserhalb des Menues und ausserhalb von Bubbles schliesst es sofort;
+    // Taps auf Bubbles werden im click-Handler (onBubbleTap) als Toggle behandelt
+    if (ctxMenu && !ctxMenu.contains(ev.target) && !ev.target.closest?.(".bubble")) closeBubbleCtxMenu();
   };
   document.addEventListener("pointerdown", ctxMenuDocHandler);
   document.addEventListener("keydown", (ev) => ev.key === "Escape" && closeBubbleCtxMenu(), { once: true });
+}
+
+// Nur ein kurzer Tap ohne Bewegung oeffnet das Menue — Scrollen/Pan mit dem Finger nicht
+let tapStart = null; // { x, y, t } des pointerdown auf einer Bubble
+const TAP_MAX_MOVE_PX = 10;
+const TAP_MAX_MS = 500;
+
+export function onBubbleTap(e) {
+  if (!isToolbarMinimal(state.settings)) return; // ohne Minimalismus normales Klick-Verhalten
+  if (e.target.closest("button, input, textarea, a, .editRow")) return; // interaktive Elemente unveraendert
+  const b = e.target.closest?.(".bubble");
+  if (!b) return;
+  const moved = !tapStart || Math.hypot(e.clientX - tapStart.x, e.clientY - tapStart.y) > TAP_MAX_MOVE_PX;
+  const held = !tapStart || e.timeStamp - tapStart.t > TAP_MAX_MS;
+  tapStart = null;
+  if (moved || held) return; // war kein kurzer Tap (z. B. Scroll-Geste) -> Menue nicht oeffnen
+  if (ctxMenu) {
+    closeBubbleCtxMenu(); // zweiter Tap auf eine Bubble schliesst alle Kontextmenues
+    return;
+  }
+  openBubbleCtxMenu(b, e.clientX, e.clientY);
+}
+
+export function initBubbleMenu() {
+  const chat = $("chat");
+  chat.addEventListener("click", onBubbleTap);
+  chat.addEventListener("pointerdown", (e) => {
+    tapStart = e.target.closest?.(".bubble") ? { x: e.clientX, y: e.clientY, t: e.timeStamp } : null;
+  });
+  chat.addEventListener("scroll", () => closeBubbleCtxMenu(), { passive: true });
+  // contextmenu ohne Listener: Langdruck/Rechtsklick bleiben nativ (Systemmenue + Textauswahl)
 }
 
 // Edit-Modus: id der Nutzernachricht, die gerade inline in ihrer Bubble bearbeitet wird

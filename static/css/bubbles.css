@@ -148,10 +148,7 @@ html.bubbles-minimal .bubbleHead{margin-bottom:0}
   html.bubbles-minimal .bubble:hover .bubbleHead .iconBtn{display:inline-flex}
   html.bubbles-minimal .bubble:hover .bubbleHead .chk{display:inline-block}
 }
-/* Im Minimalismus ist Textauswahl per Langdruck deaktiviert (damit das App-Kontextmenue
-   nicht mit der nativen Auswahl konkurriert); "Text auswählen" im Menue schaltet sie
-   fuer diese Bubble wieder frei (.selecting) — dann greift das native Systemmenue. */
-html.bubbles-minimal .bubble{user-select:none;-webkit-user-select:none;-webkit-touch-callout:none}
-html.bubbles-minimal .bubble.selecting{user-select:text;-webkit-user-select:text;-webkit-touch-callout:default}
+/* Im Minimalismus bleibt Textauswahl/Langdruck nativ (kein user-select:none) — der Tap auf
+   eine Bubble oeffnet das App-Kontextmenue, der Langdruck das Systemmenue (siehe chat.js). */
 .attachChip{font-size:12px;opacity:.9;display:flex;gap:6px;align-items:center;margin-bottom:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .attachChip svg{width:13px;height:13px}

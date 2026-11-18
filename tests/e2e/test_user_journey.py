@@ -1537,32 +1537,39 @@ def test_minimalism_setting_hides_toolbar_until_hover_or_longpress(page, base_ur
     page.hover(_bubble("assistant", "message"))
     assert page.locator(toolbar_btn).first.evaluate("el => getComputedStyle(el).display") != "none", "Hover muss die Toolbar einblenden"
 
-    # Langdruck (contextmenu) oeffnet das App-Kontextmenue: Text auswählen, Select-All, Kopieren, Toolbar-Aktionen.
-    # Textauswahl ist im Minimalismus per CSS deaktiviert (user-select:none)
+    # Minimalismus: Textauswahl bleibt aktiv (Langdruck = natives Systemmenue); kurzer Tap oeffnet das App-Menue
     bubble_sel = _bubble("assistant", "message")
     body_sel = f"{bubble_sel} .bubbleBody"
-    assert page.locator(body_sel).evaluate("el => getComputedStyle(el).userSelect") == "none", "Textauswahl muss im Minimalismus deaktiviert sein"
-    page.dispatch_event(bubble_sel, "contextmenu")
+    assert page.locator(body_sel).evaluate("el => getComputedStyle(el).userSelect") in ("text", "auto"), "Textauswahl darf im Minimalismus nicht per CSS deaktiviert sein (Langdruck bleibt nativ)"
+
     menu = page.locator('[data-testid="bubble-context-menu"]')
+    page.click(bubble_sel)  # kurzer Tap -> Menue an der Tap-Position
     menu.wait_for(state="visible")
-    assert menu.locator("button").count() >= 5, "Kontextmenue muss Text-Auswahl, Select-All, Kopieren und die Bubble-Aktionen enthalten"
-    for tid in ("ctx-select-text", "ctx-select-all", "ctx-copy"):
-        assert menu.locator(f'[data-testid="{tid}"]').count() == 1, f"Menue-Eintrag fehlt: {tid}"
+    assert menu.locator("button").count() >= 4, "Kontextmenue muss Select-All, Kopieren und die Bubble-Aktionen enthalten"
+    assert menu.locator('[data-testid="ctx-select-all"]').count() == 1
+    assert menu.locator('[data-testid="ctx-copy"]').count() == 1
     # Select All markiert den gesamten Bubble-Text und schliesst das Menue
     menu.locator('[data-testid="ctx-select-all"]').click()
     page.wait_for_selector('[data-testid="bubble-context-menu"]', state="detached")
     sel = page.evaluate("() => window.getSelection().toString()")
     assert llm_expect["default"] in sel, f"Select-All muss den Bubble-Text markieren, got {sel!r}"
 
-    # "Text auswählen": Auswahlmodus an — der naechste Langdruck ist nativ (kein preventDefault,
-    # kein eigenes Menue, natives Systemmenue mit Select All/Kopieren), user-select wieder aktiv
-    page.dispatch_event(bubble_sel, "contextmenu")
+    # zweiter Tap auf eine Bubble schliesst alle Kontextmenues wieder
+    page.click(bubble_sel)
     menu.wait_for(state="visible")
-    menu.locator('[data-testid="ctx-select-text"]').click()
+    page.click(bubble_sel)
     page.wait_for_selector('[data-testid="bubble-context-menu"]', state="detached")
-    page.wait_for_timeout(50)  # Auswahlmodus armieren lassen (setTimeout im Handler)
-    assert page.locator(bubble_sel).evaluate("el => el.classList.contains('selecting')"), "Bubble muss im Textauswahl-Modus sein"
-    assert page.locator(body_sel).evaluate("el => getComputedStyle(el).userSelect") in ("text", "auto"), "user-select muss im Auswahlmodus wieder aktiv sein"
+
+    # Ziehen/Scrollen (Pointer bewegt sich) darf kein Menue oeffnen
+    box = page.locator(bubble_sel).bounding_box()
+    page.mouse.move(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
+    page.mouse.down()
+    page.mouse.move(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2 + 80, steps=8)
+    page.mouse.up()
+    page.wait_for_timeout(300)
+    assert page.locator('[data-testid="bubble-context-menu"]').count() == 0, "Scroll/Pan-Geste darf kein Kontextmenue oeffnen"
+
+    # Langdruck (contextmenu) bleibt nativ: kein preventDefault, kein eigenes Menue
     not_prevented = page.evaluate(
         """(sel) => {
           const el = document.querySelector(sel);
@@ -1572,28 +1579,9 @@ def test_minimalism_setting_hides_toolbar_until_hover_or_longpress(page, base_ur
         }""",
         body_sel,
     )
-    assert not_prevented, "im Textauswahl-Modus darf contextmenu nicht preventDefault sein (natives Systemmenue bleibt)"
+    assert not_prevented, "contextmenu (Langdruck) darf nicht preventDefault sein — natives Systemmenue bleibt"
     page.wait_for_timeout(300)
-    assert page.locator('[data-testid="bubble-context-menu"]').count() == 0, "im Textauswahl-Modus darf kein eigenes Kontextmenue erscheinen"
-
-    # Touch/Pointer ausserhalb der Bubble beendet den Modus sofort -> App-Menue wieder aktiv
-    page.evaluate("() => document.body.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }))")
-    page.wait_for_timeout(50)
-    assert not page.locator(bubble_sel).evaluate("el => el.classList.contains('selecting')"), "Touch ausserhalb der Bubble muss den Textauswahl-Modus beenden"
-    page.dispatch_event(bubble_sel, "contextmenu")
-    menu.wait_for(state="visible")
-    page.keyboard.press("Escape")
-    page.wait_for_selector('[data-testid="bubble-context-menu"]', state="detached")
-
-    # Alternative: kollabierende Auswahl (selectionchange) beendet den Modus ebenfalls
-    page.dispatch_event(bubble_sel, "contextmenu")
-    menu.wait_for(state="visible")
-    menu.locator('[data-testid="ctx-select-text"]').click()
-    page.wait_for_timeout(50)
-    assert page.locator(bubble_sel).evaluate("el => el.classList.contains('selecting')"), "Bubble muss wieder im Textauswahl-Modus sein"
-    page.evaluate("() => window.getSelection().removeAllRanges()")
-    page.wait_for_timeout(50)
-    assert not page.locator(bubble_sel).evaluate("el => el.classList.contains('selecting')"), "Textauswahl-Modus muss bei leerer Auswahl enden"
+    assert page.locator('[data-testid="bubble-context-menu"]').count() == 0, "beim Langdruck darf kein eigenes Kontextmenue erscheinen"
 
     # Setting wieder aus -> Toolbar dauerhaft sichtbar, kein Kontextmenue
     res = api_client.put("/api/settings", json={"bubbles_minimal": False})
