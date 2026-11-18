@@ -2,7 +2,7 @@ import { api, openStream } from "./api.js";
 import { activeSession, normalizeMessage, normalizeMessages, state } from "./state.js";
 import { $, isNearBottom, captureScrollAnchor, restoreScrollAnchor, esc } from "./util.js";
 import { ICONS } from "./icons.js";
-import { bubbleEl, setBubbleText, enterBubbleEdit, exitBubbleEdit, syncBubbleTts, syncBubbleDelete } from "./bubbles.js";
+import { bubbleEl, setBubbleText, enterBubbleEdit, exitBubbleEdit, syncBubbleTts, syncBubbleDelete, copyBubbleText, selectBubbleText } from "./bubbles.js";
 import { loadSessions, newSession, changed } from "./sessions.js";
 import { uploadPendingAttachments } from "./attachments.js";
 import { confirmModal } from "./confirm.js";
@@ -322,15 +322,23 @@ export function onBubbleContextMenu(e) {
   const menu = document.createElement("div");
   menu.className = "ctxMenu";
   menu.dataset.testid = "bubble-context-menu";
-  for (const ctl of b.querySelectorAll(".bubbleHead .iconBtn, .bubbleHead .chk")) {
+  const addItem = (testid, icon, label, fn) => {
     const item = document.createElement("button");
-    item.dataset.testid = `ctx-${ctl.dataset.testid || "action"}`;
-    item.innerHTML = `${ctl.innerHTML}<span>${esc(ctl.title || "Aktion")}</span>`;
+    item.dataset.testid = testid;
+    item.innerHTML = `${icon}<span>${esc(label)}</span>`;
     item.onclick = () => {
       closeBubbleCtxMenu();
-      ctl.click();
+      fn();
     };
     menu.appendChild(item);
+  };
+  // immer oben: Textaktionen der Bubble
+  addItem("ctx-select-all", ICONS.selectAll, "Alles auswählen", () => selectBubbleText(b));
+  addItem("ctx-copy", ICONS.copy, "Kopieren", () => copyBubbleText(b));
+  // danach die Aktionen der (versteckten) Toolbar — Kopieren ist als ctx-copy schon oben
+  for (const ctl of b.querySelectorAll(".bubbleHead .iconBtn, .bubbleHead .chk")) {
+    if (ctl.classList.contains("copyBtn")) continue;
+    addItem(`ctx-${ctl.dataset.testid || "action"}`, ctl.innerHTML, ctl.title || "Aktion", () => ctl.click());
   }
   if (!menu.children.length) return;
   menu.style.left = "0px";

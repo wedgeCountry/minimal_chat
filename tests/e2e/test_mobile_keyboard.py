@@ -121,6 +121,8 @@ def test_minimalism_hides_toolbar_on_touch_and_longpress_opens_menu(mobile_page,
     mobile_page.dispatch_event(bubble, "contextmenu")
     menu = mobile_page.locator('[data-testid="bubble-context-menu"]')
     menu.wait_for(state="visible")
-    assert menu.locator("button").count() >= 2, "Kontextmenue muss die Bubble-Aktionen enthalten"
+    assert menu.locator("button").count() >= 4, "Kontextmenue muss Select-All, Kopieren und die Bubble-Aktionen enthalten"
+    assert menu.locator('[data-testid="ctx-select-all"]').count() == 1
+    assert menu.locator('[data-testid="ctx-copy"]').count() == 1
     mobile_page.keyboard.press("Escape")
     mobile_page.wait_for_selector('[data-testid="bubble-context-menu"]', state="detached")

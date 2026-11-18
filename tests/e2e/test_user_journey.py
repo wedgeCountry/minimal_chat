@@ -1537,13 +1537,18 @@ def test_minimalism_setting_hides_toolbar_until_hover_or_longpress(page, base_ur
     page.hover(_bubble("assistant", "message"))
     assert page.locator(toolbar_btn).first.evaluate("el => getComputedStyle(el).display") != "none", "Hover muss die Toolbar einblenden"
 
-    # Langdruck (contextmenu) oeffnet das Kontextmenue mit den Toolbar-Aktionen
+    # Langdruck (contextmenu) oeffnet das Kontextmenue mit Select-All, Kopieren und den Toolbar-Aktionen
     page.dispatch_event(_bubble("assistant", "message"), "contextmenu")
     menu = page.locator('[data-testid="bubble-context-menu"]')
     menu.wait_for(state="visible")
-    assert menu.locator("button").count() >= 2, "Kontextmenue muss die Bubble-Aktionen enthalten"
-    page.keyboard.press("Escape")
+    assert menu.locator("button").count() >= 4, "Kontextmenue muss Select-All, Kopieren und die Bubble-Aktionen enthalten"
+    assert menu.locator('[data-testid="ctx-select-all"]').count() == 1
+    assert menu.locator('[data-testid="ctx-copy"]').count() == 1
+    # Select All markiert den gesamten Bubble-Text und schliesst das Menue
+    menu.locator('[data-testid="ctx-select-all"]').click()
     page.wait_for_selector('[data-testid="bubble-context-menu"]', state="detached")
+    sel = page.evaluate("() => window.getSelection().toString()")
+    assert llm_expect["default"] in sel, f"Select-All muss den Bubble-Text markieren, got {sel!r}"
 
     # Setting wieder aus -> Toolbar dauerhaft sichtbar, kein Kontextmenue
     res = api_client.put("/api/settings", json={"bubbles_minimal": False})
