@@ -15,7 +15,9 @@ from .db.database import Database
 from .deps import get_session_email
 from .routers import auth, chat, log, meta, sessions, settings, voice
 from .services.chat import MessageService
-from .services.store import SqliteUserStore
+from .services.files import UploadTooLarge
+from .services.store import AttachmentQuotaExceeded, MessageNotFound, SessionNotFound, SqliteUserStore
+from .services.voice import VoiceServiceUnavailable, VoiceUpstreamError
 
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
 
@@ -56,6 +58,32 @@ def create_app(
     app.state.store = SqliteUserStore(app.state.db)
     app.state.message_service = MessageService(app.state.store, hot_ttl_s=cfg.hot_session_ttl_s)
     init_auth(app, cfg)
+
+    # Domain-Exceptions zentral an der HTTP-Grenze mappen: Router und Services
+    # werfen sie nur, die Status/Detail-Zuordnung lebt genau hier an einer Stelle.
+    @app.exception_handler(SessionNotFound)
+    async def _on_session_not_found(request: Request, exc: SessionNotFound) -> JSONResponse:
+        return JSONResponse({"detail": "Session nicht gefunden"}, status_code=404)
+
+    @app.exception_handler(MessageNotFound)
+    async def _on_message_not_found(request: Request, exc: MessageNotFound) -> JSONResponse:
+        return JSONResponse({"detail": "Nachricht nicht gefunden"}, status_code=404)
+
+    @app.exception_handler(AttachmentQuotaExceeded)
+    async def _on_quota_exceeded(request: Request, exc: AttachmentQuotaExceeded) -> JSONResponse:
+        return JSONResponse({"detail": str(exc)}, status_code=413)
+
+    @app.exception_handler(UploadTooLarge)
+    async def _on_upload_too_large(request: Request, exc: UploadTooLarge) -> JSONResponse:
+        return JSONResponse({"detail": str(exc)}, status_code=413)
+
+    @app.exception_handler(VoiceServiceUnavailable)
+    async def _on_voice_unavailable(request: Request, exc: VoiceServiceUnavailable) -> JSONResponse:
+        return JSONResponse({"detail": "Sprachdienst nicht verfügbar"}, status_code=503)
+
+    @app.exception_handler(VoiceUpstreamError)
+    async def _on_voice_upstream_error(request: Request, exc: VoiceUpstreamError) -> JSONResponse:
+        return JSONResponse({"detail": exc.detail}, status_code=exc.status_code)
 
     @app.middleware("http")
     async def limit_request_size(request: Request, call_next: Callable[[Request], Awaitable[Response]]) -> Response:
