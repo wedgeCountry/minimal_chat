@@ -1456,3 +1456,46 @@ def test_llm_streaming_is_visible_bit_by_bit_in_ui(page, base_url, llm_expect):
     assert len(intermediate) >= 2, f"kein stufenweises Streaming im UI sichtbar: {sorted(seen)}"
     assert any("Alpha" in t and "Beta" not in t for t in intermediate), f"erster Chunk allein sichtbar: {intermediate}"
     assert "Alpha Beta Gamma Delta" in seen, f"Endstand fehlt: {sorted(seen)}"
+
+
+def test_stream_end_bubble_never_vanishes(page, base_url, llm_expect):
+    """Regression Flicker am Stream-Ende: sobald die Assistant-Bubble einmal im Chat steht,
+    darf sie bis zum Ende der Generierung (done -> Poll-Uebernahme) nie wieder aus dem DOM
+    verschwinden. Ein MutationObserver zeichnet jede Entfernung nach dem ersten Erscheinen auf;
+    ein synchrones remove+add innerhalb eines Renderns (Key-Wechsel live-<idx> -> msg-<id>)
+    wird dabei nicht als Verschwinden gezaehlt, weil der Observer den Endzustand sieht."""
+    if llm_expect["default"] is None:
+        pytest.skip("Flicker-Test braucht den Mock-LLM")
+    email = "flicker-user@example.com"
+    api_client = _register_client(base_url, email, "Geheim-123")
+    _login(page, base_url, email, "Geheim-123")
+    _new_named_session(page, api_client)
+
+    page.evaluate(
+        """() => {
+          window.__bubbleSeen = false;
+          window.__bubbleVanished = false;
+          const chat = document.querySelector('[data-testid="chat"]');
+          const sel = '.bubble[data-role="assistant"][data-type="message"]';
+          if (chat.querySelector(sel)) window.__bubbleSeen = true;
+          new MutationObserver(() => {
+            if (chat.querySelector(sel)) window.__bubbleSeen = true;
+            else if (window.__bubbleSeen) window.__bubbleVanished = true;
+          }).observe(chat, { childList: true, subtree: true });
+        }"""
+    )
+
+    page.fill(T["chat_input"], "Hallo bitte antworten")
+    page.click(T["send_btn"])
+    page.wait_for_function(
+        "() => document.querySelectorAll('[data-testid=\"chat\"] .bubble[data-role=\"assistant\"][data-type=\"message\"]').length === 1"
+        " && !document.querySelector('[data-testid=\"send-btn\"]').classList.contains('abort')",
+        timeout=llm_expect["timeout_ms"],
+    )
+    # Post-done-Poll abwarten (POLL_MS = 1200 ms): genau in diesem Fenster passierte bisher
+    # das Verschwinden und Wiederauftauchen der fertig gestreamten Bubble
+    page.wait_for_timeout(2500)
+    assert page.evaluate("() => window.__bubbleVanished") is False, "Assistant-Bubble wurde nach dem Stream-Ende kurz entfernt (Flicker)"
+    assert page.locator(_bubble("assistant", "message")).count() == 1
+    body = page.locator(_bubble("assistant", "message")).first.locator('[data-testid="bubble-body"]')
+    assert llm_expect["default"] in body.inner_text()
