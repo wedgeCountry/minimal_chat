@@ -22,13 +22,17 @@ export function setStreamingUI(on) {
 export function abortStream() {
   const s = activeSession();
   if (s) api.post("/chat/abort", { session_id: s.id }).catch(() => {});
-  closeLiveStream();
+  // Stream nicht sofort schliessen: das done-Event liefert das finale state (offener
+  // Block verworfen) und der Poll den persistierten Stand — sonst fallen bereits
+  // persistierte Bloecke kurz aus der Ansicht, bis der naechste Poll nachliefert.
+  pollOnce();
 }
 
 // Live-Daten kommen ausschliesslich ueber die Service-Layer: SSE aus dem In-Memory-State
 // des MessageService (GET /api/chat/stream/{sid}, versionierte state-Events mit seq).
 // Der Poll (GET /api/sessions/{id}) bleibt Quelle der Wahrheit fuer den persistierten
-// Stand und ueberschreibt den SSE-Stand, sobald die Generierung endet.
+// Stand und ueberschreibt den SSE-Stand, sobald die Generierung endet und ein Poll den
+// persistierten Stand frisch gelesen hat (generating=0 + erfolgreicher Detail-Fetch).
 let sseState = null; // { seq, messages } — letzter Stand aus der Service-Layer
 let liveStream = null;
 
@@ -42,16 +46,26 @@ export function applySseState(ev, cur) {
   return { seq: ev.seq, messages };
 }
 
-function viewMessages() {
-  if (state.streaming && sseState) return sseState.messages;
-  return state.messages;
+// Die Ansicht folgt dem SSE-Stand, solange einer vorliegt — auch kurz nach Stream-Ende,
+// wo der zuletzt gepollte Stand noch der aeltere ist; sonst wuerde die fertig gestreamte
+// Bubble verschwinden, bis der naechste Poll nachliefert (Flicker + Scroll-Sprung).
+export function pickViewMessages(sse, messages) {
+  return sse ? sse.messages : messages;
 }
 
-export function closeLiveStream() {
+function viewMessages() {
+  return pickViewMessages(sseState, state.messages);
+}
+
+function closeStreamSocket() {
   if (liveStream) {
     liveStream.close();
     liveStream = null;
   }
+}
+
+export function closeLiveStream() {
+  closeStreamSocket();
   if (sseState) {
     sseState = null;
     renderChat(viewMessages());
@@ -59,7 +73,7 @@ export function closeLiveStream() {
 }
 
 function openLiveStream(s) {
-  closeLiveStream();
+  closeStreamSocket(); // sseState bleibt: nahtloser Uebergang beim (Re-)Connect per seq-Merge
   liveStream = openStream(`/chat/stream/${s.id}`);
   liveStream.onmessage = (e) => {
     let ev;
@@ -75,7 +89,9 @@ function openLiveStream(s) {
         renderChat(viewMessages());
       }
     } else if (ev.type === "done" || ev.type === "idle" || ev.type === "error") {
-      closeLiveStream();
+      // Nur den Socket schliessen, sseState bleibt Ansicht: der naechste Poll
+      // (generating=0 + frischer Fetch) ersetzt ihn durch den persistierten Stand.
+      closeStreamSocket();
       pollOnce();
     }
   };
@@ -279,7 +295,7 @@ async function resendMessage(m) {
 
 // Generierung nach dem Senden/Bearbeiten anstossen (serverseitige Hintergrund-Task).
 async function triggerGeneration(s) {
-  renderChat(state.messages); // lokal gepflegte History (send/resubmit) direkt rendern
+  renderChat(viewMessages()); // lokal gepflegte History (send/resubmit) direkt rendern
   scrollChatToBottom(); // nach dem Absenden direkt zur neuen Nachricht/Antwort springen
   try {
     // Chat-History baut der Server aus der Session-DB (gueltiges LLM-Format inkl. Tool-Calls)
@@ -388,19 +404,26 @@ export async function pollOnce() {
   try {
     await loadSessions().catch(() => {});
     const s = activeSession();
+    let refreshed = false;
     if (s) {
       try {
         const detail = await api.get(`/sessions/${s.id}`);
         const msgs = normalizeMessages(detail.messages);
         state.messages = msgs;
         state.messagesSid = s.id;
+        refreshed = true;
       } catch {}
     }
     const generating = !!s?.generating;
     setStreamingUI(generating);
     // z. B. nach Reload waehrend laufender Generierung: Live-Stream der Service-Layer abonnieren
     if (generating && s && !liveStream) openLiveStream(s);
-    if (!generating) closeLiveStream();
+    if (!generating) {
+      closeStreamSocket();
+      // SSE-Stand erst verwerfen, wenn der Poll den persistierten Stand frisch gelesen
+      // hat — sonst faellt die Ansicht nach Stream-Ende auf den aelteren Poll-Stand zurueck
+      if (refreshed) sseState = null;
+    }
     const view = viewMessages();
     if (JSON.stringify(view) !== JSON.stringify(lastMessages)) renderChat(view);
     if (state.sessions.some((x) => x.generating)) ensurePolling();

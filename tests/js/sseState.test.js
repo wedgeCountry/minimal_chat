@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { applySseState } from "../../static/js/chat.js";
+import { applySseState, pickViewMessages } from "../../static/js/chat.js";
 
 test("applySseState: state-Event mit hoeherem seq wird uebernommen", () => {
   const cur = { seq: 2, messages: [{ id: 1, text: "alt", in_context: true }] };
@@ -17,4 +17,19 @@ test("applySseState: veraltetes seq und Nicht-state-Events werden verworfen", ()
   assert.equal(applySseState({ type: "state", seq: 5, messages: [] }, cur), cur);
   assert.equal(applySseState({ type: "done" }, cur), cur);
   assert.equal(applySseState(null, cur), cur);
+});
+
+test("pickViewMessages: SSE-Stand hat Vorrang, auch kurz nach Stream-Ende (kein Flicker)", () => {
+  // Regression: nach done darf die Ansicht nicht auf den aelteren Poll-Stand zurueckfallen,
+  // sonst verschwindet die fertig gestreamte Bubble kurz, bis der Poll nachliefert.
+  const polled = [{ id: 1, role: "user", type: "message", text: "Frage", ts: 1000 }];
+  const sse = {
+    seq: 7,
+    messages: [
+      { id: 1, role: "user", type: "message", text: "Frage", ts: 1000 },
+      { id: 2, role: "assistant", type: "message", text: "fertige Antwort", ts: 2000 },
+    ],
+  };
+  assert.equal(pickViewMessages(sse, polled), sse.messages, "fertige Assistant-Bubble bleibt sichtbar");
+  assert.equal(pickViewMessages(null, polled), polled, "ohne SSE-Stand gilt der Poll-Stand");
 });
