@@ -12,10 +12,10 @@ export const BOOL_SETTING_KEYS = [
 ];
 
 export const BOOL_SETTING_DEFAULTS = {
-  bubbles_deletable: true,
-  bubbles_checkable: true,
+  bubbles_deletable: false,
+  bubbles_checkable: false,
   bubbles_speaker: true,
-  bubbles_minimal: false,
+  bubbles_minimal: true,
   show_system_prompt: true,
   show_tool_output: true,
   show_reasoning: true,
