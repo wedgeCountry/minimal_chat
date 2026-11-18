@@ -146,7 +146,7 @@ def test_minimalism_hides_toolbar_on_touch_and_longpress_opens_menu(mobile_page,
     mobile_page.wait_for_timeout(300)
     assert mobile_page.locator('[data-testid="bubble-context-menu"]').count() == 0, "im Textauswahl-Modus darf kein eigenes Kontextmenue erscheinen"
 
-    # Auswahl aufheben beendet den Modus
-    mobile_page.evaluate("() => window.getSelection().removeAllRanges()")
+    # Touch ausserhalb der Bubble beendet den Modus sofort
+    mobile_page.evaluate("() => document.body.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }))")
     mobile_page.wait_for_timeout(50)
-    assert not mobile_page.locator(bubble).evaluate("el => el.classList.contains('selecting')"), "Textauswahl-Modus muss bei leerer Auswahl enden"
+    assert not mobile_page.locator(bubble).evaluate("el => el.classList.contains('selecting')"), "Touch ausserhalb der Bubble muss den Textauswahl-Modus beenden"
