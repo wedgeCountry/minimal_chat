@@ -125,7 +125,7 @@ def test_abort_via_api_discards_inflight_block_end_to_end(client, app, auth_head
         yield 'data: {"choices":[{"delta":{"reasoning_content":"denke"}}]}\n\n'
         yield 'data: {"choices":[{"delta":{"content":"Teil "}}]}\n\n'  # schliesst reasoning-Block
         for _ in range(500):
-            if any(st.generation and st.generation.abort.is_set() for st in app.state.message_service._sessions.values()):
+            if any(st.generation is not None and st.generation.is_set() for st in app.state.message_service._sessions.values()):
                 break
             await asyncio.sleep(0.01)
         yield 'data: {"choices":[{"delta":{"content":"VERWORFEN"}}]}\n\n'

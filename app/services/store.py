@@ -43,6 +43,20 @@ class AttachmentQuotaExceeded(Exception):
         self.limit = limit
 
 
+def error_message_input(error: str) -> MessageInput:
+    """System-Message, die einen Generierungs-Fehler persistiert (in_context=False,
+    landet nie im LLM-Kontext). Geteilt von SqliteUserStore und InMemoryUserStore."""
+    return {"role": "system", "type": "message", "text": "Fehler: " + error, "in_context": False}
+
+
+def default_name_for_first_user_text(role: str, msg_type: str, text: str, current_name: str) -> str | None:
+    """Neuer Session-Name beim ersten User-Text (None = Name bleibt unveraendert)."""
+    stripped = text.strip()
+    if role == "user" and msg_type == "message" and stripped and current_name == DEFAULT_SESSION_NAME:
+        return stripped[:40]
+    return None
+
+
 # --- Row -> Domain Mapping ---
 
 
@@ -182,9 +196,9 @@ class SqliteUserStore(UserStoreProtocol):
             if not session:
                 raise SessionNotFound(sid)
             stored = dbq.q_add_message(con, sid, msg)
-            text = str(msg.get("text") or "").strip()
-            if msg.get("role") == "user" and msg.get("type", "message") == "message" and text and session["name"] == DEFAULT_SESSION_NAME:
-                dbq.q_rename_session(con, sid, text[:40])
+            new_name = default_name_for_first_user_text(str(msg.get("role") or ""), str(msg.get("type") or "message"), str(msg.get("text") or ""), session["name"])
+            if new_name:
+                dbq.q_rename_session(con, sid, new_name)
             return _to_message(stored)
 
         return await self._run(user, _do)
@@ -308,16 +322,9 @@ class SqliteUserStore(UserStoreProtocol):
         def _do(con: sqlite3.Connection) -> list[Message]:
             added = [_to_message(dbq.q_add_message(con, sid, m)) for m in messages]
             if error:
-                added.append(
-                    _to_message(
-                        dbq.q_add_message(con, sid, {"role": "system", "type": "message", "text": "Fehler: " + error, "in_context": False})
-                    )
-                )
+                added.append(_to_message(dbq.q_add_message(con, sid, error_message_input(error))))
             dbq.q_set_generating(con, sid, False)
             return added
 
         return await self._run(user, _do)
 
-
-# Alias fuer bestehende Aufrufer (Wiring, Tests)
-UserStore = SqliteUserStore

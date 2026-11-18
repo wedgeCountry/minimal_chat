@@ -46,12 +46,69 @@ def _render_toolresult(a: dict[str, Any]) -> str:
     return text.replace("\\n", "\n")
 
 
-class _ActiveGeneration:
-    """Laufende Generierung innerhalb eines _SessionState (Tool-Akkumulatoren + Abort)."""
+def _to_message_input(m: Message) -> MessageInput:
+    return {"role": m.role, "type": m.type, "text": m.text, "in_context": m.in_context, "created_at": m.ts}
 
-    def __init__(self) -> None:
+
+class _StreamAccumulator:
+    """Sammelt den LLM-Stream blockweise in Live-Messages (id=None; ts=0 = offener Block).
+
+    Ein Typwechsel im Chunk-Stream schliesst den bisher offenen Block (ts wird zum
+    Abschluss-Zeitstempel des Blocks).
+    """
+
+    def __init__(self, msgs: list[Message]) -> None:
+        self._msgs = msgs
+        self.block_msgs: list[Message] = []  # Live-Messages in Stream-Reihenfolge (Refs in msgs)
         self.tool_acc: dict[tuple[str, int], dict[str, Any]] = {}
-        self.abort = asyncio.Event()
+        self._last_kind: tuple[str, int | None] | None = None
+        self._last_ts = 0
+
+    def next_ts(self) -> int:
+        self._last_ts = max(now_ms(), self._last_ts + 1)
+        return self._last_ts
+
+    def touch(self, kind: MessageType, idx: int | None = None) -> None:
+        # Typwechsel im Chunk-Stream: der bisher aktive Block ist abgeschlossen
+        if self._last_kind is not None and self._last_kind != (kind, idx):
+            for m in self.block_msgs:
+                if m.ts == 0:
+                    m.ts = self.next_ts()
+        self._last_kind = (kind, idx)
+
+    def live(self, kind: MessageType) -> Message:
+        m = Message(id=None, role="assistant", type=kind, text="", in_context=kind != "reasoning")
+        self._msgs.append(m)
+        self.block_msgs.append(m)
+        return m
+
+    def text_block(self, kind: MessageType) -> Message:
+        if self.block_msgs and self.block_msgs[-1].type == kind and self.block_msgs[-1].ts == 0:
+            return self.block_msgs[-1]
+        return self.live(kind)
+
+    def tool_block(self, kind: MessageType, idx: int) -> dict[str, Any]:
+        a = self.tool_acc.get((kind, idx))
+        if a is None:
+            m = self.live(kind)
+            a = {"kind": kind, "name": "", "args": "", "result": "", "msg": m}
+            self.tool_acc[(kind, idx)] = a
+        return a
+
+    def sync_tool(self, a: dict[str, Any]) -> None:
+        a["msg"].text = _render_toolcall(a) if a["kind"] == "toolcall" else _render_toolresult(a)
+
+    def closed_unpersisted(self) -> list[Message]:
+        """Abgeschlossene, noch nicht persistierte Bloecke (ein DB-Oeffnen pro Batch)."""
+        return [m for m in self.block_msgs if m.ts != 0 and m.id is None and m.text]
+
+    def close_open_blocks(self) -> None:
+        for m in self.block_msgs:
+            if m.ts == 0:
+                m.ts = self.next_ts()
+
+    def unpersisted(self) -> list[Message]:
+        return [m for m in self.block_msgs if m.id is None and m.text]
 
 
 class _SessionState:
@@ -62,7 +119,7 @@ class _SessionState:
         self.seq = 0
         self.lock = asyncio.Lock()
         self.subscribers: set[asyncio.Queue[dict[str, Any] | None]] = set()
-        self.generation: _ActiveGeneration | None = None
+        self.generation: asyncio.Event | None = None  # Abort-Event der laufenden Generierung
         self.last_touch = time.monotonic()
 
 
@@ -149,7 +206,7 @@ class MessageService:
     def request_abort(self, user: UserIdentity, sid: str) -> bool:
         state = self._sessions.get(self._key(user, sid))
         if state is not None and state.generation is not None:
-            state.generation.abort.set()
+            state.generation.set()
             return True
         # Generierung hat ihr Event evtl. noch nicht registriert (Race direkt nach POST /api/chat)
         self._abort_requested.add(self._key(user, sid))
@@ -268,12 +325,12 @@ class MessageService:
                 status = await self._store.try_start_generating(user, sid)
             if status != "ok":
                 return status
-            active = _ActiveGeneration()
-            state.generation = active
+            abort = asyncio.Event()
+            state.generation = abort
             if key in self._abort_requested:
                 self._abort_requested.discard(key)
-                active.abort.set()
-            task = asyncio.create_task(self._run_task(user, sid, key, state, active, base_url, api_key, payload, settings))
+                abort.set()
+            task = asyncio.create_task(self._run_task(user, sid, key, state, abort, base_url, api_key, payload, settings))
             self._tasks.add(task)
             task.add_done_callback(self._tasks.discard)
             return "ok"
@@ -293,13 +350,13 @@ class MessageService:
         except SessionNotFound:
             return
         key = self._key(user, sid)
-        active = _ActiveGeneration()
-        state.generation = active
+        abort = asyncio.Event()
+        state.generation = abort
         if key in self._abort_requested:
             self._abort_requested.discard(key)
-            active.abort.set()
+            abort.set()
         try:
-            await self._generate(user, sid, state, active, base_url, api_key, payload, settings)
+            await self._generate(user, sid, state, abort, base_url, api_key, payload, settings)
         finally:
             state.generation = None
             self._finish(key, state)
@@ -310,14 +367,14 @@ class MessageService:
         sid: str,
         key: str,
         state: _SessionState,
-        active: _ActiveGeneration,
+        abort: asyncio.Event,
         base_url: str,
         api_key: str,
         payload: dict[str, Any],
         settings: dict[str, bool] | None,
     ) -> None:
         try:
-            await self._generate(user, sid, state, active, base_url, api_key, payload, settings)
+            await self._generate(user, sid, state, abort, base_url, api_key, payload, settings)
         finally:
             state.generation = None
             self._finish(key, state)
@@ -362,7 +419,7 @@ class MessageService:
         user: UserIdentity,
         sid: str,
         state: _SessionState,
-        active: _ActiveGeneration,
+        abort: asyncio.Event,
         base_url: str,
         api_key: str,
         payload: dict[str, Any],
@@ -376,60 +433,19 @@ class MessageService:
         eins am Ende); der offene Block bleibt im Speicher und wird bei Abort/Fehler
         verworfen (aus dem Memory entfernt, nie persistiert).
         """
-        ev = active.abort
+        ev = abort
         msgs = state.messages
-        block_msgs: list[Message] = []  # Live-Messages in Stream-Reihenfolge (Refs in msgs)
-        last_kind: tuple[str, int | None] | None = None
-        last_ts = 0
+        acc = _StreamAccumulator(msgs)
         error: str | None = None
         parser = SseParser()
-
-        def _next_ts() -> int:
-            nonlocal last_ts
-            last_ts = max(now_ms(), last_ts + 1)
-            return last_ts
-
-        def _touch(kind: MessageType, idx: int | None = None) -> None:
-            # Typwechsel im Chunk-Stream: der bisher aktive Block ist abgeschlossen
-            nonlocal last_kind
-            if last_kind is not None and last_kind != (kind, idx):
-                for m in block_msgs:
-                    if m.ts == 0:
-                        m.ts = _next_ts()
-            last_kind = (kind, idx)
-
-        def _live(kind: MessageType) -> Message:
-            m = Message(id=None, role="assistant", type=kind, text="", in_context=kind != "reasoning")
-            msgs.append(m)
-            block_msgs.append(m)
-            return m
-
-        def _text_block(kind: MessageType) -> Message:
-            if block_msgs and block_msgs[-1].type == kind and block_msgs[-1].ts == 0:
-                return block_msgs[-1]
-            return _live(kind)
-
-        def _tool_block(kind: MessageType, idx: int) -> dict[str, Any]:
-            a = active.tool_acc.get((kind, idx))
-            if a is None:
-                m = _live(kind)
-                a = {"kind": kind, "name": "", "args": "", "result": "", "msg": m}
-                active.tool_acc[(kind, idx)] = a
-            return a
-
-        def _sync_tool(a: dict[str, Any]) -> None:
-            a["msg"].text = _render_toolcall(a) if a["kind"] == "toolcall" else _render_toolresult(a)
-
-        def _to_input(m: Message) -> MessageInput:
-            return {"role": m.role, "type": m.type, "text": m.text, "in_context": m.in_context, "created_at": m.ts}
 
         async def _persist_closed() -> None:
             """Persistiert abgeschlossene Bloecke sofort (beim Typwechsel im Stream).
             Der offene Block wird nie geschrieben. Pro Batch genau ein DB-Oeffnen."""
-            closed = [m for m in block_msgs if m.ts != 0 and m.id is None and m.text]
+            closed = acc.closed_unpersisted()
             if not closed:
                 return
-            stored = await self._store.add_messages(user, sid, [_to_input(m) for m in closed])
+            stored = await self._store.add_messages(user, sid, [_to_message_input(m) for m in closed])
             for m, s in zip(closed, stored):
                 m.id = s.id
                 m.ts = s.ts
@@ -443,11 +459,9 @@ class MessageService:
             targets: list[Message] = []
             rows: list[MessageInput] = []
             if not discard_open:
-                for m in block_msgs:
-                    if m.ts == 0:
-                        m.ts = _next_ts()
-                targets = [m for m in block_msgs if m.id is None and m.text]
-                rows = [_to_input(m) for m in targets]
+                acc.close_open_blocks()
+                targets = acc.unpersisted()
+                rows = [_to_message_input(m) for m in targets]
             stored = await self._store.finalize_generation(user, sid, rows, error)
             if discard_open:
                 state.messages[:] = [m for m in msgs if m.id is not None]
@@ -475,38 +489,38 @@ class MessageService:
                     if reasoning is None:
                         reasoning = delta.get("reasoning")
                     if reasoning:
-                        _touch("reasoning")
-                        _text_block("reasoning").text += reasoning
+                        acc.touch("reasoning")
+                        acc.text_block("reasoning").text += reasoning
                     if delta.get("content"):
-                        _touch("message")
-                        _text_block("message").text += delta["content"]
+                        acc.touch("message")
+                        acc.text_block("message").text += delta["content"]
                     for tc in delta.get("tool_calls") or []:
                         idx = tc.get("index")
                         if idx is None:
-                            idx = sum(1 for m in block_msgs if m.type == "toolcall")
-                        _touch("toolcall", idx)
-                        a = _tool_block("toolcall", idx)
+                            idx = sum(1 for m in acc.block_msgs if m.type == "toolcall")
+                        acc.touch("toolcall", idx)
+                        a = acc.tool_block("toolcall", idx)
                         fn = tc.get("function") or {}
                         a["name"] += fn.get("name") or ""
                         a["args"] += fn.get("arguments") or ""
-                        _sync_tool(a)
+                        acc.sync_tool(a)
                     for tr in delta.get("tool_results") or []:
                         idx = tr.get("index")
                         if idx is None:
-                            idx = sum(1 for m in block_msgs if m.type == "toolresult")
-                        _touch("toolresult", idx)
+                            idx = sum(1 for m in acc.block_msgs if m.type == "toolresult")
+                        acc.touch("toolresult", idx)
                         if tr.get("signal"):
                             # Signal-Chunk des LLM-Servers (z. B. "toolcall_done"): schliesst den
                             # offenen Block, traegt aber keinen Toolresult-Inhalt
                             continue
-                        a = _tool_block("toolresult", idx)
+                        a = acc.tool_block("toolresult", idx)
                         fn = tr.get("function") or {}
                         a["name"] += tr.get("name") or fn.get("name") or ""
                         a["result"] += (
                             tr.get("result") or tr.get("content") or tr.get("output") or tr.get("text")
                             or fn.get("result") or fn.get("arguments") or ""
                         )
-                        _sync_tool(a)
+                        acc.sync_tool(a)
                 state.seq += 1
                 self._publish(state)
                 await _persist_closed()

@@ -163,9 +163,9 @@ def test_chat_unknown_session_404(client, auth_headers):
 def test_chat_abort_endpoint(client, app, auth_headers, monkeypatch):
     observed = {}
 
-    async def fake_generate(self, user, sid, state, active, *args, **kwargs):
-        observed["active"] = active
-        await asyncio.wait_for(active.abort.wait(), timeout=10)
+    async def fake_generate(self, user, sid, state, abort, *args, **kwargs):
+        observed["abort"] = abort
+        await asyncio.wait_for(abort.wait(), timeout=10)
         observed["aborted"] = True
 
     monkeypatch.setattr(MessageService, "_generate", fake_generate)
