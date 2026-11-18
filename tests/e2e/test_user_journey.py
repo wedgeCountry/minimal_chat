@@ -1522,8 +1522,9 @@ def test_minimalism_desktop_hides_head_and_overrides_context_menu(page, base_url
     )
     toolbar_btn = f'{_bubble("assistant", "message")} .bubbleHead .iconBtn'
 
-    # Setting serverseitig setzen, dann Seite neu laden (Cookie bleibt -> kein erneuter Login)
-    res = api_client.put("/api/settings", json={"bubbles_minimal": True})
+    # Settings serverseitig setzen (Minimalismus + Kontext-Checkbox fuer den Toggle-Test),
+    # dann Seite neu laden (Cookie bleibt -> kein erneuter Login)
+    res = api_client.put("/api/settings", json={"bubbles_minimal": True, "bubbles_checkable": True})
     assert res.status_code == 200, res.text
     assert res.json()["bubbles_minimal"] is True
     page.reload()
@@ -1565,8 +1566,36 @@ def test_minimalism_desktop_hides_head_and_overrides_context_menu(page, base_url
     assert prevented, "Desktop: contextmenu auf Bubble muss preventDefault sein (App-Menue ueberschreibt Systemmenue)"
     menu.wait_for(state="visible")
     assert menu.locator("button").count() >= 2, "Kontextmenue muss Kopieren und die Bubble-Aktionen enthalten"
+    assert menu.locator("button svg").count() == 0, "Kontextmenue darf keine Icons enthalten (nur Text)"
     assert menu.locator('[data-testid="ctx-copy"]').count() == 1
+    # Kontext-Toggle mit zustandsabhaengigem Label (Bubble ist im Kontext -> ausschliessen)
+    toggle = menu.locator('[data-testid="ctx-toggle-context"]')
+    assert toggle.count() == 1
+    assert "ausschlie" in toggle.inner_text().lower(), f"Toggle-Label muss 'Aus dem Kontext ausschließen' sein, got {toggle.inner_text()!r}"
+    toggle.click()
+    page.wait_for_selector('[data-testid="bubble-context-menu"]', state="detached")
+    assert page.locator(bubble_sel).evaluate("el => el.classList.contains('deselected')"), "Toggle muss die Bubble aus dem Kontext nehmen (deselected)"
+    # wieder oeffnen: Label kippt auf 'In den Kontext einschließen'
+    page.evaluate(
+        """(sel) => {
+          const el = document.querySelector(sel);
+          el.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
+        }""",
+        bubble_sel,
+    )
+    menu.wait_for(state="visible")
+    assert "einschlie" in menu.locator('[data-testid="ctx-toggle-context"]').inner_text().lower(), "Toggle-Label muss jetzt 'In den Kontext einschließen' sein"
+    page.keyboard.press("Escape")
+    page.wait_for_selector('[data-testid="bubble-context-menu"]', state="detached")
     # Klick bei offenem Menue schliesst es wieder
+    page.evaluate(
+        """(sel) => {
+          const el = document.querySelector(sel);
+          el.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
+        }""",
+        bubble_sel,
+    )
+    menu.wait_for(state="visible")
     page.click(bubble_sel)
     page.wait_for_selector('[data-testid="bubble-context-menu"]', state="detached")
 

@@ -1,6 +1,6 @@
 import { api, openStream } from "./api.js";
 import { activeSession, normalizeMessage, normalizeMessages, state } from "./state.js";
-import { $, isNearBottom, captureScrollAnchor, restoreScrollAnchor, esc } from "./util.js";
+import { $, isNearBottom, captureScrollAnchor, restoreScrollAnchor } from "./util.js";
 import { ICONS } from "./icons.js";
 import { bubbleEl, setBubbleText, enterBubbleEdit, exitBubbleEdit, syncBubbleTts, syncBubbleDelete, copyBubbleText } from "./bubbles.js";
 import { loadSessions, newSession, changed } from "./sessions.js";
@@ -323,10 +323,11 @@ function openBubbleCtxMenu(b, x, y) {
   const menu = document.createElement("div");
   menu.className = "ctxMenu";
   menu.dataset.testid = "bubble-context-menu";
-  const addItem = (testid, icon, label, fn) => {
+  // Menue nur mit Text (keine Icons)
+  const addItem = (testid, label, fn) => {
     const item = document.createElement("button");
     item.dataset.testid = testid;
-    item.innerHTML = `${icon}<span>${esc(label)}</span>`;
+    item.textContent = label;
     item.onclick = () => {
       closeBubbleCtxMenu();
       fn();
@@ -334,11 +335,17 @@ function openBubbleCtxMenu(b, x, y) {
     menu.appendChild(item);
   };
   // immer oben: Textaktionen der Bubble
-  addItem("ctx-copy", ICONS.copy, "Kopieren", () => copyBubbleText(b));
+  addItem("ctx-copy", "Kopieren", () => copyBubbleText(b));
   // danach die Aktionen der (versteckten) Toolbar — Kopieren ist als ctx-copy schon oben
   for (const ctl of b.querySelectorAll(".bubbleHead .iconBtn, .bubbleHead .chk")) {
     if (ctl.classList.contains("copyBtn")) continue;
-    addItem(`ctx-${ctl.dataset.testid || "action"}`, ctl.innerHTML, ctl.title || "Aktion", () => ctl.click());
+    if (ctl.classList.contains("chk")) {
+      // Kontext-Checkbox als Toggle mit zustandsabhaengigem Label
+      const inCtx = b._msg?.inContext !== false;
+      addItem("ctx-toggle-context", inCtx ? "Aus dem Kontext ausschließen" : "In den Kontext einschließen", () => ctl.click());
+      continue;
+    }
+    addItem(`ctx-${ctl.dataset.testid || "action"}`, ctl.title || "Aktion", () => ctl.click());
   }
   if (!menu.children.length) return;
   menu.style.left = "0px";

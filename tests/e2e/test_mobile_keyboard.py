@@ -143,6 +143,7 @@ def test_minimalism_hides_toolbar_on_touch_and_longpress_opens_menu(mobile_page,
     )
     menu.wait_for(state="visible")
     assert menu.locator("button").count() >= 2, "Kontextmenue muss Kopieren und die Bubble-Aktionen enthalten"
+    assert menu.locator("button svg").count() == 0, "Kontextmenue darf keine Icons enthalten (nur Text)"
     assert menu.locator('[data-testid="ctx-copy"]').count() == 1, "Menue-Eintrag fehlt: ctx-copy"
     mobile_page.touchscreen.tap(cx, cy)  # Tap bei offenem Menue -> alle Kontextmenues zu
     mobile_page.wait_for_selector('[data-testid="bubble-context-menu"]', state="detached")
