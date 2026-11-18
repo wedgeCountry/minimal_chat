@@ -1,14 +1,14 @@
-"""SSE-Parsing und -Filtern (einzige Stelle mit ``data:``-Logik, siehe AGENTS.md Regel 4).
+"""SSE-Parsing und -Serialisierung (einzige Stelle mit ``data:``-Logik, siehe AGENTS.md Regel 4).
 
 ``parse_sse_data``/``parse_sse_buffer`` sind die Parse-Primitive, ``SseParser``
-hält den Pufferzustand beim Streamen, ``sse_filter`` filtert den LLM-Stream
-anhand der User-Settings.
+hält den Pufferzustand beim Streamen, ``sse_event`` serialisiert ausgehende Events.
+Der LLM-Stream wird bewusst nicht gefiltert (Anzeige-Settings wirken clientseitig),
+damit alle Blöcke persistiert werden.
 """
 
 from __future__ import annotations
 
 import json
-from collections.abc import AsyncIterator
 from typing import Any
 
 
@@ -55,51 +55,4 @@ class SseParser:
         return events
 
 
-def _filter_delta(delta: dict[str, Any], show_reasoning: bool, show_tool_output: bool) -> None:
-    if not show_reasoning:
-        delta.pop("reasoning_content", None)
-        delta.pop("reasoning", None)
-        delta.pop("thinking", None)
-    if not show_tool_output:
-        delta.pop("tool_calls", None)
-        delta.pop("tool_results", None)
-        delta.pop("tool_result", None)
 
-
-def _filter_sse_data(data: str, show_reasoning: bool, show_tool_output: bool) -> str:
-    if data == "[DONE]":
-        return data
-    event = parse_sse_data(data)
-    if event is None:
-        return data
-    choices = event.get("choices")
-    if isinstance(choices, list) and choices and isinstance(choices[0], dict):
-        delta = choices[0].get("delta")
-        if isinstance(delta, dict):
-            _filter_delta(delta, show_reasoning, show_tool_output)
-    return json.dumps(event, separators=(",", ":"))
-
-
-def _filter_sse_line(line: str, show_reasoning: bool, show_tool_output: bool) -> str:
-    t = line.strip()
-    if t.startswith("data:"):
-        data = t[len("data:"):].strip()
-        return "data: " + _filter_sse_data(data, show_reasoning, show_tool_output) + "\n"
-    return line + "\n"
-
-
-async def sse_filter(
-    chunks: AsyncIterator[bytes],
-    *,
-    show_reasoning: bool = True,
-    show_tool_output: bool = True,
-) -> AsyncIterator[str]:
-    """Serverseitiges Filtern des LLM-SSE-Streams anhand der User-Settings."""
-    buf = ""
-    async for chunk in chunks:
-        buf += chunk.decode("utf-8", errors="replace")
-        while "\n" in buf:
-            line, buf = buf.split("\n", 1)
-            yield _filter_sse_line(line, show_reasoning, show_tool_output)
-    if buf:
-        yield _filter_sse_line(buf, show_reasoning, show_tool_output)

@@ -14,8 +14,6 @@ from typing import Any, AsyncIterator, Awaitable, Callable, TypeVar
 
 import httpx
 
-from .sse import sse_filter
-
 DEFAULT_TIMEOUT = httpx.Timeout(connect=10.0, read=None, write=30.0, pool=10.0)
 
 ClientFactory = Callable[..., httpx.AsyncClient]
@@ -119,14 +117,14 @@ class LlmClient:
     ) -> AsyncIterator[str]:
         """Leitet einen Chat-Completions-Request als SSE-Stream weiter.
 
-        ``settings`` steuert das serverseitige Filtern: ``show_system_prompt``
-        filtert den Request, ``show_reasoning``/``show_tool_output`` den Response-Stream.
+        ``settings`` filtert nur den Request (``show_system_prompt``). Der Response-Stream
+        wird nie gefiltert: Anzeige-Einstellungen (``show_reasoning``/``show_tool_output``)
+        wirken clientseitig (visibility.js) und duerfen den Stream nicht ausduennen, sonst
+        landen Tool-Ergebnisse/Reasoning nicht in der DB und fehlen beim Wiedereinblenden.
         ``abort`` wird gegen das Oeffnen der Response und jeden Chunk-Read geracet;
         beim Abort wird die Upstream-Verbindung sofort geschlossen.
         """
         flags = settings or {}
-        show_reasoning = flags.get("show_reasoning", True)
-        show_tool_output = flags.get("show_tool_output", True)
         payload = {
             **payload,
             "messages": filter_request_messages(payload.get("messages", []), flags.get("show_system_prompt", True)),
@@ -152,12 +150,8 @@ class LlmClient:
                     yield "data: [DONE]\n\n"
                     return
                 raw = aiter_until_abort(res.aiter_bytes(), abort)
-                if show_reasoning and show_tool_output:
-                    async for chunk in raw:
-                        yield chunk.decode("utf-8", errors="replace")
-                else:
-                    async for line in sse_filter(raw, show_reasoning=show_reasoning, show_tool_output=show_tool_output):
-                        yield line
+                async for chunk in raw:
+                    yield chunk.decode("utf-8", errors="replace")
             finally:
                 await stream_cm.__aexit__(None, None, None)
 
