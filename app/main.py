@@ -17,7 +17,7 @@ from .routers import auth, chat, log, meta, sessions, settings, voice
 from .services.chat import MessageService
 from .services.store import SqliteUserStore
 
-STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
+STATIC_DIR = Path(__file__).resolve().parent.parent / "app" / "static"
 
 bootstrap_env()
 
