@@ -384,11 +384,14 @@ export function onBubbleTap(e) {
   if (!b) return;
   if (isFinePointer()) {
     // Desktop: Klick/Doppelklick oeffnen nie das Menue (das kommt vom Rechtsklick/contextmenu);
-    // ein Klick bei offenem Menue schliesst es wieder
+    // ein Klick bei offenem Menue schliesst es wieder. lastTap wird trotzdem gefuehrt, damit das
+    // zweite pointerdown des Doppelklicks die Wortauswahl (Firefox) unterdruecken kann.
     if (ctxMenu) {
       closeBubbleCtxMenu();
       lastTap = null;
+      return;
     }
+    lastTap = { t: e.timeStamp, x: e.clientX, y: e.clientY, bubble: b };
     return;
   }
   const start = tapStart;
@@ -431,12 +434,28 @@ export function initBubbleMenu() {
   chat.addEventListener("click", onBubbleTap); // Touch: Doppel-Tap-Menue (Desktop: nur Schliessen)
   chat.addEventListener("contextmenu", onBubbleContextMenu); // Desktop: Rechtsklick-Menue (Touch: nativ)
   chat.addEventListener("pointerdown", (e) => {
-    if (!e.target.closest?.(".bubble")) {
+    const b = e.target.closest?.(".bubble");
+    if (!b) {
       tapStart = null;
       return;
     }
+    // Doppel-Tap auf derselben Bubble: zweites pointerdown canceln — das ist das Systemdefault,
+    // das in Firefox das Wort unter dem Tap selektiert. click/dblclick feuern trotzdem (Pointer-Events-Spec)
+    if (
+      isToolbarMinimal(state.settings) &&
+      lastTap &&
+      e.timeStamp - lastTap.t <= DBL_TAP_MAX_MS &&
+      Math.hypot(e.clientX - lastTap.x, e.clientY - lastTap.y) <= DBL_TAP_MAX_PX &&
+      lastTap.bubble === b
+    ) {
+      e.preventDefault();
+    }
     const sel = window.getSelection();
     tapStart = { x: e.clientX, y: e.clientY, t: e.timeStamp, hadSelection: !!(sel && !sel.isCollapsed) };
+  });
+  chat.addEventListener("dblclick", (e) => {
+    // Desktop: Doppelklick-Wortauswahl im Minimalismus zusaetzlich unterdruecken
+    if (isToolbarMinimal(state.settings) && e.target.closest?.(".bubble")) e.preventDefault();
   });
   chat.addEventListener("scroll", () => closeBubbleCtxMenu(), { passive: true });
 }

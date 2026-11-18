@@ -1582,6 +1582,7 @@ def test_minimalism_desktop_hides_head_and_overrides_context_menu(page, base_url
     bubble_sel = _bubble("assistant", "message")
     body_sel = f"{bubble_sel} .bubbleBody"
     assert page.locator(body_sel).evaluate("el => getComputedStyle(el).userSelect") in ("text", "auto"), "Textauswahl darf im Minimalismus nicht per CSS deaktiviert sein"
+    assert page.locator(bubble_sel).evaluate("el => getComputedStyle(el).touchAction") == "manipulation", "touch-action muss im Minimalismus 'manipulation' sein (kein systemeigenes Doppel-Tap-Zoom)"
 
     menu = page.locator('[data-testid="bubble-context-menu"]')
     # Desktop: Klick UND Doppelklick oeffnen kein Menue
@@ -1591,6 +1592,28 @@ def test_minimalism_desktop_hides_head_and_overrides_context_menu(page, base_url
     page.dblclick(bubble_sel)
     page.wait_for_timeout(300)
     assert menu.count() == 0, "Doppelklick darf auf Desktop kein Kontextmenue oeffnen"
+
+    # Doppel-Tap selektiert nicht das Wort (Firefox-Systemdefault): zweites pointerdown wird preventDefault
+    page.wait_for_timeout(400)  # evtl. stale lastTap ablaufen lassen
+    dbl = page.evaluate(
+        """(sel) => {
+          const el = document.querySelector(sel);
+          const r = el.getBoundingClientRect();
+          const x = r.x + r.width / 2, y = r.y + r.height / 2;
+          const fired = [];
+          for (let i = 0; i < 2; i++) {
+            const pd = new PointerEvent('pointerdown', { bubbles: true, cancelable: true, clientX: x, clientY: y });
+            el.dispatchEvent(pd);
+            fired.push(pd.defaultPrevented);
+            el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, clientX: x, clientY: y }));
+          }
+          return { secondPdPrevented: fired[1], collapsed: window.getSelection().isCollapsed, menu: !!document.querySelector('[data-testid="bubble-context-menu"]') };
+        }""",
+        bubble_sel,
+    )
+    assert dbl["secondPdPrevented"] is True, "pointerdown des Doppel-Taps muss preventDefault sein (Wortauswahl unterdrueckt)"
+    assert dbl["collapsed"] is True, "Doppel-Tap darf kein Wort selektieren"
+    assert dbl["menu"] is False, "Desktop: Doppel-Tap oeffnet kein Menue (das kommt per Rechtsklick)"
 
     # Rechtsklick (contextmenu) auf der Bubble ueberschreibt das Systemmenue durch das App-Menue
     prevented = page.evaluate(

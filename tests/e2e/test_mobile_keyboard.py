@@ -121,6 +121,9 @@ def test_minimalism_hides_toolbar_on_touch_and_longpress_opens_menu(mobile_page,
     # Doppel-Tap oeffnet das App-Menue, Tap bei offenem Menue schliesst, Scroll-Geste oeffnet nichts
     body_sel = f"{bubble} .bubbleBody"
     assert mobile_page.locator(body_sel).evaluate("el => getComputedStyle(el).userSelect") in ("text", "auto"), "Textauswahl darf im Minimalismus nicht per CSS deaktiviert sein"
+    # systemeigenes Doppel-Tap-Zoom (Firefox Android) auf den Bubbles abgeschaltet — der
+    # Doppel-Tap ist unserer (App-Kontextmenue); Scrollen/Pan bleibt via touch-action:manipulation
+    assert mobile_page.locator(bubble).evaluate("el => getComputedStyle(el).touchAction") == "manipulation", "touch-action muss im Minimalismus 'manipulation' sein (kein systemeigenes Doppel-Tap-Zoom)"
     menu = mobile_page.locator('[data-testid="bubble-context-menu"]')
 
     box = mobile_page.locator(bubble).bounding_box()
@@ -128,19 +131,27 @@ def test_minimalism_hides_toolbar_on_touch_and_longpress_opens_menu(mobile_page,
     mobile_page.touchscreen.tap(cx, cy)  # einfacher Tap -> KEIN Menue
     mobile_page.wait_for_timeout(300)
     assert menu.count() == 0, "einfacher Tap darf im Minimalismus kein Kontextmenue oeffnen"
-    # Doppel-Tap (zwei pointerdown+click-Paare in einem Tick -> deterministisch schnell genug)
-    mobile_page.evaluate(
+    # Doppel-Tap (zwei pointerdown+click-Paare in einem Tick -> deterministisch schnell genug);
+    # das zweite pointerdown muss preventDefault sein, damit Firefox nicht das Wort selektiert
+    mobile_page.wait_for_timeout(400)  # evtl. stale lastTap ablaufen lassen
+    dbl = mobile_page.evaluate(
         """(sel) => {
           const el = document.querySelector(sel);
           const r = el.getBoundingClientRect();
           const x = r.x + r.width / 2, y = r.y + r.height / 2;
+          const fired = [];
           for (let i = 0; i < 2; i++) {
-            el.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, clientX: x, clientY: y }));
+            const pd = new PointerEvent('pointerdown', { bubbles: true, cancelable: true, clientX: x, clientY: y });
+            el.dispatchEvent(pd);
+            fired.push(pd.defaultPrevented);
             el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, clientX: x, clientY: y }));
           }
+          return { secondPdPrevented: fired[1], collapsed: window.getSelection().isCollapsed };
         }""",
         bubble,
     )
+    assert dbl["secondPdPrevented"] is True, "pointerdown des Doppel-Taps muss preventDefault sein (Wortauswahl unterdrueckt)"
+    assert dbl["collapsed"] is True, "Doppel-Tap darf kein Wort selektieren"
     menu.wait_for(state="visible")
     assert menu.locator("button").count() >= 2, "Kontextmenue muss Kopieren und die Bubble-Aktionen enthalten"
     assert menu.locator("button svg").count() == 0, "Kontextmenue darf keine Icons enthalten (nur Text)"
