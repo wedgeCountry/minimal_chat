@@ -43,11 +43,18 @@ test("isClamped: true nur wenn der Text im Modus gekuerzt wird", () => {
   assert.equal(isClamped(undefined, "collapsed"), false);
 });
 
-test("nextBubbleMode zyklisch: normal -> full -> collapsed -> normal", () => {
+test("nextBubbleMode zyklisch: normal -> full -> collapsed -> normal (Normal-Ansicht gekuerzt)", () => {
   assert.equal(nextBubbleMode("normal"), "full");
-  assert.equal(nextBubbleMode("full"), "collapsed");
+  assert.equal(nextBubbleMode("normal", true), "full");
+  assert.equal(nextBubbleMode("full", true), "collapsed");
+  assert.equal(nextBubbleMode("full", false), "collapsed");
   assert.equal(nextBubbleMode("collapsed"), "normal");
+  assert.equal(nextBubbleMode("collapsed", false), "normal", "von collapsed immer nach normal");
   assert.deepEqual(BUBBLE_MODES, ["normal", "full", "collapsed"]);
+});
+
+test("nextBubbleMode: ungekuerzte Normal-Ansicht ueberspringt full (full == normal)", () => {
+  assert.equal(nextBubbleMode("normal", false), "collapsed");
 });
 
 test("bubbleModeTitle liefert deutsche Tooltips pro Zustand", () => {

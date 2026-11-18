@@ -213,9 +213,9 @@ function updateBubble(b, m, showResend, showEdit) {
     b.classList.toggle("deselected", !inCtx);
   }
   const resend = b.querySelector(".resendBtn");
-  if (resend) resend.style.display = showResend ? "" : "none";
+  if (resend) resend.classList.toggle("u-hidden", !showResend);
   const edit = b.querySelector(".editBtn");
-  if (edit) edit.style.display = showEdit ? "" : "none";
+  if (edit) edit.classList.toggle("u-hidden", !showEdit);
   syncBubbleDelete(b);
   syncBubbleTts(b);
 }
@@ -240,7 +240,7 @@ export function renderChat(messages) {
     bubbleNodes.clear();
     const empty = document.createElement("div");
     empty.dataset.testid = "chat-empty";
-    empty.style.cssText = "margin:auto;color:var(--muted);font-size:14px;text-align:center";
+    empty.className = "chatEmpty";
     empty.textContent = s ? "Neue Session – schreibe die erste Nachricht." : "Erstelle eine neue Session, um zu starten.";
     chat.appendChild(empty);
     return;
@@ -303,8 +303,8 @@ export function renderChatView() {
 // nativ (Systemmenue + Textauswahl — Webseiten koennen dem Systemmenue keine Eintraege anhaengen).
 // Einfacher Tap auf Touch schaltet zusaetzlich den Expand-Modus der Bubble zyklisch weiter
 // (normal -> full -> collapsed -> normal), wie der Chevron im Normalmodus (siehe onBubbleTap).
-// Laeuft eine Wiedergabe (TTS), stoppt ein einfacher Tap/Klick stattdessen die Wiedergabe; dieser
-// eine Tap/Klick wird unterdrueckt (kein Expand-Wechsel, siehe onBubbleTap).
+// Laeuft eine Wiedergabe (TTS), stoppt im Minimalismus ein Doppel-Tap/Doppelklick auf eine
+// Bubble bzw. die Esc-Taste die Wiedergabe (siehe onBubbleTap / initBubbleMenu).
 let ctxMenu = null;
 let ctxMenuDocHandler = null;
 
@@ -367,8 +367,8 @@ function openBubbleCtxMenu(b, x, y) {
 
 // Nur ein kurzer Tap ohne Bewegung zaehlt — Scrollen/Pan mit dem Finger nicht. Das Menue
 // oeffnet erst beim DOPPEL-Tap; der einfache Tap schaltet dafuer den Expand-Modus der Bubble
-// zyklisch weiter (wie der Chevron, siehe bubbles.js) — laeuft eine Wiedergabe, stoppt er
-// stattdessen die Wiedergabe (dieser eine Tap wird unterdrueckt, kein Expand-Wechsel).
+// zyklisch weiter (wie der Chevron, siehe bubbles.js). Laeuft eine Wiedergabe, stoppt der
+// DOPPEL-Tap stattdessen die Wiedergabe (dann kein Menue, kein Expand-Wechsel).
 // War beim pointerdown eine
 // Textauswahl aktiv (System-Auswahlmenue offen), oeffnet der Tap kein Menue: er bricht die
 // Auswahl ab (hadSelection wird am pointerdown gemessen, weil der Browser die Auswahl schon
@@ -402,11 +402,13 @@ export function onBubbleTap(e) {
       lastTap = null;
       return;
     }
+    const dbl =
+      lastTap &&
+      e.timeStamp - lastTap.t <= DBL_TAP_MAX_MS &&
+      Math.hypot(e.clientX - lastTap.x, e.clientY - lastTap.y) <= DBL_TAP_MAX_PX &&
+      lastTap.bubble === b;
     lastTap = { t: e.timeStamp, x: e.clientX, y: e.clientY, bubble: b };
-    if (isSpeaking()) {
-      stopSpeech(); // Klick waehrend der Wiedergabe stoppt sie; der Klick wird einmalig unterdrueckt
-      return;
-    }
+    if (dbl && isSpeaking()) stopSpeech(); // Doppelklick stoppt die Wiedergabe; einzelner Klick nicht
     return;
   }
   const start = tapStart;
@@ -430,22 +432,20 @@ export function onBubbleTap(e) {
   lastTap = { t: e.timeStamp, x: e.clientX, y: e.clientY, bubble: b };
   if (dbl) {
     lastTap = null;
-    cancelPendingModeTap(); // Doppel-Tap ist eine eigene Aktion: oeffnet nur das Menue, aendert nicht den Expand-Modus
-    openBubbleCtxMenu(b, e.clientX, e.clientY);
+    cancelPendingModeTap(); // Doppel-Tap ist eine eigene Aktion: aendert nicht den Expand-Modus
+    if (isSpeaking()) stopSpeech(); // Doppel-Tap waehrend Wiedergabe: stoppen statt Menue oeffnen
+    else openBubbleCtxMenu(b, e.clientX, e.clientY);
     return;
   }
-  // Einfacher Tap: Expand-Modus zyklisch weiterschalten (normal -> full -> collapsed -> normal) —
-  // bzw. laufende Wiedergabe stoppen; der Tap wird dann einmalig unterdrueckt (kein Expand).
-  // Beides verzoegert um das Doppel-Tap-Fenster, damit ein Doppel-Tap nur das Menue oeffnet;
+  // Einfacher Tap: Expand-Modus zyklisch weiterschalten (normal -> full -> collapsed -> normal).
+  // Verzoegert um das Doppel-Tap-Fenster, damit ein Doppel-Tap nicht zusaetzlich den Modus aendert;
   // Scroll-Gesten kommen hier nie an (Bewegung/Zeit siehe oben) und bleiben unberuehrt.
   cancelPendingModeTap();
-  const speaking = isSpeaking();
   pendingModeTap = {
     bubble: b,
     timer: setTimeout(() => {
       pendingModeTap = null;
-      if (speaking) stopSpeech();
-      else setBubbleMode(b, nextBubbleMode(b.dataset.mode || "normal"));
+      setBubbleMode(b, nextBubbleMode(b.dataset.mode || "normal", b._normalTruncated));
     }, DBL_TAP_MAX_MS),
   };
 }
@@ -489,6 +489,9 @@ export function initBubbleMenu() {
     if (isToolbarMinimal(state.settings) && e.target.closest?.(".bubble")) e.preventDefault();
   });
   chat.addEventListener("scroll", () => closeBubbleCtxMenu(), { passive: true });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && isSpeaking()) stopSpeech(); // Esc stoppt die laufende Wiedergabe
+  });
 }
 
 // Edit-Modus: id der Nutzernachricht, die gerade inline in ihrer Bubble bearbeitet wird

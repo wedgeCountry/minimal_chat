@@ -40,6 +40,15 @@ test("setBubbleText clamps to 10 lines in normal mode and marks clamped", () => 
   assert.ok(b._body.classList.contains("clamped"));
 });
 
+test("setBubbleText setzt _normalTruncated: true bei >10 Zeilen, false bei kurzem Text", () => {
+  const b = fakeBubble();
+  b.dataset.mode = "normal";
+  setBubbleText(b, LONG);
+  assert.equal(b._normalTruncated, true);
+  setBubbleText(b, "kurz");
+  assert.equal(b._normalTruncated, false);
+});
+
 test("setBubbleMode full shows the complete text, collapsed only the first line", () => {
   const b = fakeBubble();
   b.dataset.mode = "normal";
@@ -54,15 +63,18 @@ test("setBubbleMode full shows the complete text, collapsed only the first line"
   assert.ok(b._body.classList.contains("clamped"));
 });
 
-test("setBubbleMode: collapseBtn nur im full-Modus sichtbar", () => {
+test("setBubbleMode: collapseBtn-Sichtbarkeit ist CSS-gesteuert (.bubble.full .collapseBtn), kein Inline-Style", () => {
   const b = fakeBubble();
   b.dataset.mode = "normal";
   setBubbleMode(b, "full");
-  assert.equal(b._collapseBtn.style.display, "");
+  assert.ok(b.classList.contains("full"));
+  assert.equal(b._collapseBtn.style.display, undefined, "kein Inline-Style am collapseBtn");
   setBubbleMode(b, "collapsed");
-  assert.equal(b._collapseBtn.style.display, "none");
+  assert.ok(!b.classList.contains("full"));
+  assert.equal(b._collapseBtn.style.display, undefined);
   setBubbleMode(b, "normal");
-  assert.equal(b._collapseBtn.style.display, "none");
+  assert.ok(!b.classList.contains("full"));
+  assert.equal(b._collapseBtn.style.display, undefined);
 });
 
 test("setBubbleMode cycles classes and sets the chevron title", () => {
