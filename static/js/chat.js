@@ -296,8 +296,8 @@ export function renderChatView() {
   renderChat(viewMessages());
 }
 
-// Minimalismus: ein einzelner Tap (click) auf eine Bubble oeffnet das Kontextmenue an der
-// Tap-Position; ein zweiter Tap schliesst alle Kontextmenues wieder. Langdruck (contextmenu)
+// Minimalismus: ein DOPPEL-Tap auf eine Bubble oeffnet das Kontextmenue an der Tap-Position;
+// ein Tap bei offenem Menue schliesst alle Kontextmenues wieder. Langdruck (contextmenu)
 // wird bewusst NICHT abgefangen — natives Systemmenue/Textauswahl bleibt erhalten (Webseiten
 // koennen dem Systemmenue keine Eintraege anhaengen).
 let ctxMenu = null;
@@ -353,13 +353,18 @@ function openBubbleCtxMenu(b, x, y) {
   document.addEventListener("keydown", (ev) => ev.key === "Escape" && closeBubbleCtxMenu(), { once: true });
 }
 
-// Nur ein kurzer Tap ohne Bewegung oeffnet das Menue — Scrollen/Pan mit dem Finger nicht.
-// War beim pointerdown eine Textauswahl aktiv (System-Auswahlmenue offen), oeffnet der Tap
-// kein App-Menue: der Tap bricht die Auswahl ab (hadSelection wird am pointerdown gemessen,
-// weil der Browser die Auswahl beim pointerdown bereits kollabieren kann).
+// Nur ein kurzer Tap ohne Bewegung zaehlt — Scrollen/Pan mit dem Finger nicht. Das Menue
+// oeffnet erst beim DOPPEL-Tap; der einfache Tap bleibt frei fuer das Expand-Verhalten der
+// Bubble (Klick auf gekuerzten Text klappt auf, siehe bubbles.js). War beim pointerdown eine
+// Textauswahl aktiv (System-Auswahlmenue offen), oeffnet der Tap kein Menue: er bricht die
+// Auswahl ab (hadSelection wird am pointerdown gemessen, weil der Browser die Auswahl schon
+// beim pointerdown kollabieren kann).
 let tapStart = null; // { x, y, t, hadSelection } des pointerdown auf einer Bubble
+let lastTap = null; // { t, x, y, bubble } des letzten kurzen Taps (Doppel-Tap-Erkennung)
 const TAP_MAX_MOVE_PX = 10;
 const TAP_MAX_MS = 500;
+const DBL_TAP_MAX_MS = 350;
+const DBL_TAP_MAX_PX = 30;
 
 export function onBubbleTap(e) {
   if (!isToolbarMinimal(state.settings)) return; // ohne Minimalismus normales Klick-Verhalten
@@ -369,12 +374,26 @@ export function onBubbleTap(e) {
   const start = tapStart;
   tapStart = null;
   if (!start || Math.hypot(e.clientX - start.x, e.clientY - start.y) > TAP_MAX_MOVE_PX || e.timeStamp - start.t > TAP_MAX_MS) return; // kein kurzer Tap (z. B. Scroll-Geste)
-  if (start.hadSelection) return; // System-Auswahlmenue war offen -> Tap dient dem Abbruch, oeffnet kein App-Menue
-  if (ctxMenu) {
-    closeBubbleCtxMenu(); // zweiter Tap auf eine Bubble schliesst alle Kontextmenues
+  if (start.hadSelection) {
+    lastTap = null; // System-Auswahlmenue war offen -> Tap bricht Auswahl ab, zaehlt nicht als Tap
     return;
   }
-  openBubbleCtxMenu(b, e.clientX, e.clientY);
+  if (ctxMenu) {
+    closeBubbleCtxMenu(); // Tap bei offenem Menue schliesst alle Kontextmenues
+    lastTap = null;
+    return;
+  }
+  const dbl =
+    lastTap &&
+    e.timeStamp - lastTap.t <= DBL_TAP_MAX_MS &&
+    Math.hypot(e.clientX - lastTap.x, e.clientY - lastTap.y) <= DBL_TAP_MAX_PX &&
+    lastTap.bubble === b;
+  lastTap = { t: e.timeStamp, x: e.clientX, y: e.clientY, bubble: b };
+  if (dbl) {
+    lastTap = null;
+    openBubbleCtxMenu(b, e.clientX, e.clientY);
+  }
+  // einfacher Tap: nichts weiter — das click-Event laeuft normal durch (Expand bei gekuerztem Text)
 }
 
 export function initBubbleMenu() {
