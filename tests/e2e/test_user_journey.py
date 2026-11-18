@@ -13,7 +13,7 @@ import urllib.request
 import httpx
 import pytest
 
-from tests.e2e.conftest import REPO_ROOT
+from tests.e2e.conftest import REPO_ROOT, SPEECH_STUB
 
 pytestmark = pytest.mark.e2e
 
@@ -1707,3 +1707,42 @@ def test_minimalism_desktop_hides_head_and_overrides_context_menu(page, base_url
     page.dispatch_event(_bubble("assistant", "message"), "contextmenu")
     page.wait_for_timeout(300)
     assert page.locator('[data-testid="bubble-context-menu"]').count() == 0, "ohne Minimalismus darf kein Kontextmenue erscheinen"
+
+
+def test_minimalism_desktop_click_stops_playback_once(page, base_url, llm_expect):
+    """Minimalismus auf Desktop mit laufender Wiedergabe (TTS): ein Klick auf eine Bubble stoppt
+    die Wiedergabe einmalig und wird unterdrueckt (kein Expand bei gekuerztem Text, kein Menue);
+    der naechste Klick klappt die gekuerzte Bubble wie gewohnt auf."""
+    if llm_expect["default"] is None:
+        pytest.skip("Minimalismus-TTS-Desktop-Test braucht den Mock-LLM")
+    page.add_init_script(SPEECH_STUB)
+    email = "minimal-tts-desktop@example.com"
+    api_client = _register_client(base_url, email, "Geheim-123")
+    res = api_client.put("/api/settings", json={"bubbles_minimal": True, "speech_mode": "system", "bubbles_speaker": True})
+    assert res.status_code == 200, res.text
+    _login(page, base_url, email, "Geheim-123")
+    _chat_once(page, "lang bitte", 1, None, llm_expect["timeout_ms"])
+    page.wait_for_function("() => document.documentElement.classList.contains('bubbles-minimal')")
+
+    bubble_sel = _bubble("assistant", "message")
+    lang_bubble = page.locator(bubble_sel)
+    tts_btn = f"{bubble_sel} [data-testid=\"bubble-tts-btn\"]"
+    page.wait_for_selector(tts_btn, state="attached")  # Button existiert auch im ausgeblendeten Head
+    assert lang_bubble.evaluate("el => el.querySelector('.bubbleBody').classList.contains('clamped')"), "Vorbedingung: lange Antwort ist gekuerzt"
+    assert lang_bubble.evaluate("el => el.dataset.mode") == "normal"
+
+    speaking = "async () => (await import('/js/ttsDetectionService.js')).isSpeaking()"
+    # Wiedergabe starten (Speaker-Button liegt im ausgeblendeten Head -> per JS klicken)
+    page.evaluate(f"() => document.querySelector('{tts_btn}').click()")
+    page.wait_for_function(speaking, timeout=10000)
+
+    # Klick waehrend der Wiedergabe: stoppt sie, wird einmalig unterdrueckt
+    lang_bubble.click()
+    assert page.evaluate(speaking) is False, "Klick muss die Wiedergabe stoppen"
+    assert page.evaluate("() => window.__tts.cancelCalls") >= 1, "speechSynthesis.cancel() wurde gerufen"
+    assert lang_bubble.evaluate("el => el.dataset.mode") == "normal", "der Klick wird einmalig unterdrueckt: kein Expand-Wechsel"
+    assert page.locator('[data-testid="bubble-context-menu"]').count() == 0, "der Klick darf kein Kontextmenue oeffnen"
+
+    # naechster Klick: normales Verhalten (gekuerzte Bubble klappt auf)
+    lang_bubble.click()
+    assert lang_bubble.evaluate("el => el.classList.contains('full')"), "nach dem Stopp klappt der Klick die Bubble wie gewohnt auf"

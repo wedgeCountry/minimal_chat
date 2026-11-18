@@ -8,7 +8,7 @@ import { loadSessions, newSession, changed } from "./sessions.js";
 import { uploadPendingAttachments } from "./attachments.js";
 import { confirmModal } from "./confirm.js";
 import { isBubbleVisible, isDuplicateSystemPrompt, isToolbarMinimal } from "./visibility.js";
-import { stopRecording } from "./ttsDetectionService.js";
+import { stopRecording, isSpeaking, stopSpeech } from "./ttsDetectionService.js";
 
 export function setStreamingUI(on) {
   state.streaming = on;
@@ -303,6 +303,8 @@ export function renderChatView() {
 // nativ (Systemmenue + Textauswahl — Webseiten koennen dem Systemmenue keine Eintraege anhaengen).
 // Einfacher Tap auf Touch schaltet zusaetzlich den Expand-Modus der Bubble zyklisch weiter
 // (normal -> full -> collapsed -> normal), wie der Chevron im Normalmodus (siehe onBubbleTap).
+// Laeuft eine Wiedergabe (TTS), stoppt ein einfacher Tap/Klick stattdessen die Wiedergabe; dieser
+// eine Tap/Klick wird unterdrueckt (kein Expand-Wechsel, siehe onBubbleTap).
 let ctxMenu = null;
 let ctxMenuDocHandler = null;
 
@@ -365,7 +367,9 @@ function openBubbleCtxMenu(b, x, y) {
 
 // Nur ein kurzer Tap ohne Bewegung zaehlt — Scrollen/Pan mit dem Finger nicht. Das Menue
 // oeffnet erst beim DOPPEL-Tap; der einfache Tap schaltet dafuer den Expand-Modus der Bubble
-// zyklisch weiter (wie der Chevron, siehe bubbles.js). War beim pointerdown eine
+// zyklisch weiter (wie der Chevron, siehe bubbles.js) — laeuft eine Wiedergabe, stoppt er
+// stattdessen die Wiedergabe (dieser eine Tap wird unterdrueckt, kein Expand-Wechsel).
+// War beim pointerdown eine
 // Textauswahl aktiv (System-Auswahlmenue offen), oeffnet der Tap kein Menue: er bricht die
 // Auswahl ab (hadSelection wird am pointerdown gemessen, weil der Browser die Auswahl schon
 // beim pointerdown kollabieren kann).
@@ -399,6 +403,10 @@ export function onBubbleTap(e) {
       return;
     }
     lastTap = { t: e.timeStamp, x: e.clientX, y: e.clientY, bubble: b };
+    if (isSpeaking()) {
+      stopSpeech(); // Klick waehrend der Wiedergabe stoppt sie; der Klick wird einmalig unterdrueckt
+      return;
+    }
     return;
   }
   const start = tapStart;
@@ -426,15 +434,18 @@ export function onBubbleTap(e) {
     openBubbleCtxMenu(b, e.clientX, e.clientY);
     return;
   }
-  // Einfacher Tap: Expand-Modus zyklisch weiterschalten (normal -> full -> collapsed -> normal).
-  // Verzoegert um das Doppel-Tap-Fenster, damit ein Doppel-Tap nicht zusaetzlich den Modus aendert;
+  // Einfacher Tap: Expand-Modus zyklisch weiterschalten (normal -> full -> collapsed -> normal) —
+  // bzw. laufende Wiedergabe stoppen; der Tap wird dann einmalig unterdrueckt (kein Expand).
+  // Beides verzoegert um das Doppel-Tap-Fenster, damit ein Doppel-Tap nur das Menue oeffnet;
   // Scroll-Gesten kommen hier nie an (Bewegung/Zeit siehe oben) und bleiben unberuehrt.
   cancelPendingModeTap();
+  const speaking = isSpeaking();
   pendingModeTap = {
     bubble: b,
     timer: setTimeout(() => {
       pendingModeTap = null;
-      setBubbleMode(b, nextBubbleMode(b.dataset.mode || "normal"));
+      if (speaking) stopSpeech();
+      else setBubbleMode(b, nextBubbleMode(b.dataset.mode || "normal"));
     }, DBL_TAP_MAX_MS),
   };
 }

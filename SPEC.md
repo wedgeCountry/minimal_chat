@@ -64,7 +64,7 @@ Eigenschaften je Bubble:
 | Kopieren | Kopier-Symbol kopiert den Inhalt in die Zwischenablage (`navigator.clipboard`; bei Fehler Fehlermeldung) |
 | Bearbeiten | Stift-Symbol nur auf der letzten Nutzernachricht: Inline-Edit direkt in der Bubble (Textarea in den Bubble-Farben mit X-Button rechts daneben, Enter sendet, Esc bricht ab); beim Senden wird die Nachricht per `PATCH` aktualisiert, alle Nachrichten danach per `DELETE /api/sessions/{id}/messages/after/{mid}` gelöscht und die Antwort neu generiert |
 | Erneut senden | Refresh-Symbol nur auf der letzten Nutzernachricht: dasselbe wie **Bearbeiten ohne Textänderung** – die Nachricht wird per `PATCH` unverändert übernommen, alle Nachrichten danach gelöscht und die Antwort neu generiert |
-| Vorlesen | Audio-Symbol: Vorlesen per `speechSynthesis`/Voice Companion, erneuter Klick stoppt die Wiedergabe (ohne Fehlermeldung); Wiedergabe stoppt eine laufende Aufnahme und unterdrückt den Aufnahme-Start |
+| Vorlesen | Audio-Symbol: Vorlesen per `speechSynthesis`/Voice Companion, erneuter Klick stoppt die Wiedergabe (ohne Fehlermeldung); Wiedergabe stoppt eine laufende Aufnahme und unterdrückt den Aufnahme-Start. Im Minimalismus stoppt stattdessen ein **einfacher Tap/Klick** auf eine Bubble die laufende Wiedergabe; dieser eine Tap/Klick wird unterdrückt (kein Expand-Wechsel), der Doppel-Tap oeffnet weiterhin nur das Kontextmenue |
 | Kontext-Checkbox | Rechts oben auf allen Bubble-Typen außer `reasoning` (also auch `toolcall`/`toolresult`); legt fest, ob die Nachricht beim nächsten Request im `messages`-Array mitgesendet wird |
 | Löschen | Mülleimer-Symbol entfernt die Nachricht aus der Session |
 

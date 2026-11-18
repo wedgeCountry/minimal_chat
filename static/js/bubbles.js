@@ -139,7 +139,15 @@ export function bubbleEl(m, handlers = {}, opts = {}) {
       // Klick auf gekuerzten Text ([...]) schaltet wie der Chevron weiter. Im Minimalismus auf
       // Touch-Geraeten uebernimmt stattdessen onBubbleTap in chat.js jeden Tap (jede Bubble,
       // nicht nur gekuerzte) und achtet dabei auf Doppel-Tap (Kontextmenue) und Scroll-Gesten.
-      if (isToolbarMinimal(state.settings) && !isFinePointer()) return;
+      if (isToolbarMinimal(state.settings)) {
+        if (!isFinePointer()) return;
+        // Desktop: Klick waehrend laufender Wiedergabe stoppt sie einmalig und wird
+        // unterdrueckt (kein Expand) — auf Touch macht das onBubbleTap in chat.js
+        if (isSpeaking()) {
+          stopSpeech();
+          return;
+        }
+      }
       if (body.classList.contains("clamped")) setBubbleMode(b, nextBubbleMode(b.dataset.mode || "normal"));
     });
   b.querySelector(".copyBtn").onclick = () => copyBubbleText(b);
