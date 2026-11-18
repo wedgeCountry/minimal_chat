@@ -1,22 +1,22 @@
-/* Palette "charcoal tortoise": warme Graubraun-/Bernstein-Toene auf Charcoal.
+/* Palette "dark turquoise": tuerkiser Akzent auf kuehlen Neutral-Graustufen.
    Theme-unabhaengige Tokens nur hier (einmalig), damit beide Themes sie nicht auseinanderlaufen lassen */
 :root{
   --on-danger:#fff; --bubble-user-text:#fff;
   --overlay-bg:rgba(0,0,0,.4); --hover-bg:rgba(128,128,128,.12); --scrollbar-thumb:rgba(128,128,128,.3);
   --side-shadow:0 0 30px rgba(0,0,0,.25);
   /* hell */
-  --accent:#8a5a3b; --accent-soft:rgba(138,90,59,.10); --on-accent:#fff;
-  --bg:#f6f4f0; --panel:#ffffff; --chat-bg:#eceae5;
-  --text:#262420; --muted:#6f6a61; --border:#ddd8cf;
-  --bubble-ai:#ffffff; --system:#ebe8e1; --bubble-user:#3a352f;
+  --accent:#0f766e; --accent-soft:rgba(15,118,110,.10); --on-accent:#fff;
+  --bg:#f6f8f9; --panel:#ffffff; --chat-bg:#edf1f4;
+  --text:#1e2429; --muted:#5f6b76; --border:#dfe4e9;
+  --bubble-ai:#ffffff; --system:#e8edf1; --bubble-user:#115e59;
   --danger:#c24343; --ok:#2e7d52;
   --shadow:0 1px 3px rgba(0,0,0,.08);
 }
 html.dark{
-  --accent:#c99e73; --accent-soft:rgba(201,158,115,.16); --on-accent:#1c1a17;
-  --bg:#171614; --panel:#201d1a; --chat-bg:#171614;
-  --text:#eae7e1; --muted:#a29b8f; --border:#35312c;
-  --bubble-ai:#26221e; --system:#2b2723; --bubble-user:#8a6a4a;
-  --danger:#e5706f; --ok:#4cb572;
+  --accent:#2dd4bf; --accent-soft:rgba(45,212,191,.16); --on-accent:#062a26;
+  --bg:#0e1517; --panel:#151d21; --chat-bg:#0e1517;
+  --text:#e6ecef; --muted:#93a1ab; --border:#26333a;
+  --bubble-ai:#1a2429; --system:#202a30; --bubble-user:#0f766e;
+  --danger:#ef8080; --ok:#34d399;
   --shadow:0 1px 3px rgba(0,0,0,.5);
 }
