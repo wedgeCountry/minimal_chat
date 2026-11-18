@@ -178,7 +178,8 @@ def main(argv: list[str] | None = None) -> int:
     reset_parser.set_defaults(func=cmd_reset)
 
     args = parser.parse_args(argv)
-    return args.func(args)
+    retval = args.func(args)
+    return retval if retval != 0 else 0
 
 
 if __name__ == "__main__":

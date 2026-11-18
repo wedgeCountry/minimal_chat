@@ -531,6 +531,72 @@ def test_show_tool_output_and_reasoning_toggles_redraw_chat(page, base_url, llm_
     assert settings["show_reasoning"] is False
 
 
+def test_tool_results_persisted_while_hidden_and_shown_after_reenabling(page, base_url, llm_expect):
+    """Regression: 'Tool-Ausgabe anzeigen' VOR dem Chat abwaehlen -> Tool-Bubbles bleiben
+    ausgeblendet, aber Toolcall/Toolresult landen trotzdem serverseitig in der DB (pruefbar
+    ueber die oeffentliche API GET /api/sessions/{id}); nach erneutem Einschalten erscheinen
+    die Bubbles (auch nach Reload), weil sie nie aus der Persistenz verschwunden sind."""
+    email = "hidden-tools-user@example.com"
+    api_client = _register_client(base_url, email, "Geheim-123")
+    _login(page, base_url, email, "Geheim-123")
+    _open_panel(page)
+    page.click(T["new_session"])
+    page.wait_for_selector(f'{T["session_tile"]}.active')
+    sid = api_client.get("/api/sessions").json()[0]["id"]
+
+    def set_show_tool(checked):
+        page.click(T["burger_btn"])
+        page.click(T["settings_btn"])
+        page.wait_for_selector(f'{T["settings_overlay"]}.open')
+        (page.check if checked else page.uncheck)(T["set_show_tool"])
+        page.click(T["set_save"])
+        page.wait_for_selector(f'{T["settings_overlay"]}:not(.open)', state="attached")
+
+    def chat_count(type_):
+        return page.locator(f'{T["chat"]} .bubble[data-type="{type_}"]').count()
+
+    # 'Tool-Ausgabe anzeigen' AUS, bevor die erste Nachricht geschickt wird
+    set_show_tool(False)
+    assert api_client.get("/api/settings").json()["show_tool_output"] is False
+
+    # Mock-LLM streamt reasoning, toolcall, toolresult und message
+    page.fill(T["chat_input"], "Wetter in Berlin?")
+    page.click(T["send_btn"])
+    page.wait_for_function(
+        '() => !document.querySelector(\'[data-testid="send-btn"]\').classList.contains("abort")',
+        timeout=llm_expect["timeout_ms"],
+    )
+    page.wait_for_function(
+        '() => document.querySelectorAll(\'[data-testid="chat"] .bubble[data-type="message"]\').length === 2',
+        timeout=llm_expect["timeout_ms"],
+    )
+    # Anzeige bleibt aus: keine Tool-Bubbles im Canvas ...
+    assert chat_count("toolcall") == 0
+    assert chat_count("toolresult") == 0
+    # ... aber serverseitig persistiert (oeffentliche API = Quelle der Wahrheit fuer die DB)
+    detail = _api_detail(api_client, sid)
+    types = {(m["role"], m["type"]) for m in detail["messages"]}
+    assert ("assistant", "toolcall") in types
+    assert ("assistant", "toolresult") in types
+
+    # 'Tool-Ausgabe anzeigen' wieder AN -> Tool-Bubbles erscheinen aus dem persistierten Stand
+    set_show_tool(True)
+    page.wait_for_function(
+        '() => document.querySelectorAll(\'[data-testid="chat"] .bubble[data-type="toolcall"]\').length === 1'
+        ' && document.querySelectorAll(\'[data-testid="chat"] .bubble[data-type="toolresult"]\').length === 1',
+        timeout=llm_expect["timeout_ms"],
+    )
+
+    # Nach Reload bleiben die Tool-Bubbles sichtbar (sie lagen die ganze Zeit in der DB)
+    page.reload()
+    page.wait_for_selector(f'{T["session_tile"]}.active')
+    page.wait_for_function(
+        '() => document.querySelectorAll(\'[data-testid="chat"] .bubble[data-type="toolresult"]\').length === 1',
+        timeout=llm_expect["timeout_ms"],
+    )
+    assert chat_count("toolcall") == 1
+
+
 def test_double_reasoning_toolcall_cycle_renders_each_block_separately_in_order(page, base_url, llm_expect):
     """LLM antwortet in einem Stream mit Reasoning -> Toolcall -> Toolresult -> Message, dann
     nochmals Reasoning -> Toolcall -> Toolresult -> Message. Erwartet: je 2 Bubbles pro Typ,
