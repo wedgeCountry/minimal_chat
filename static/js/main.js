@@ -3,7 +3,7 @@ import { state, activeSession, normalizeMessages } from "./state.js";
 import { $ } from "./util.js";
 import { goToLogin } from "./auth.js";
 import { loadSessions, renderSessions, newSession } from "./sessions.js";
-import { abortStream, exitSelectMode, initBubbleContextMenu, pollOnce, renderChatView, renderHeader, send, setStreamingUI, syncAllBubbleTts } from "./chat.js";
+import { abortStream, initBubbleMenu, pollOnce, renderChatView, renderHeader, send, setStreamingUI, syncAllBubbleTts } from "./chat.js";
 import { isToolbarMinimal } from "./visibility.js";
 import { addAttachments } from "./attachments.js";
 import { initSettings, loadSettings, openSettings } from "./settings.js";
@@ -59,9 +59,7 @@ function applyComposerButtons() {
 }
 
 function renderAll() {
-  const minimal = isToolbarMinimal(state.settings);
-  document.documentElement.classList.toggle("bubbles-minimal", minimal);
-  if (!minimal) exitSelectMode();
+  document.documentElement.classList.toggle("bubbles-minimal", isToolbarMinimal(state.settings));
   renderSessions();
   renderHeader();
   refreshChat();
@@ -195,11 +193,9 @@ function initEvents() {
   }
 
   $("micBtn").onclick = () => onMicClick(input);
-  // Minimalismus: Langdruck/Rechtsklick auf eine Bubble -> Kontextmenue mit den Toolbar-Aktionen
-  initBubbleContextMenu();
-  document.addEventListener("keydown", (e) => {
-    if (e.key === "Escape") exitSelectMode();
-  });
+  // Minimalismus: Tap auf eine Bubble -> Kontextmenue mit den Toolbar-Aktionen
+  // (Langdruck/contextmenu bleibt nativ, siehe initBubbleMenu)
+  initBubbleMenu();
 
   document.addEventListener("leanchat:changed", renderAll);
   // Speech-Verfuegbarkeit hat sich geaendert: Mikrofon-/Speaker-Symbole sofort aus-/einblenden
