@@ -11,9 +11,10 @@ DEFAULTS = {
     "model": "gpt-4o-mini",
     "system_prompt": "",
     "theme": "light",
-    "bubbles_deletable": True,
-    "bubbles_checkable": True,
+    "bubbles_deletable": False,
+    "bubbles_checkable": False,
     "bubbles_speaker": True,
+    "bubbles_minimal": True,
     "show_system_prompt": True,
     "show_tool_output": True,
     "show_reasoning": True,
@@ -78,7 +79,7 @@ def test_boolean_display_settings_roundtrip(client, auth_headers):
 
 def test_legacy_user_setting_keys_fall_back_to_default(client, auth_headers, app):
     """Umbenannte alte Schluessel (bubbles_user_*) werden nicht mehr gelesen:
-    Default greift (bubbles_checkable/bubbles_deletable default True)."""
+    Default greift (bubbles_checkable/bubbles_deletable default False)."""
     from app.auth import user_identity
     from app.db import database as dbq
 
@@ -88,8 +89,8 @@ def test_legacy_user_setting_keys_fall_back_to_default(client, auth_headers, app
         dbq.q_set_user_setting(con, "bubbles_user_checkable", "0")
         dbq.q_set_user_setting(con, "bubbles_user_deletable", "0")
     got = client.get("/api/settings", headers=auth_headers).json()
-    assert got["bubbles_checkable"] is True
-    assert got["bubbles_deletable"] is True
+    assert got["bubbles_checkable"] is False
+    assert got["bubbles_deletable"] is False
 
 
 def test_host_port_compute_base_url(client, auth_headers):

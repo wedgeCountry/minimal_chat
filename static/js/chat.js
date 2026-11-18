@@ -353,8 +353,11 @@ function openBubbleCtxMenu(b, x, y) {
   document.addEventListener("keydown", (ev) => ev.key === "Escape" && closeBubbleCtxMenu(), { once: true });
 }
 
-// Nur ein kurzer Tap ohne Bewegung oeffnet das Menue — Scrollen/Pan mit dem Finger nicht
-let tapStart = null; // { x, y, t } des pointerdown auf einer Bubble
+// Nur ein kurzer Tap ohne Bewegung oeffnet das Menue — Scrollen/Pan mit dem Finger nicht.
+// War beim pointerdown eine Textauswahl aktiv (System-Auswahlmenue offen), oeffnet der Tap
+// kein App-Menue: der Tap bricht die Auswahl ab (hadSelection wird am pointerdown gemessen,
+// weil der Browser die Auswahl beim pointerdown bereits kollabieren kann).
+let tapStart = null; // { x, y, t, hadSelection } des pointerdown auf einer Bubble
 const TAP_MAX_MOVE_PX = 10;
 const TAP_MAX_MS = 500;
 
@@ -363,10 +366,10 @@ export function onBubbleTap(e) {
   if (e.target.closest("button, input, textarea, a, .editRow")) return; // interaktive Elemente unveraendert
   const b = e.target.closest?.(".bubble");
   if (!b) return;
-  const moved = !tapStart || Math.hypot(e.clientX - tapStart.x, e.clientY - tapStart.y) > TAP_MAX_MOVE_PX;
-  const held = !tapStart || e.timeStamp - tapStart.t > TAP_MAX_MS;
+  const start = tapStart;
   tapStart = null;
-  if (moved || held) return; // war kein kurzer Tap (z. B. Scroll-Geste) -> Menue nicht oeffnen
+  if (!start || Math.hypot(e.clientX - start.x, e.clientY - start.y) > TAP_MAX_MOVE_PX || e.timeStamp - start.t > TAP_MAX_MS) return; // kein kurzer Tap (z. B. Scroll-Geste)
+  if (start.hadSelection) return; // System-Auswahlmenue war offen -> Tap dient dem Abbruch, oeffnet kein App-Menue
   if (ctxMenu) {
     closeBubbleCtxMenu(); // zweiter Tap auf eine Bubble schliesst alle Kontextmenues
     return;
@@ -378,7 +381,12 @@ export function initBubbleMenu() {
   const chat = $("chat");
   chat.addEventListener("click", onBubbleTap);
   chat.addEventListener("pointerdown", (e) => {
-    tapStart = e.target.closest?.(".bubble") ? { x: e.clientX, y: e.clientY, t: e.timeStamp } : null;
+    if (!e.target.closest?.(".bubble")) {
+      tapStart = null;
+      return;
+    }
+    const sel = window.getSelection();
+    tapStart = { x: e.clientX, y: e.clientY, t: e.timeStamp, hadSelection: !!(sel && !sel.isCollapsed) };
   });
   chat.addEventListener("scroll", () => closeBubbleCtxMenu(), { passive: true });
   // contextmenu ohne Listener: Langdruck/Rechtsklick bleiben nativ (Systemmenue + Textauswahl)

@@ -127,10 +127,30 @@ def test_minimalism_hides_toolbar_on_touch_and_longpress_opens_menu(mobile_page,
     cx, cy = box["x"] + box["width"] / 2, box["y"] + box["height"] / 2
     mobile_page.touchscreen.tap(cx, cy)  # kurzer Tap -> Menue
     menu.wait_for(state="visible")
-    assert menu.locator("button").count() >= 4, "Kontextmenue muss Select-All, Kopieren und die Bubble-Aktionen enthalten"
-    for tid in ("ctx-select-all", "ctx-copy"):
-        assert menu.locator(f'[data-testid="{tid}"]').count() == 1, f"Menue-Eintrag fehlt: {tid}"
+    assert menu.locator("button").count() >= 2, "Kontextmenue muss Kopieren und die Bubble-Aktionen enthalten"
+    assert menu.locator('[data-testid="ctx-copy"]').count() == 1, "Menue-Eintrag fehlt: ctx-copy"
     mobile_page.touchscreen.tap(cx, cy)  # zweiter Tap -> alle Kontextmenues zu
+    mobile_page.wait_for_selector('[data-testid="bubble-context-menu"]', state="detached")
+
+    # System-Auswahlmenue offen (aktive Textauswahl): Tap darf kein App-Menue oeffnen
+    mobile_page.evaluate(
+        """(sel) => {
+          const el = document.querySelector(sel);
+          const r = document.createRange();
+          r.selectNodeContents(el);
+          const s = window.getSelection();
+          s.removeAllRanges();
+          s.addRange(r);
+        }""",
+        body_sel,
+    )
+    mobile_page.touchscreen.tap(cx, cy)
+    mobile_page.wait_for_timeout(300)
+    assert menu.count() == 0, "bei aktiver System-Auswahl darf ein Tap kein App-Menue oeffnen"
+    mobile_page.evaluate("() => window.getSelection().removeAllRanges()")
+    mobile_page.touchscreen.tap(cx, cy)
+    menu.wait_for(state="visible")
+    mobile_page.keyboard.press("Escape")
     mobile_page.wait_for_selector('[data-testid="bubble-context-menu"]', state="detached")
 
     # Scroll-Geste (Pointer wird bewegt, click landet versetzt) darf kein Menue oeffnen
