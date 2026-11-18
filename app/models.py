@@ -56,6 +56,7 @@ class SettingsIn(BaseModel):
     bubbles_deletable: bool | None = None
     bubbles_checkable: bool | None = None
     bubbles_speaker: bool | None = None
+    bubbles_minimal: bool | None = None
     show_system_prompt: bool | None = None
     show_tool_output: bool | None = None
     show_reasoning: bool | None = None
@@ -74,6 +75,7 @@ class SettingsOut(BaseModel):
     bubbles_deletable: bool = False
     bubbles_checkable: bool = False
     bubbles_speaker: bool = False
+    bubbles_minimal: bool = False
     show_system_prompt: bool = True
     show_tool_output: bool = True
     show_reasoning: bool = True

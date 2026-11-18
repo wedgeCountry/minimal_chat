@@ -3,7 +3,8 @@ import { state, activeSession, normalizeMessages } from "./state.js";
 import { $ } from "./util.js";
 import { goToLogin } from "./auth.js";
 import { loadSessions, renderSessions, newSession } from "./sessions.js";
-import { abortStream, pollOnce, renderChatView, renderHeader, send, setStreamingUI, syncAllBubbleTts } from "./chat.js";
+import { abortStream, onBubbleContextMenu, pollOnce, renderChatView, renderHeader, send, setStreamingUI, syncAllBubbleTts } from "./chat.js";
+import { isToolbarMinimal } from "./visibility.js";
 import { addAttachments } from "./attachments.js";
 import { initSettings, loadSettings, openSettings } from "./settings.js";
 import { initConfirm } from "./confirm.js";
@@ -58,6 +59,7 @@ function applyComposerButtons() {
 }
 
 function renderAll() {
+  document.documentElement.classList.toggle("bubbles-minimal", isToolbarMinimal(state.settings));
   renderSessions();
   renderHeader();
   refreshChat();
@@ -191,6 +193,8 @@ function initEvents() {
   }
 
   $("micBtn").onclick = () => onMicClick(input);
+  // Minimalismus: Langdruck/Rechtsklick auf eine Bubble -> Kontextmenue mit den Toolbar-Aktionen
+  $("chat").addEventListener("contextmenu", onBubbleContextMenu);
 
   document.addEventListener("leanchat:changed", renderAll);
   // Speech-Verfuegbarkeit hat sich geaendert: Mikrofon-/Speaker-Symbole sofort aus-/einblenden

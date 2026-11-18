@@ -1,12 +1,12 @@
 import { api, openStream } from "./api.js";
 import { activeSession, normalizeMessage, normalizeMessages, state } from "./state.js";
-import { $, isNearBottom, captureScrollAnchor, restoreScrollAnchor } from "./util.js";
+import { $, isNearBottom, captureScrollAnchor, restoreScrollAnchor, esc } from "./util.js";
 import { ICONS } from "./icons.js";
 import { bubbleEl, setBubbleText, enterBubbleEdit, exitBubbleEdit, syncBubbleTts, syncBubbleDelete } from "./bubbles.js";
 import { loadSessions, newSession, changed } from "./sessions.js";
 import { uploadPendingAttachments } from "./attachments.js";
 import { confirmModal } from "./confirm.js";
-import { isBubbleVisible, isDuplicateSystemPrompt } from "./visibility.js";
+import { isBubbleVisible, isDuplicateSystemPrompt, isToolbarMinimal } from "./visibility.js";
 import { stopRecording } from "./ttsDetectionService.js";
 
 export function setStreamingUI(on) {
@@ -294,6 +294,57 @@ export function renderChat(messages) {
 // den offenen Live-Block aus der Ansicht wirft.
 export function renderChatView() {
   renderChat(viewMessages());
+}
+
+// Minimalismus: Langdruck (contextmenu) auf einer Bubble oeffnet ein Kontextmenue mit
+// genau den Aktionen, die die versteckte Toolbar haette (je Button ein Menue-Eintrag,
+// Klick delegiert an den versteckten Button selbst).
+let ctxMenu = null;
+let ctxMenuDocHandler = null;
+
+export function closeBubbleCtxMenu() {
+  if (ctxMenuDocHandler) {
+    document.removeEventListener("pointerdown", ctxMenuDocHandler);
+    ctxMenuDocHandler = null;
+  }
+  if (ctxMenu) {
+    ctxMenu.remove();
+    ctxMenu = null;
+  }
+}
+
+export function onBubbleContextMenu(e) {
+  if (!isToolbarMinimal(state.settings)) return; // ohne Minimalismus normales Verhalten
+  const b = e.target.closest?.(".bubble");
+  if (!b) return;
+  e.preventDefault();
+  closeBubbleCtxMenu();
+  const menu = document.createElement("div");
+  menu.className = "ctxMenu";
+  menu.dataset.testid = "bubble-context-menu";
+  for (const ctl of b.querySelectorAll(".bubbleHead .iconBtn, .bubbleHead .chk")) {
+    const item = document.createElement("button");
+    item.dataset.testid = `ctx-${ctl.dataset.testid || "action"}`;
+    item.innerHTML = `${ctl.innerHTML}<span>${esc(ctl.title || "Aktion")}</span>`;
+    item.onclick = () => {
+      closeBubbleCtxMenu();
+      ctl.click();
+    };
+    menu.appendChild(item);
+  }
+  if (!menu.children.length) return;
+  menu.style.left = "0px";
+  menu.style.top = "0px";
+  document.body.appendChild(menu);
+  const r = menu.getBoundingClientRect();
+  menu.style.left = `${Math.max(8, Math.min(e.clientX || 8, window.innerWidth - r.width - 8))}px`;
+  menu.style.top = `${Math.max(8, Math.min(e.clientY || 8, window.innerHeight - r.height - 8))}px`;
+  ctxMenu = menu;
+  ctxMenuDocHandler = (ev) => {
+    if (ctxMenu && !ctxMenu.contains(ev.target)) closeBubbleCtxMenu();
+  };
+  document.addEventListener("pointerdown", ctxMenuDocHandler);
+  document.addEventListener("keydown", (ev) => ev.key === "Escape" && closeBubbleCtxMenu(), { once: true });
 }
 
 // Edit-Modus: id der Nutzernachricht, die gerade inline in ihrer Bubble bearbeitet wird

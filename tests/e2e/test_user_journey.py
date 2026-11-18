@@ -1499,3 +1499,57 @@ def test_stream_end_bubble_never_vanishes(page, base_url, llm_expect):
     assert page.locator(_bubble("assistant", "message")).count() == 1
     body = page.locator(_bubble("assistant", "message")).first.locator('[data-testid="bubble-body"]')
     assert llm_expect["default"] in body.inner_text()
+
+
+def test_minimalism_setting_hides_toolbar_until_hover_or_longpress(page, base_url, llm_expect):
+    """Minimalismus-Setting (Allgemein): Bubble-Toolbar ist ausgeblendet; auf Desktop
+    (Hover) erscheint sie beim Hovern der Bubble, per Langdruck (contextmenu) oeffnet sich
+    ein Kontextmenue mit denselben Aktionen. Ohne Setting bleibt die Toolbar sichtbar."""
+    if llm_expect["default"] is None:
+        pytest.skip("Minimalismus-Test braucht den Mock-LLM")
+    email = "minimal-user@example.com"
+    api_client = _register_client(base_url, email, "Geheim-123")
+    _login(page, base_url, email, "Geheim-123")
+    _new_named_session(page, api_client)
+
+    page.fill(T["chat_input"], "Hallo")
+    page.click(T["send_btn"])
+    page.wait_for_function(
+        "() => document.querySelectorAll('[data-testid=\"chat\"] .bubble[data-role=\"assistant\"][data-type=\"message\"]').length === 1"
+        " && !document.querySelector('[data-testid=\"send-btn\"]').classList.contains('abort')",
+        timeout=llm_expect["timeout_ms"],
+    )
+    toolbar_btn = f'{_bubble("assistant", "message")} .bubbleHead .iconBtn'
+
+    # Setting serverseitig setzen, dann Seite neu laden (Cookie bleibt -> kein erneuter Login)
+    res = api_client.put("/api/settings", json={"bubbles_minimal": True})
+    assert res.status_code == 200, res.text
+    assert res.json()["bubbles_minimal"] is True
+    page.reload()
+    page.wait_for_selector(_bubble("assistant", "message"), timeout=llm_expect["timeout_ms"])
+    page.wait_for_function("() => document.documentElement.classList.contains('bubbles-minimal')")
+
+    assert page.locator(toolbar_btn).first.evaluate("el => getComputedStyle(el).display") == "none", "Toolbar muss im Minimalismus ausgeblendet sein"
+
+    # Desktop: Hover blendet die Toolbar der Bubble ein
+    page.hover(_bubble("assistant", "message"))
+    assert page.locator(toolbar_btn).first.evaluate("el => getComputedStyle(el).display") != "none", "Hover muss die Toolbar einblenden"
+
+    # Langdruck (contextmenu) oeffnet das Kontextmenue mit den Toolbar-Aktionen
+    page.dispatch_event(_bubble("assistant", "message"), "contextmenu")
+    menu = page.locator('[data-testid="bubble-context-menu"]')
+    menu.wait_for(state="visible")
+    assert menu.locator("button").count() >= 2, "Kontextmenue muss die Bubble-Aktionen enthalten"
+    page.keyboard.press("Escape")
+    page.wait_for_selector('[data-testid="bubble-context-menu"]', state="detached")
+
+    # Setting wieder aus -> Toolbar dauerhaft sichtbar, kein Kontextmenue
+    res = api_client.put("/api/settings", json={"bubbles_minimal": False})
+    assert res.status_code == 200, res.text
+    page.reload()
+    page.wait_for_selector(_bubble("assistant", "message"), timeout=llm_expect["timeout_ms"])
+    page.wait_for_function("() => !document.documentElement.classList.contains('bubbles-minimal')")
+    assert page.locator(toolbar_btn).first.evaluate("el => getComputedStyle(el).display") != "none"
+    page.dispatch_event(_bubble("assistant", "message"), "contextmenu")
+    page.wait_for_timeout(300)
+    assert page.locator('[data-testid="bubble-context-menu"]').count() == 0, "ohne Minimalismus darf kein Kontextmenue erscheinen"

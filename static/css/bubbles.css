@@ -132,5 +132,18 @@
 .bubble.user .ttsBtn.on{color:var(--bubble-user-text)}
 .copyBtn.ok svg{stroke:var(--accent)}
 .bubble.user .copyBtn.ok svg{stroke:var(--bubble-user-text)}
+
+/* Minimalismus (Setting bubbles_minimal): Toolbar im Bubble-Head ausgeblendet, auf
+   Desktop mit Hover wieder eingeblendet; auf Touch-Geraeten (kein Hover) bleibt sie
+   weg und oeffnet sich per Langdruck als Kontextmenue (siehe onBubbleContextMenu). */
+@media (hover:hover) and (pointer:fine){
+  html.bubbles-minimal .bubbleHead .iconBtn,
+  html.bubbles-minimal .bubbleHead .chk{display:none}
+  html.bubbles-minimal .bubble:hover .bubbleHead .iconBtn{display:inline-flex}
+  html.bubbles-minimal .bubble:hover .bubbleHead .chk{display:inline-block}
+  html.bubbles-minimal .collapseBtn{display:none}
+}
+html.bubbles-minimal .bubble{-webkit-touch-callout:none}
+html.bubbles-minimal .bubbleHead{user-select:none}
 .attachChip{font-size:12px;opacity:.9;display:flex;gap:6px;align-items:center;margin-bottom:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .attachChip svg{width:13px;height:13px}

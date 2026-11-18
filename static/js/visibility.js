@@ -17,6 +17,12 @@ export function isBubbleDeletable(s) {
   return s.bubbles_deletable !== false;
 }
 
+// Minimalismus: Bubble-Toolbar (Icon-Row im Head) ist ausgeblendet — auf Desktop
+// per Hover eingeblendet (CSS), auf Mobilgeraeten per Langdruck als Kontextmenue.
+export function isToolbarMinimal(s) {
+  return s.bubbles_minimal === true;
+}
+
 export function isBubbleCheckable(s) {
   return s.bubbles_checkable !== false;
 }

@@ -51,6 +51,7 @@ def test_boolean_display_settings_roundtrip(client, auth_headers):
             "bubbles_deletable": False,
             "bubbles_checkable": False,
             "bubbles_speaker": False,
+            "bubbles_minimal": True,
             "show_system_prompt": False,
             "show_tool_output": False,
             "show_reasoning": False,
@@ -62,11 +63,13 @@ def test_boolean_display_settings_roundtrip(client, auth_headers):
     assert body["bubbles_deletable"] is False
     assert body["bubbles_checkable"] is False
     assert body["bubbles_speaker"] is False
+    assert body["bubbles_minimal"] is True
     assert body["show_reasoning"] is False
     got = client.get("/api/settings", headers=auth_headers).json()
     assert got["bubbles_deletable"] is False
     assert got["bubbles_checkable"] is False
     assert got["bubbles_speaker"] is False
+    assert got["bubbles_minimal"] is True
     assert got["show_system_prompt"] is False
     assert got["show_tool_output"] is False
     assert got["show_reasoning"] is False
