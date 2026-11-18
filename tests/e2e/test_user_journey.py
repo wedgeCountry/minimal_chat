@@ -1545,19 +1545,35 @@ def test_minimalism_setting_hides_toolbar_until_hover_or_longpress(page, base_ur
     menu = page.locator('[data-testid="bubble-context-menu"]')
     page.click(bubble_sel)  # kurzer Tap -> Menue an der Tap-Position
     menu.wait_for(state="visible")
-    assert menu.locator("button").count() >= 4, "Kontextmenue muss Select-All, Kopieren und die Bubble-Aktionen enthalten"
-    assert menu.locator('[data-testid="ctx-select-all"]').count() == 1
+    assert menu.locator("button").count() >= 2, "Kontextmenue muss Kopieren und die Bubble-Aktionen enthalten"
     assert menu.locator('[data-testid="ctx-copy"]').count() == 1
-    # Select All markiert den gesamten Bubble-Text und schliesst das Menue
-    menu.locator('[data-testid="ctx-select-all"]').click()
-    page.wait_for_selector('[data-testid="bubble-context-menu"]', state="detached")
-    sel = page.evaluate("() => window.getSelection().toString()")
-    assert llm_expect["default"] in sel, f"Select-All muss den Bubble-Text markieren, got {sel!r}"
 
     # zweiter Tap auf eine Bubble schliesst alle Kontextmenues wieder
     page.click(bubble_sel)
     menu.wait_for(state="visible")
     page.click(bubble_sel)
+    page.wait_for_selector('[data-testid="bubble-context-menu"]', state="detached")
+
+    # System-Auswahlmenue offen (aktive Textauswahl): Tap darf kein App-Menue oeffnen
+    page.evaluate(
+        """(sel) => {
+          const el = document.querySelector(sel);
+          const r = document.createRange();
+          r.selectNodeContents(el);
+          const s = window.getSelection();
+          s.removeAllRanges();
+          s.addRange(r);
+        }""",
+        body_sel,
+    )
+    assert not page.evaluate("() => window.getSelection().isCollapsed"), "Vorbedingung: Textauswahl aktiv (Systemmenue offen)"
+    page.click(bubble_sel)  # Tap bricht die Auswahl ab — darf kein Menue oeffnen
+    page.wait_for_timeout(300)
+    assert page.locator('[data-testid="bubble-context-menu"]').count() == 0, "bei aktiver System-Auswahl darf ein Tap kein App-Menue oeffnen"
+    # Auswahl kollabiert -> Tap oeffnet wieder normal
+    page.click(bubble_sel)
+    menu.wait_for(state="visible")
+    page.keyboard.press("Escape")
     page.wait_for_selector('[data-testid="bubble-context-menu"]', state="detached")
 
     # Ziehen/Scrollen (Pointer bewegt sich) darf kein Menue oeffnen
