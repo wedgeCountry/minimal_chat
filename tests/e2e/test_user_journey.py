@@ -1576,14 +1576,24 @@ def test_minimalism_setting_hides_toolbar_until_hover_or_longpress(page, base_ur
     page.wait_for_timeout(300)
     assert page.locator('[data-testid="bubble-context-menu"]').count() == 0, "im Textauswahl-Modus darf kein eigenes Kontextmenue erscheinen"
 
-    # Auswahl aufheben (selectionchange mit leerer Auswahl) beendet den Modus -> App-Menue wieder aktiv
-    page.evaluate("() => window.getSelection().removeAllRanges()")
+    # Touch/Pointer ausserhalb der Bubble beendet den Modus sofort -> App-Menue wieder aktiv
+    page.evaluate("() => document.body.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }))")
     page.wait_for_timeout(50)
-    assert not page.locator(bubble_sel).evaluate("el => el.classList.contains('selecting')"), "Textauswahl-Modus muss bei leerer Auswahl enden"
+    assert not page.locator(bubble_sel).evaluate("el => el.classList.contains('selecting')"), "Touch ausserhalb der Bubble muss den Textauswahl-Modus beenden"
     page.dispatch_event(bubble_sel, "contextmenu")
     menu.wait_for(state="visible")
     page.keyboard.press("Escape")
     page.wait_for_selector('[data-testid="bubble-context-menu"]', state="detached")
+
+    # Alternative: kollabierende Auswahl (selectionchange) beendet den Modus ebenfalls
+    page.dispatch_event(bubble_sel, "contextmenu")
+    menu.wait_for(state="visible")
+    menu.locator('[data-testid="ctx-select-text"]').click()
+    page.wait_for_timeout(50)
+    assert page.locator(bubble_sel).evaluate("el => el.classList.contains('selecting')"), "Bubble muss wieder im Textauswahl-Modus sein"
+    page.evaluate("() => window.getSelection().removeAllRanges()")
+    page.wait_for_timeout(50)
+    assert not page.locator(bubble_sel).evaluate("el => el.classList.contains('selecting')"), "Textauswahl-Modus muss bei leerer Auswahl enden"
 
     # Setting wieder aus -> Toolbar dauerhaft sichtbar, kein Kontextmenue
     res = api_client.put("/api/settings", json={"bubbles_minimal": False})

@@ -325,7 +325,8 @@ export function exitSelectMode() {
   selectModeArmed = false;
 }
 
-// Einmalige Listener: Kontextmenue am Chat + Ende des Textauswahl-Modus bei leerer Auswahl
+// Einmalige Listener: Kontextmenue am Chat + Ende des Textauswahl-Modus — entweder bei
+// leerer Auswahl (selectionchange) oder sofort beim Touch/Pointer ausserhalb der Bubble
 export function initBubbleContextMenu() {
   $("chat").addEventListener("contextmenu", onBubbleContextMenu);
   document.addEventListener("selectionchange", () => {
@@ -333,6 +334,9 @@ export function initBubbleContextMenu() {
       const sel = window.getSelection();
       if (!sel || sel.isCollapsed) exitSelectMode();
     }
+  });
+  document.addEventListener("pointerdown", (e) => {
+    if (selectModeBubble && !selectModeBubble.contains(e.target)) exitSelectMode();
   });
 }
 
