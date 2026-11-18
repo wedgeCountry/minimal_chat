@@ -2,7 +2,7 @@ import { api, openStream } from "./api.js";
 import { activeSession, normalizeMessage, normalizeMessages, state } from "./state.js";
 import { $, isNearBottom, captureScrollAnchor, restoreScrollAnchor, esc } from "./util.js";
 import { ICONS } from "./icons.js";
-import { bubbleEl, setBubbleText, enterBubbleEdit, exitBubbleEdit, syncBubbleTts, syncBubbleDelete, copyBubbleText, selectBubbleText } from "./bubbles.js";
+import { bubbleEl, setBubbleText, enterBubbleEdit, exitBubbleEdit, syncBubbleTts, syncBubbleDelete, copyBubbleText } from "./bubbles.js";
 import { loadSessions, newSession, changed } from "./sessions.js";
 import { uploadPendingAttachments } from "./attachments.js";
 import { confirmModal } from "./confirm.js";
@@ -330,7 +330,6 @@ function openBubbleCtxMenu(b, x, y) {
     menu.appendChild(item);
   };
   // immer oben: Textaktionen der Bubble
-  addItem("ctx-select-all", ICONS.selectAll, "Alles auswählen", () => selectBubbleText(b));
   addItem("ctx-copy", ICONS.copy, "Kopieren", () => copyBubbleText(b));
   // danach die Aktionen der (versteckten) Toolbar — Kopieren ist als ctx-copy schon oben
   for (const ctl of b.querySelectorAll(".bubbleHead .iconBtn, .bubbleHead .chk")) {
