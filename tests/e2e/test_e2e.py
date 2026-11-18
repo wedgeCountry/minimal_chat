@@ -4,8 +4,8 @@ Diese Datei importiert die eigentlichen e2e-Tests aus ``tests/e2e/`` und stellt 
 einzelne, explizite Testfälle bereit. Im Gegensatz zu ``pytest -m e2e tests/e2e`` kann
 man diese Tests gezielt einzeln oder alle nacheinander ausführen::
 
-    python3 -m pytest tests/test_e2e.py -v -m e2e_manual  # alle manuellen e2e-Tests
-    python3 -m pytest tests/test_e2e.py::TestE2EUserJourney::test_e2e_full_user_journey -v -m e2e_manual
+    python3 -m pytest tests/e2e/test_e2e.py -v -m e2e_manual  # alle manuellen e2e-Tests
+    python3 -m pytest tests/e2e/test_e2e.py::TestE2EUserJourney::test_e2e_full_user_journey -v -m e2e_manual
 
 Die Tests sind standardmäßig übersprungen (``skip``) und müssen explizit mit dem
 Marker ``-m e2e_manual`` aktiviert werden. Sie benötigen Playwright/Chromium
@@ -17,7 +17,7 @@ from __future__ import annotations
 import pytest
 
 # Marker für manuelle e2e-Tests (standardmäßig übersprungen)
-#pytestmark = pytest.mark.skip(reason="Manueller e2e-Test - aktiviere mit -m e2e_manual")
+pytestmark = pytest.mark.skip(reason="Manueller e2e-Test - aktiviere mit -m e2e_manual")
 
 # Importiere die Testfunktionen aus den e2e-Modulen
 from tests.e2e.test_user_journey import (
