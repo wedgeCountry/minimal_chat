@@ -110,10 +110,11 @@ def test_minimalism_hides_toolbar_on_touch_and_longpress_opens_menu(mobile_page,
     mobile_page.wait_for_function("() => document.documentElement.classList.contains('bubbles-minimal')")
 
     # Touch-Geraet: es gibt kein Hover — die Toolbar muss trotzdem ausgeblendet sein
-    assert mobile_page.locator(toolbar_btn).first.evaluate("el => getComputedStyle(el).display") == "none", (
+    # (der Head wird als Ganzes versteckt, deshalb Sichtbarkeit statt eigenem display-Wert pruefen)
+    assert mobile_page.locator(toolbar_btn).first.evaluate("el => !el.checkVisibility()"), (
         "Toolbar muss im Minimalismus auf Touch-Geraeten ausgeblendet sein"
     )
-    assert mobile_page.locator(f"{bubble} .bubbleHead .role").evaluate("el => getComputedStyle(el).display") == "none", (
+    assert mobile_page.locator(f"{bubble} .bubbleHead .role").evaluate("el => !el.checkVisibility()"), (
         "Rollen-Label muss im Minimalismus ausgeblendet sein"
     )
 

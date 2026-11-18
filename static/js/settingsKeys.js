@@ -15,7 +15,7 @@ export const BOOL_SETTING_DEFAULTS = {
   bubbles_deletable: false,
   bubbles_checkable: false,
   bubbles_speaker: true,
-  bubbles_minimal: true,
+  bubbles_minimal: false,
   show_system_prompt: true,
   show_tool_output: true,
   show_reasoning: true,

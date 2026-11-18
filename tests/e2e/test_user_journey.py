@@ -644,7 +644,9 @@ def test_bubble_collapse_button_only_in_full_mode(page, base_url, llm_expect):
     if llm_expect["default"] is None:
         pytest.skip("braucht den Mock-LLM (lange 'lang'-Antwort)")
     email = "collapse-user@example.com"
-    _register_client(base_url, email, "Geheim-123")
+    api_client = _register_client(base_url, email, "Geheim-123")
+    res = api_client.put("/api/settings", json={"bubbles_checkable": True})  # Default ist jetzt False
+    assert res.status_code == 200, res.text
     _login(page, base_url, email, "Geheim-123")
     _open_panel(page)
     page.click(T["new_session"])
@@ -916,6 +918,8 @@ def test_context_checkbox_persisted_across_reload(page, base_url, llm_expect):
     """Kontext-Checkbox abwaehlen -> in_context=false serverseitig persistiert, auch nach Reload."""
     email = "ctx-user@example.com"
     api_client = _register_client(base_url, email, "Geheim-123")
+    res = api_client.put("/api/settings", json={"bubbles_checkable": True})  # Default ist jetzt False
+    assert res.status_code == 200, res.text
     _login(page, base_url, email, "Geheim-123")
     sid = _new_named_session(page, api_client)
 
@@ -943,6 +947,8 @@ def test_context_checkbox_excludes_unselected_from_llm_request(page, base_url, l
         pytest.skip("Request-Aufzeichnung nur beim Mock-LLM (Real-LLM-Lauf aktiv)")
     email = "ctx-llm-user@example.com"
     api_client = _register_client(base_url, email, "Geheim-123")
+    res = api_client.put("/api/settings", json={"bubbles_checkable": True})  # Default ist jetzt False
+    assert res.status_code == 200, res.text
     _login(page, base_url, email, "Geheim-123")
     sid = _new_named_session(page, api_client)
 
@@ -1570,7 +1576,9 @@ def test_minimalism_desktop_hides_head_and_overrides_context_menu(page, base_url
     page.wait_for_selector(_bubble("assistant", "message"), timeout=llm_expect["timeout_ms"])
     page.wait_for_function("() => document.documentElement.classList.contains('bubbles-minimal')")
 
-    assert page.locator(toolbar_btn).first.evaluate("el => getComputedStyle(el).display") == "none", "Toolbar muss im Minimalismus ausgeblendet sein"
+    # Head wird als Ganzes per display:none versteckt - die Buttons selbst behalten
+    # ihren eigenen display-Wert, deshalb Sichtbarkeit pruefen (checkVisibility)
+    assert page.locator(toolbar_btn).first.evaluate("el => !el.checkVisibility()"), "Toolbar muss im Minimalismus ausgeblendet sein"
     head = f'{_bubble("assistant", "message")} .bubbleHead'
     assert page.locator(head).evaluate("el => getComputedStyle(el).display") == "none", "Bubble-Head muss im Minimalismus komplett ausgeblendet sein"
 
@@ -1688,7 +1696,7 @@ def test_minimalism_desktop_hides_head_and_overrides_context_menu(page, base_url
     assert menu.count() == 0, "einfacher Tap darf auch bei gekuerzter Bubble kein Menue oeffnen"
 
     # Ziehen/Scrollen (Pointer bewegt sich) darf kein Menue oeffnen
-    box = page.locator(bubble_sel).bounding_box()
+    box = page.locator(bubble_sel).first.bounding_box()
     page.mouse.move(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
     page.mouse.down()
     page.mouse.move(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2 + 80, steps=8)
@@ -1703,7 +1711,7 @@ def test_minimalism_desktop_hides_head_and_overrides_context_menu(page, base_url
     page.wait_for_selector(_bubble("assistant", "message"), timeout=llm_expect["timeout_ms"])
     page.wait_for_function("() => !document.documentElement.classList.contains('bubbles-minimal')")
     assert page.locator(toolbar_btn).first.evaluate("el => getComputedStyle(el).display") != "none"
-    assert page.locator(f'{_bubble("assistant", "message")} .bubbleHead .role').evaluate("el => getComputedStyle(el).display") != "none"
+    assert page.locator(f'{_bubble("assistant", "message")} .bubbleHead .role').first.evaluate("el => getComputedStyle(el).display") != "none"
     page.dispatch_event(_bubble("assistant", "message"), "contextmenu")
     page.wait_for_timeout(300)
     assert page.locator('[data-testid="bubble-context-menu"]').count() == 0, "ohne Minimalismus darf kein Kontextmenue erscheinen"

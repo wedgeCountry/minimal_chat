@@ -5,6 +5,7 @@ Antwortet auf ``POST /v1/chat/completions`` mit einem SSE-Stream. Standard-Antwo
 (in agentenueblicher Reihenfolge): reasoning_content, tool_call, tool_result, content.
 Trigger im Text der letzten User-Message: "doppelzyklus" (zwei volle
 Reasoning/Toolcall/Toolresult/Message-Zyklen in einem Stream), "langsam" (Abbruch-Test),
+"slowtool" (langsamer Stream mit Tool-Call/Tool-Result, Live-Streaming-Test),
 "lang" (lange Antwort), "oneline" (eine lange Zeile), Dateiinhalt -> Datei-Antwort.
 
 Ausserdem zeichnet der Mock jeden Request-Body auf: ``GET /received`` liefert die Liste aller
@@ -98,6 +99,15 @@ async def app(scope, receive, send):
                 {"choices": [{"delta": {"content": "Teil A "}}]},
                 {"choices": [{"delta": {"content": "Teil B"}}]},
             ]
+        elif "slowtool" in str(content):
+            # Langsamer Stream MIT Tool-Call/Tool-Result (je ~0.8 s Pause): zum Testen, dass
+            # Tool-Call- und Tool-Result-Bubbles live (waehrend des Streams) im UI erscheinen
+            chunks = [
+                {"choices": [{"delta": {"reasoning_content": "Ich suche... "}}]},
+                {"choices": [{"delta": {"tool_calls": [{"index": 0, "function": {"name": "web_search", "arguments": '{"q":"Wetter Berlin"}'}}]}}]},
+                {"choices": [{"delta": {"tool_results": [{"index": 0, "name": "web_search", "result": "Ergebnis A\\nErgebnis B"}]}}]},
+                {"choices": [{"delta": {"content": "Antwort mit Tool-Ergebnis"}}]},
+            ]
         elif "lang" in str(content):
             # Lange mehrzeilige Antwort: zum Testen des Bubble-Clamp-Zyklus
             chunks = [
@@ -132,7 +142,8 @@ async def app(scope, receive, send):
         text = str(content)
         slow = "langsam" in text
         chunky = "chunky" in text
-        delay = 10.0 if slow else (0.4 if chunky else 0.02)
+        slowtool = "slowtool" in text
+        delay = 10.0 if slow else (0.8 if slowtool else (0.4 if chunky else 0.02))
         for chunk in chunks:
             await send(
                 {
