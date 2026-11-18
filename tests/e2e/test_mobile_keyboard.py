@@ -121,6 +121,9 @@ def test_minimalism_hides_toolbar_on_touch_and_longpress_opens_menu(mobile_page,
     # Doppel-Tap oeffnet das App-Menue, Tap bei offenem Menue schliesst, Scroll-Geste oeffnet nichts
     body_sel = f"{bubble} .bubbleBody"
     assert mobile_page.locator(body_sel).evaluate("el => getComputedStyle(el).userSelect") in ("text", "auto"), "Textauswahl darf im Minimalismus nicht per CSS deaktiviert sein"
+    # systemeigenes Doppel-Tap-Zoom (Firefox Android) auf den Bubbles abgeschaltet — der
+    # Doppel-Tap ist unserer (App-Kontextmenue); Scrollen/Pan bleibt via touch-action:manipulation
+    assert mobile_page.locator(bubble).evaluate("el => getComputedStyle(el).touchAction") == "manipulation", "touch-action muss im Minimalismus 'manipulation' sein (kein systemeigenes Doppel-Tap-Zoom)"
     menu = mobile_page.locator('[data-testid="bubble-context-menu"]')
 
     box = mobile_page.locator(bubble).bounding_box()

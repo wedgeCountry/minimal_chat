@@ -1543,6 +1543,7 @@ def test_minimalism_desktop_hides_head_and_overrides_context_menu(page, base_url
     bubble_sel = _bubble("assistant", "message")
     body_sel = f"{bubble_sel} .bubbleBody"
     assert page.locator(body_sel).evaluate("el => getComputedStyle(el).userSelect") in ("text", "auto"), "Textauswahl darf im Minimalismus nicht per CSS deaktiviert sein"
+    assert page.locator(bubble_sel).evaluate("el => getComputedStyle(el).touchAction") == "manipulation", "touch-action muss im Minimalismus 'manipulation' sein (kein systemeigenes Doppel-Tap-Zoom)"
 
     menu = page.locator('[data-testid="bubble-context-menu"]')
     # Desktop: Klick UND Doppelklick oeffnen kein Menue
