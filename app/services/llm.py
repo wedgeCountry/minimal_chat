@@ -139,10 +139,8 @@ class LlmClient:
                 return
             try:
                 if res.status_code >= 400:
-
-                    await res.aread()  # <-- this is what's missing
-
-                    # Upstream-Body nicht an den Client reichen (Info-Leak bei internen Zielen)
+                    # Upstream-Body lesen, aber nie an den Client reichen (Info-Leak bei internen Zielen)
+                    await res.aread()
                     detail = f"HTTP {res.status_code}"
                     if res.status_code == 422:
                         detail += " (Anfrage vom LLM-Server abgelehnt – evtl. zu großer Kontext; alte Nachrichten per Kontext-Checkbox abwählen)"

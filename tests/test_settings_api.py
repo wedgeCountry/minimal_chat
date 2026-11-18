@@ -1,6 +1,11 @@
 from __future__ import annotations
 
+import re
+
 import httpx
+
+from app.config import REPO_ROOT
+from app.services.settings import BOOL_SETTINGS
 
 RealAsyncClient = httpx.AsyncClient
 
@@ -11,15 +16,7 @@ DEFAULTS = {
     "model": "gpt-4o-mini",
     "system_prompt": "",
     "theme": "light",
-    "bubbles_deletable": False,
-    "bubbles_checkable": False,
-    "bubbles_speaker": True,
-    "bubbles_minimal": True,
-    "show_system_prompt": True,
-    "show_tool_output": True,
-    "show_reasoning": True,
-    "show_file_button": False,
-    "show_image_button": False,
+    **BOOL_SETTINGS,
     "speech_mode": "server",
 }
 
@@ -218,3 +215,13 @@ def test_settings_out_uses_env_default_host_port(client, auth_headers, app):
     assert got["host"] == "10.9.8.7"
     assert got["port"] == "9999"
     assert got["base"] == "http://10.9.8.7:9999/v1"
+
+
+def test_frontend_bool_setting_keys_match_backend():
+    """static/js/settingsKeys.js muss zu BOOL_SETTINGS passen (Single Source of Truth)."""
+    js = (REPO_ROOT / "static" / "js" / "settingsKeys.js").read_text(encoding="utf-8")
+    keys_block, defaults_block = js.split("export const BOOL_SETTING_DEFAULTS")
+    keys = re.findall(r'"([a-z_]+)"', keys_block)
+    assert keys == list(BOOL_SETTINGS)
+    for key, default in BOOL_SETTINGS.items():
+        assert re.search(rf"{re.escape(key)}:\s*{'true' if default else 'false'}\b", defaults_block), key

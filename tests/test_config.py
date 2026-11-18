@@ -238,3 +238,17 @@ def test_load_config_reads_hot_session_ttl_and_validates_it(tmp_path, monkeypatc
     monkeypatch.setenv("LEANCHAT_HOT_SESSION_TTL_S", "-1")
     with pytest.raises(ValidationError):
         load_config()
+
+
+def test_every_env_variable_is_documented_in_env_example():
+    # AGENTS.md Regel 14: ohne Eintrag in env-example existiert die Variable nicht
+    # (Kommentarzeilen zaehlen als dokumentiert, dort stehen die Defaults).
+    import re
+
+    from app.config import ENV_EXAMPLE, ENV_FIELD_SPEC
+
+    raw = ENV_EXAMPLE.read_text(encoding="utf-8")
+    env_names = [env for _field, (env, _parse) in ENV_FIELD_SPEC.items()]
+    env_names += ["LEANCHAT_DATA_DIR", "LEANCHAT_SECRET", "LEANCHAT_REGISTRY_PATH", "LEANCHAT_USERS_DIR"]
+    for name in env_names:
+        assert re.search(rf"^#?\s*{re.escape(name)}=", raw, flags=re.MULTILINE), f"{name} fehlt in env-example"

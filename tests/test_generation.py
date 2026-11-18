@@ -15,8 +15,8 @@ from app.auth import user_identity
 from app.db import database as dbq
 from app.db.database import Database
 from app.services.sse import parse_sse_buffer
-from app.services.chat import MessageService, _ActiveGeneration, _SessionState
-from app.services.store import UserStore
+from app.services.chat import MessageService, _SessionState
+from app.services.store import SqliteUserStore
 
 SECRET = "test-secret"
 EMAIL = "gen@example.com"
@@ -34,7 +34,7 @@ def db(tmp_path):
 
 @pytest.fixture()
 def svc(db):
-    return MessageService(UserStore(db))
+    return MessageService(SqliteUserStore(db))
 
 
 @pytest.fixture()
@@ -83,12 +83,12 @@ def test_request_abort_returns_false_when_nothing_running(svc, user):
 def test_request_abort_sets_registered_event(svc, user):
     key = svc._key(user, "sid-2")
     state = _SessionState([])
-    state.generation = _ActiveGeneration()
+    state.generation = asyncio.Event()
     svc._sessions[key] = state
     try:
         assert svc.is_running(user, "sid-2") is True
         assert svc.request_abort(user, "sid-2") is True
-        assert state.generation.abort.is_set()  # type: ignore[union-attr]
+        assert state.generation is not None and state.generation.is_set()
     finally:
         svc._sessions.pop(key, None)
 
@@ -96,7 +96,7 @@ def test_request_abort_sets_registered_event(svc, user):
 def test_abort_key_is_scoped_per_user(svc, user):
     other = user_identity(SECRET, "other@example.com")
     state = _SessionState([])
-    state.generation = _ActiveGeneration()
+    state.generation = asyncio.Event()
     svc._sessions[svc._key(user, "sid-3")] = state
     try:
         # dieselbe Session-ID eines anderen Users darf nicht mit-abgebrochen werden

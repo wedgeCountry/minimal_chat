@@ -1,4 +1,4 @@
-"""Getypte interne Datenstrukturen (DB-Zeilen, User-Identitaet, Stream-Bloecke).
+"""Getypte interne Datenstrukturen (DB-Zeilen, User-Identitaet, Message-Input).
 
 Als TypedDicts, damit der bestehende dict-Zugriff (``user["uid"]``) erhalten bleibt
 und mypy Schluessel und Typen prueft. Die Grenz-Models (API-Requests/Responses in
@@ -67,14 +67,3 @@ class AttachmentRow(TypedDict):
     size: int
     content: str
 
-
-class StreamBlock(TypedDict, total=False):
-    """Ein Block des LLM-Streams im MessageService (text ODER toolcall/toolresult-Felder)."""
-
-    kind: str
-    ts: int | None
-    id: int | None
-    text: str
-    name: str
-    args: str
-    result: str

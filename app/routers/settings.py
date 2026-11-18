@@ -9,15 +9,11 @@ from ..deps import get_config, get_current_user, get_store
 from ..models import SettingsIn, SettingsOut, SettingsTestIn
 from ..services.llm import check_llm_connection
 from ..services.ssrf import validate_llm_base_url
-from ..services.settings import BOOL_SETTINGS, resolve_base_url, stored_bool, stored_speech_mode, to_db
+from ..services.settings import BOOL_SETTINGS, CLEARABLE_WITH_EMPTY, STRING_SETTING_KEYS, resolve_base_url, stored_bool, stored_speech_mode, to_db
 from ..services.store import UserStoreProtocol
 from ..types import UserIdentity
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
-
-STRING_SETTING_KEYS = ("base", "host", "port", "model", "system_prompt", "theme", "api_key", "speech_mode")
-# host/port/system_prompt duerfen per leerem String geloescht werden
-CLEARABLE_WITH_EMPTY = ("host", "port", "system_prompt")
 
 
 def _settings_out(stored: dict[str, str], config: AppConfig) -> SettingsOut:

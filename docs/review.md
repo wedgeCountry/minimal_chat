@@ -73,7 +73,7 @@ LeanChat is a lean chat UI for OpenAI-compatible endpoints:
 
 1. **`app/types.py` (new)**: TypedDicts for the internal dict data —
    `UserIdentity`, `SessionRow`, `MessageRow`, `MessageInput`, `AttachmentContent`,
-   `AttachmentRow`, `StreamBlock`. Dict access (`user["uid"]`) is unchanged, but keys
+   `AttachmentRow`. Dict access (`user["uid"]`) is unchanged, but keys
    and value types are now checked.
 2. **Full typing of `app/`**: every function signature annotated (routers,
    middlewares, services, db helpers); the latent bugs above fixed

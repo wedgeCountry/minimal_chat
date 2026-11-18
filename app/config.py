@@ -4,6 +4,7 @@ import json
 import os
 import secrets
 import shutil
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -20,16 +21,16 @@ DEFAULT_MAX_USER_STORAGE_BYTES = 512 * 1024 * 1024
 DEFAULT_MAX_REQUEST_BYTES = 25 * 1024 * 1024
 
 
-def _env_bool(name: str) -> bool:
-    return os.environ.get(name, "").lower() in ("1", "true", "yes", "on")
+def _parse_env_bool(value: str) -> bool:
+    return value.lower() in ("1", "true", "yes", "on")
 
 
-def _env_path(name: str) -> Path | None:
+def _parse_env_path(value: str) -> Path | None:
     # env-example schreibt "=None" fuer nicht gesetzte Pfade; "None"/leer = nicht gesetzt
-    value = os.environ.get(name, "").strip()
-    if not value or value.lower() == "none":
+    v = value.strip()
+    if not v or v.lower() == "none":
         return None
-    return Path(value)
+    return Path(v)
 
 
 class AppConfig(BaseModel):
@@ -122,6 +123,30 @@ class AppConfig(BaseModel):
         return cls.from_dict(json.loads(Path(path).read_text(encoding="utf-8")))
 
 
+# AppConfig-Feld <- (Env-Variable, Parser). Single Source of Truth fuer das Env-Mapping;
+# jede Env-Variable muss in env-example dokumentiert sein (AGENTS.md Regel 14,
+# wird von tests/test_config.py gegen env-example geprueft).
+ENV_FIELD_SPEC: dict[str, tuple[str, Callable[[str], Any]]] = {
+    "default_llm_host": ("LEANCHAT_LLM_HOST", str),
+    "default_llm_port": ("LEANCHAT_LLM_PORT", str),
+    "default_api_key": ("LEANCHAT_API_KEY", str),
+    "default_model": ("LEANCHAT_MODEL", str),
+    "app_name": ("LEANCHAT_APP_NAME", str),
+    "voice_base": ("LEANCHAT_VOICE_BASE", str),
+    "host": ("LEANCHAT_HOST", str),
+    "port": ("LEANCHAT_PORT", int),
+    "ssl_certfile": ("LEANCHAT_SSL_CERTFILE", _parse_env_path),
+    "ssl_keyfile": ("LEANCHAT_SSL_KEYFILE", _parse_env_path),
+    "app_config_path": ("LEANCHAT_CONFIG_PATH", _parse_env_path),
+    "allow_private_llm": ("LEANCHAT_ALLOW_PRIVATE_LLM", _parse_env_bool),
+    "auto_login": ("LEANCHAT_AUTO_LOGIN", _parse_env_bool),
+    "max_upload_bytes": ("LEANCHAT_MAX_UPLOAD_BYTES", int),
+    "max_user_storage_bytes": ("LEANCHAT_MAX_USER_STORAGE_BYTES", int),
+    "max_request_bytes": ("LEANCHAT_MAX_REQUEST_BYTES", int),
+    "hot_session_ttl_s": ("LEANCHAT_HOT_SESSION_TTL_S", float),
+}
+
+
 def parse_env_text(text: str) -> dict[str, str]:
     values: dict[str, str] = {}
     for line in text.splitlines():
@@ -173,26 +198,15 @@ def load_config(
 ) -> AppConfig:
     data = Path(data_dir or os.environ.get("LEANCHAT_DATA_DIR", "data")).resolve()
     data.mkdir(parents=True, exist_ok=True)
-    return AppConfig(
-        data_dir=data,
-        secret=secret or os.environ.get("LEANCHAT_SECRET") or _load_or_create_secret(data / ".secret"),
-        registry_path=Path(os.environ.get("LEANCHAT_REGISTRY_PATH", str(data / "user_registry.db"))).resolve(),
-        users_dir=Path(os.environ.get("LEANCHAT_USERS_DIR", str(data / "users"))).resolve(),
-        default_llm_host=os.environ.get("LEANCHAT_LLM_HOST", "127.0.0.1"),
-        default_llm_port=os.environ.get("LEANCHAT_LLM_PORT", "1234"),
-        default_api_key=os.environ.get("LEANCHAT_API_KEY", ""),
-        default_model=os.environ.get("LEANCHAT_MODEL", "gpt-4o-mini"),
-        app_name=os.environ.get("LEANCHAT_APP_NAME", "LeanChat"),
-        voice_base=os.environ.get("LEANCHAT_VOICE_BASE", "http://127.0.0.1:8001"),
-        host=os.environ.get("LEANCHAT_HOST", "127.0.0.1"),
-        port=int(os.environ.get("LEANCHAT_PORT", "8000")),
-        ssl_certfile=_env_path("LEANCHAT_SSL_CERTFILE"),
-        ssl_keyfile=_env_path("LEANCHAT_SSL_KEYFILE"),
-        app_config_path=_env_path("LEANCHAT_CONFIG_PATH"),
-        allow_private_llm=_env_bool("LEANCHAT_ALLOW_PRIVATE_LLM"),
-        auto_login=_env_bool("LEANCHAT_AUTO_LOGIN"),
-        max_upload_bytes=int(os.environ.get("LEANCHAT_MAX_UPLOAD_BYTES", str(DEFAULT_MAX_UPLOAD_BYTES))),
-        max_user_storage_bytes=int(os.environ.get("LEANCHAT_MAX_USER_STORAGE_BYTES", str(DEFAULT_MAX_USER_STORAGE_BYTES))),
-        max_request_bytes=int(os.environ.get("LEANCHAT_MAX_REQUEST_BYTES", str(DEFAULT_MAX_REQUEST_BYTES))),
-        hot_session_ttl_s=float(os.environ.get("LEANCHAT_HOT_SESSION_TTL_S", "300")),
-    )
+    kwargs: dict[str, Any] = {
+        "data_dir": data,
+        "secret": secret or os.environ.get("LEANCHAT_SECRET") or _load_or_create_secret(data / ".secret"),
+        "registry_path": Path(os.environ.get("LEANCHAT_REGISTRY_PATH", str(data / "user_registry.db"))).resolve(),
+        "users_dir": Path(os.environ.get("LEANCHAT_USERS_DIR", str(data / "users"))).resolve(),
+    }
+    # Nicht gesetzte Env-Variablen fehlen im kwargs -> Pydantic-Default greift
+    for field, (env_name, parse) in ENV_FIELD_SPEC.items():
+        raw = os.environ.get(env_name)
+        if raw is not None:
+            kwargs[field] = parse(raw)
+    return AppConfig(**kwargs)

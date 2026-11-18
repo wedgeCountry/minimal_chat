@@ -14,7 +14,7 @@ from ..services.context import build_llm_context
 from ..services.settings import BOOL_SETTINGS, resolve_base_url, stored_bool
 from ..services.sse import sse_event
 from ..services.ssrf import validate_llm_base_url
-from ..services.store import UserStoreProtocol
+from ..services.store import SessionNotFound, UserStoreProtocol
 from ..types import UserIdentity
 
 router = APIRouter(prefix="/api/chat", tags=["chat"])
@@ -36,7 +36,7 @@ async def chat(
     """
     ctx = await store.load_chat_context(user, req.session_id)
     if ctx is None:
-        raise HTTPException(status_code=404, detail="Session nicht gefunden")
+        raise SessionNotFound(req.session_id)
     _session, stored, attachments, session_messages = ctx
     base_url = resolve_base_url(stored, config)
     try:
@@ -58,7 +58,7 @@ async def chat(
     # Flag nach Server-Neustart wird im Service geheilt
     status = await service.start_generation(user, req.session_id, base_url, api_key, payload, flags)
     if status == "missing":
-        raise HTTPException(status_code=404, detail="Session nicht gefunden")
+        raise SessionNotFound(req.session_id)
     if status == "busy":
         raise HTTPException(status_code=409, detail="Es laeuft bereits eine Generierung fuer diese Session")
     return {"status": "started"}
@@ -78,7 +78,7 @@ async def chat_stream(
     laufende Generierung - Client liest den Stand ueber GET /api/sessions/{sid}).
     """
     if not await store.session_exists(user, sid):
-        raise HTTPException(status_code=404, detail="Session nicht gefunden")
+        raise SessionNotFound(sid)
 
     async def events() -> AsyncIterator[str]:
         async for ev in service.stream(user, sid):

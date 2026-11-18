@@ -24,7 +24,7 @@ import pytest
 
 from app.auth import user_identity
 from app.models import MessageIn, MessagePatch
-from app.services.chat import MessageService, _ActiveGeneration
+from app.services.chat import MessageService
 from app.services.memory_store import InMemoryUserStore
 
 SECRET = "svc-secret"
@@ -152,7 +152,7 @@ def test_eviction_reloads_from_store_but_never_during_generation(user, store):
         assert st2 is not st1, "Hot-State wurde evictiert und neu geladen"
         assert [m.text for m in st2.messages] == [m.text for m in st1.messages], "Reload liefert DB-Stand"
         # laufende Generierung schuetzt vor Eviction
-        st2.generation = _ActiveGeneration()
+        st2.generation = asyncio.Event()
         st3 = await svc._hot(user, sid)
         assert svc._sessions[key] is st2 and st3 is st2, "keine Eviction waehrend Generierung"
 

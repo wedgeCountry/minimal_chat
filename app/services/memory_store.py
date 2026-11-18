@@ -12,11 +12,12 @@ from typing import Any
 from ..domain import Attachment, AttachmentRef, Message, Session
 from ..types import MessageInput, UserIdentity
 from .store import (
-    DEFAULT_SESSION_NAME,
     AttachmentQuotaExceeded,
     MessageNotFound,
     SessionNotFound,
     UserStoreProtocol,
+    default_name_for_first_user_text,
+    error_message_input,
 )
 
 
@@ -108,9 +109,9 @@ class InMemoryUserStore(UserStoreProtocol):
             ts=int(msg.get("created_at") or _now_ms()),
         )
         self._msgs(user, sid).append(m)
-        text = m.text.strip()
-        if m.role == "user" and m.type == "message" and text and row.name == DEFAULT_SESSION_NAME:
-            row.name = text[:40]
+        new_name = default_name_for_first_user_text(m.role, m.type, m.text, row.name)
+        if new_name:
+            row.name = new_name
         row.ts = _now_ms()
         return m.model_copy()
 
@@ -211,8 +212,6 @@ class InMemoryUserStore(UserStoreProtocol):
     ) -> list[Message]:
         added = await self.add_messages(user, sid, messages)
         if error:
-            added.append(
-                await self.add_message(user, sid, {"role": "system", "type": "message", "text": "Fehler: " + error, "in_context": False})
-            )
+            added.append(await self.add_message(user, sid, error_message_input(error)))
         await self.set_generating(user, sid, False)
         return added
