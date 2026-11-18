@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { sortMessagesForRender, findLastUserMessage, hasMessagesAfter, applyLocalMessage, removeLocalMessage, removeLocalMessagesAfter } from "../../static/js/chat.js";
+import { sortMessagesForRender, findLastUserMessage, hasMessagesAfter, applyLocalMessage, removeLocalMessage, removeLocalMessagesAfter, cancelSelectionIfTouchOutsideBubble } from "../../static/js/chat.js";
 import { state } from "../../static/js/state.js";
 
 test("sortMessagesForRender: chronological by ts", () => {
@@ -202,4 +202,54 @@ test("hasMessagesAfter: true only when messages follow the given id (edit-trunca
   assert.equal(hasMessagesAfter(messages, 4), false, "letzte Nachricht: nichts folgt");
   assert.equal(hasMessagesAfter(messages, 999), false, "unbekannte id");
   assert.equal(hasMessagesAfter([], 1), false);
+});
+
+function fakeSelection(anchorNode) {
+  const sel = { isCollapsed: false, rangeCount: 1, anchorNode, cleared: 0 };
+  sel.removeAllRanges = () => sel.cleared++;
+  return sel;
+}
+
+test("cancelSelectionIfTouchOutsideBubble: Touch ausserhalb der Bubble hebt die Auswahl sofort auf", () => {
+  const inside = {};
+  const outside = {};
+  const bubble = { contains: (t) => t === inside };
+  const anchorEl = { closest: (s) => (s === ".bubble" ? bubble : null) };
+  const sel = fakeSelection({ nodeType: 3, parentElement: anchorEl });
+  assert.equal(cancelSelectionIfTouchOutsideBubble(sel, outside), true);
+  assert.equal(sel.cleared, 1);
+});
+
+test("cancelSelectionIfTouchOutsideBubble: Touch innerhalb derselben Bubble behaelt die Auswahl", () => {
+  const inside = {};
+  const bubble = { contains: (t) => t === inside };
+  const anchorEl = { closest: (s) => (s === ".bubble" ? bubble : null) };
+  const sel = fakeSelection({ nodeType: 3, parentElement: anchorEl });
+  assert.equal(cancelSelectionIfTouchOutsideBubble(sel, inside), false);
+  assert.equal(sel.cleared, 0);
+});
+
+test("cancelSelectionIfTouchOutsideBubble: anchorNode als Element (nodeType 1) wird direkt verwendet", () => {
+  const outside = {};
+  const bubble = { contains: () => false };
+  const anchorEl = { nodeType: 1, closest: (s) => (s === ".bubble" ? bubble : null) };
+  const sel = fakeSelection(anchorEl);
+  assert.equal(cancelSelectionIfTouchOutsideBubble(sel, outside), true);
+  assert.equal(sel.cleared, 1);
+});
+
+test("cancelSelectionIfTouchOutsideBubble: kollabierte Auswahl, fehlender anchorNode oder Auswahl ausserhalb einer Bubble -> nichts tun", () => {
+  const collapsed = { isCollapsed: true, rangeCount: 1, anchorNode: null, cleared: 0, removeAllRanges() { this.cleared++; } };
+  assert.equal(cancelSelectionIfTouchOutsideBubble(collapsed, {}), false);
+  assert.equal(collapsed.cleared, 0);
+
+  const noAnchor = fakeSelection(null);
+  assert.equal(cancelSelectionIfTouchOutsideBubble(noAnchor, {}), false);
+  assert.equal(noAnchor.cleared, 0);
+
+  const outsideBubble = fakeSelection({ nodeType: 3, parentElement: { closest: () => null } });
+  assert.equal(cancelSelectionIfTouchOutsideBubble(outsideBubble, {}), false);
+  assert.equal(outsideBubble.cleared, 0);
+
+  assert.equal(cancelSelectionIfTouchOutsideBubble(null, {}), false);
 });

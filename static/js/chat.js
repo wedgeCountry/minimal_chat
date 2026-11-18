@@ -307,6 +307,19 @@ export function cancelEdit() {
   if (b) exitBubbleEdit(b);
 }
 
+// Textauswahl per Long-Press (Mobil): tippt der Nutzer ausserhalb der Bubble, in
+// der die Auswahl liegt, wird sie sofort aufgehoben - sonst bleibt sie mit ihren
+// Handles stehen, bis irgendwo anders getippt wird.
+export function cancelSelectionIfTouchOutsideBubble(sel, target) {
+  if (!sel || sel.isCollapsed || !sel.rangeCount) return false;
+  const node = sel.anchorNode;
+  const el = node ? (node.nodeType === 1 ? node : node.parentElement) : null;
+  const bubble = el && el.closest ? el.closest(".bubble") : null;
+  if (!bubble || bubble.contains(target)) return false;
+  sel.removeAllRanges();
+  return true;
+}
+
 // Bearbeiten und Erneut-senden teilen sich diesen Pfad: patchen, alles danach loeschen
 async function resubmitMessage(s, mid, text, attachments) {
   const updated = await api.patch(`/sessions/${s.id}/messages/${mid}`, { text, attachments });

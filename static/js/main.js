@@ -3,7 +3,7 @@ import { state, activeSession, normalizeMessages } from "./state.js";
 import { $ } from "./util.js";
 import { goToLogin } from "./auth.js";
 import { loadSessions, renderSessions, newSession } from "./sessions.js";
-import { abortStream, pollOnce, renderChatView, renderHeader, send, setStreamingUI, syncAllBubbleTts } from "./chat.js";
+import { abortStream, cancelSelectionIfTouchOutsideBubble, pollOnce, renderChatView, renderHeader, send, setStreamingUI, syncAllBubbleTts } from "./chat.js";
 import { addAttachments } from "./attachments.js";
 import { initSettings, loadSettings, openSettings } from "./settings.js";
 import { initConfirm } from "./confirm.js";
@@ -189,6 +189,7 @@ function initEvents() {
     $("composerWrap").addEventListener("pointerdown", () => $("side").classList.add("hidden"));
     $("chat").addEventListener("pointerdown", () => $("side").classList.add("hidden"));
   }
+  document.addEventListener("touchstart", (e) => cancelSelectionIfTouchOutsideBubble(window.getSelection(), e.target), { passive: true });
 
   $("micBtn").onclick = () => onMicClick(input);
 

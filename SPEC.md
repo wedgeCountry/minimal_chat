@@ -67,6 +67,7 @@ Eigenschaften je Bubble:
 | Vorlesen | Audio-Symbol: Vorlesen per `speechSynthesis`/Voice Companion, erneuter Klick stoppt die Wiedergabe (ohne Fehlermeldung); Wiedergabe stoppt eine laufende Aufnahme und unterdrückt den Aufnahme-Start |
 | Kontext-Checkbox | Rechts oben auf allen Bubble-Typen außer `reasoning` (also auch `toolcall`/`toolresult`); legt fest, ob die Nachricht beim nächsten Request im `messages`-Array mitgesendet wird |
 | Löschen | Mülleimer-Symbol entfernt die Nachricht aus der Session |
+| Textauswahl (Touch) | Long-Press wählt Text innerhalb einer Bubble aus; ein Touch außerhalb der Bubble hebt die Auswahl sofort auf (`touchstart` + `removeAllRanges`) |
 
 Darstellung nach Typ:
 
