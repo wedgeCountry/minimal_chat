@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { sortMessagesForRender, findLastUserMessage, hasMessagesAfter, applyLocalMessage, removeLocalMessage, removeLocalMessagesAfter, onBubbleTap, initBubbleMenu, closeBubbleCtxMenu } from "../../static/js/chat.js";
+import { sortMessagesForRender, findLastUserMessage, hasMessagesAfter, applyLocalMessage, removeLocalMessage, removeLocalMessagesAfter, onBubbleTap, initBubbleMenu, closeBubbleCtxMenu, send, stopPolling } from "../../static/js/chat.js";
 import { state } from "../../static/js/state.js";
 import { speak, isSpeaking, stopSpeech } from "../../static/js/ttsDetectionService.js";
 import { setBubbleText } from "../../static/js/bubbles.js";
@@ -570,5 +570,131 @@ test("Escape (keydown auf document) stoppt die laufende Wiedergabe; andere Taste
   } finally {
     speech.restore();
     dom.cleanup();
+  }
+});
+
+// --- send(): Doppel-Submit-Guard ---
+
+function fakeNode() {
+  const node = {
+    className: "",
+    dataset: {},
+    style: {},
+    innerHTML: "",
+    textContent: "",
+    title: "",
+    value: "",
+    checked: false,
+    onclick: null,
+    onchange: null,
+    children: [],
+    scrollTop: 0,
+    scrollHeight: 0,
+    clientHeight: 0,
+    classList: makeClassList(),
+    appendChild(c) {
+      this.children.push(c);
+    },
+    insertBefore() {},
+    remove() {},
+    addEventListener() {},
+    removeEventListener() {},
+    dispatchEvent() {},
+    focus() {},
+    click() {},
+    setSelectionRange() {},
+    getBoundingClientRect: () => ({ top: 0, bottom: 0, left: 0, right: 0, width: 0, height: 0 }),
+    querySelector: () => fakeNode(),
+    querySelectorAll: () => [],
+    closest: () => null,
+  };
+  return node;
+}
+
+test("send(): zweiter Aufruf waehrend des ersten (Doppel-Tap / Enter nach Browser-Diktation) POSTet die Nachricht nicht doppelt", async () => {
+  const savedDoc = globalThis.document;
+  const savedFetch = globalThis.fetch;
+  const savedEventSource = globalThis.EventSource;
+  const savedSettings = state.settings;
+  const savedSessions = state.sessions;
+  const savedActiveId = state.activeId;
+  const savedStreaming = state.streaming;
+  const savedMessages = state.messages;
+  const savedPending = state.pendingAttachments;
+
+  const input = fakeNode();
+  input.value = "Hallo Welt";
+  const elements = {
+    input,
+    attachments: fakeNode(),
+    chat: fakeNode(),
+    sendBtn: fakeNode(),
+    progress: fakeNode(),
+    abortBtnSide: fakeNode(),
+  };
+  globalThis.document = {
+    getElementById: (id) => elements[id] ?? null,
+    createElement: () => fakeNode(),
+    querySelector: () => null,
+    querySelectorAll: () => [],
+    addEventListener: () => {},
+    dispatchEvent: () => {},
+  };
+  globalThis.EventSource = class {
+    close() {}
+  };
+
+  const session = { id: "s1", name: "S", generating: false, ts: 1 };
+  const created = { id: 1, role: "user", type: "message", text: "Hallo Welt", in_context: true, ts: 1000 };
+  const messagePosts = [];
+  let release;
+  const gate = new Promise((r) => (release = r));
+  globalThis.fetch = async (url, opts = {}) => {
+    if (opts.method === "POST" && url === "/api/sessions/s1/messages") {
+      messagePosts.push(JSON.parse(opts.body));
+      await gate; // erster Versand bleibt im Flug (langsames Netz)
+      return { ok: true, status: 201, json: async () => created, text: async () => "" };
+    }
+    if (url === "/api/sessions") return { ok: true, status: 200, json: async () => [session], text: async () => "" };
+    if (url === "/api/sessions/s1")
+      return { ok: true, status: 200, json: async () => ({ id: "s1", messages: [created] }), text: async () => "" };
+    if (opts.method === "POST" && url === "/api/chat")
+      return { ok: true, status: 202, json: async () => ({ status: "started" }), text: async () => "" };
+    throw new Error("unerwarteter fetch: " + url);
+  };
+
+  state.settings = { ...savedSettings, system_prompt: "" };
+  state.sessions = [session];
+  state.activeId = "s1";
+  state.streaming = false;
+  state.messages = [];
+  state.pendingAttachments = [];
+
+  try {
+    const p1 = send();
+    await new Promise((r) => setTimeout(r, 0)); // p1 bis zum messages-POST durchlaufen lassen
+    const p2 = send(); // Doppel-Tap auf Senden / Enter direkt nach der Diktation
+    await p2;
+    await new Promise((r) => setTimeout(r, 0));
+    assert.equal(messagePosts.length, 1, "zweiter send()-Aufruf darf nicht erneut POSTen");
+    release();
+    await p1;
+    assert.equal(messagePosts.length, 1, "nach Abschluss des ersten send() weiterhin nur ein POST");
+    assert.equal(messagePosts[0].text, "Hallo Welt");
+    assert.equal(input.value, "", "Chat-Zeile wurde nach dem Senden geleert");
+  } finally {
+    stopPolling();
+    if (savedDoc === undefined) delete globalThis.document;
+    else globalThis.document = savedDoc;
+    if (savedFetch === undefined) delete globalThis.fetch;
+    else globalThis.fetch = savedFetch;
+    if (savedEventSource === undefined) delete globalThis.EventSource;
+    else globalThis.EventSource = savedEventSource;
+    state.settings = savedSettings;
+    state.sessions = savedSessions;
+    state.activeId = savedActiveId;
+    state.streaming = savedStreaming;
+    state.messages = savedMessages;
+    state.pendingAttachments = savedPending;
   }
 });
