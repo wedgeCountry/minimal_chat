@@ -97,6 +97,37 @@ def test_toolcalls_without_index_get_sequential_block_ids(svc, store, user, monk
     ]
 
 
+def test_reused_tool_index_in_later_round_starts_new_block(svc, store, user, monkeypatch):
+    """Der LLM-Server startet die tool-call-``index`` pro Assistant-Runde wieder bei 0:
+    die zweite Runde darf nicht auf den geschlossenen Block der ersten Runde akkumulieren
+    (Name doppelt, Argumente zusammengemusht), sondern landet in einer eigenen Zeile."""
+
+    async def fake_stream(*args, **kwargs):
+        yield _sse({"tool_calls": [{"index": 0, "function": {"name": "deep_search", "arguments": '{"q":["a"]}'}}]})
+        yield _sse({"tool_results": [{"index": 0, "signal": "toolcall_done"}]})
+        yield _sse({"tool_results": [{"index": 0, "name": "deep_search", "result": "r1"}]})
+        yield _sse({"tool_calls": [{"index": 0, "function": {"name": "deep_search", "arguments": '{"q":["b"]}'}}]})
+        yield _sse({"tool_results": [{"index": 0, "signal": "toolcall_done"}]})
+        yield _sse({"tool_results": [{"index": 0, "name": "deep_search", "result": "r2"}]})
+        yield _sse({"content": "Antwort"})
+
+    monkeypatch.setattr("app.services.chat.stream_completion", fake_stream)
+
+    async def main():
+        sid = (await store.create_session(user, "S")).id
+        await svc.generate(user, sid, BASE, "k", {"messages": []})
+        return await store.get_session_detail(user, sid)
+
+    detail = asyncio.run(main())
+    assert _rows(detail) == [
+        ("assistant", "toolcall", 'deep_search({"q":["a"]})', True),
+        ("assistant", "toolresult", "deep_search: r1", True),
+        ("assistant", "toolcall", 'deep_search({"q":["b"]})', True),
+        ("assistant", "toolresult", "deep_search: r2", True),
+        ("assistant", "message", "Antwort", True),
+    ]
+
+
 def test_toolresult_field_fallbacks(svc, store, user, monkeypatch):
     """Toolresult-Inhalt wird aus result ODER content/output/text ODER function.result/
     function.arguments gelesen; der Name aus name ODER function.name."""
