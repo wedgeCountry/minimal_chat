@@ -52,6 +52,10 @@ LEANCHAT_ALLOW_PRIVATE_LLM=1
 # LEANCHAT_MAX_USER_STORAGE_BYTES=536870912
 # Max. Request-Body-Groesse fuer /api/* in Bytes (Content-Length-Check per Middleware, 413)
 # LEANCHAT_MAX_REQUEST_BYTES=26214400
+# Max. Anzahl der pro User und Session gemerkten Seiten (Page-Visit-Stack): navigiert ein
+# eingeloggter User per Zurueck-Button auf eine Auth-Seite (z.B. /auth/login), wird statt des
+# Login-Screens die zuletzt besuchte Seite angesteuert (Default 20).
+# LEANCHAT_VISIT_STACK_SIZE=20
 
 # --- MessageService: TTL (Sekunden) fuer den In-Memory-Session-State ---
 # Heisse Sessions (volles Message-Memory) werden nach dieser Zeit ohne Aktivitaet

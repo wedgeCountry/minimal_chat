@@ -13,15 +13,13 @@ import { onMicClick } from "./recorder.js";
 import { initPartials } from "./html.js";
 import { initGlobalErrorHandling } from "./errors.js";
 import { initViewportSync } from "./viewport.js";
+import { setSideHidden, initSidePanelHistory } from "./sidePanel.js";
 
 let autoLoginEnabled = false;
 
 function applyAutoLoginUI() {
   if (!autoLoginEnabled) return;
   document.documentElement.classList.add("auto-login");
-}
-function setSideHidden(hidden) {
-  $("side").classList.toggle("hidden", hidden);
 }
 
 export function isMobileInput() {
@@ -105,7 +103,7 @@ async function bootstrap() {
   // serverseitig laufende Generierung (z. B. nach Reload) -> Abbrechen-Button statt Senden
   setStreamingUI(!!activeSession()?.generating);
   if (state.sessions.length === 0) await newSession(true);
-  $("side").classList.add("hidden");
+  setSideHidden(true);
   renderAll();
   // Falls serverseitig noch eine Generierung laeuft (z.B. nach App-Neustart
   // oder Wechsel aus einer anderen App): sofort synchronisieren und polln.
@@ -115,6 +113,7 @@ async function bootstrap() {
 function initEvents() {
   initConfirm();
   $("panelBtn").onclick = () => setSideHidden(!$("side").classList.contains("hidden"));
+  initSidePanelHistory();
   $("burgerBtn").onclick = (e) => {
     e.stopPropagation();
     $("burgerMenu").classList.toggle("open");
@@ -186,8 +185,8 @@ function initEvents() {
   window.addEventListener("resize", syncInputSize);
   syncInputSize();
   if (mobile) {
-    $("composerWrap").addEventListener("pointerdown", () => $("side").classList.add("hidden"));
-    $("chat").addEventListener("pointerdown", () => $("side").classList.add("hidden"));
+    $("composerWrap").addEventListener("pointerdown", () => setSideHidden(true));
+    $("chat").addEventListener("pointerdown", () => setSideHidden(true));
   }
 
   $("micBtn").onclick = () => onMicClick(input);
@@ -202,7 +201,7 @@ function initEvents() {
     syncAllBubbleTts();
   });
   document.addEventListener("leanchat:session-selected", () => {
-    if (isMobileInput()) $("side").classList.add("hidden");
+    if (isMobileInput()) setSideHidden(true);
   });
   document.addEventListener("leanchat:unauthorized", () => goToLogin());
   // Zurueck aus dem Hintergrund: Server-Stand sofort abrufen, damit eine
