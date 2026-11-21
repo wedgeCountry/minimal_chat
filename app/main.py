@@ -18,6 +18,7 @@ from .services.chat import MessageService
 from .services.files import UploadTooLarge
 from .services.store import AttachmentQuotaExceeded, MessageNotFound, SessionNotFound, SqliteUserStore
 from .services.voice import VoiceServiceUnavailable, VoiceUpstreamError
+from .visit_stack import VisitStackMiddleware, VisitStackStore
 
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
 
@@ -58,6 +59,11 @@ def create_app(
     app.state.store = SqliteUserStore(app.state.db)
     app.state.message_service = MessageService(app.state.store, hot_ttl_s=cfg.hot_session_ttl_s)
     init_auth(app, cfg)
+    app.state.visit_stacks = VisitStackStore(cfg.visit_stack_size)
+    app.add_middleware(
+        VisitStackMiddleware,
+        non_page_prefixes=("/auth", "/api", "/static", "/css", "/js", "/partials"),
+    )
 
     # Domain-Exceptions zentral an der HTTP-Grenze mappen: Router und Services
     # werfen sie nur, die Status/Detail-Zuordnung lebt genau hier an einer Stelle.
