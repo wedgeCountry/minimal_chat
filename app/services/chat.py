@@ -89,7 +89,9 @@ class _StreamAccumulator:
 
     def tool_block(self, kind: MessageType, idx: int) -> dict[str, Any]:
         a = self.tool_acc.get((kind, idx))
-        if a is None:
+        # idx startet pro Assistant-Runde wieder bei 0: erst ein geschlossener Block
+        # (ts != 0) darf eine neue Runde auf demselben (kind, idx) eroeffnen
+        if a is None or a["msg"].ts != 0:
             m = self.live(kind)
             a = {"kind": kind, "name": "", "args": "", "result": "", "msg": m}
             self.tool_acc[(kind, idx)] = a

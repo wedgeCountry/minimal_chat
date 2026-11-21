@@ -675,37 +675,48 @@ export function stopPolling() {
   }
 }
 
+// In-Flight-Guard fuer send(): streaming/generating werden erst am Ende von send()
+// gesetzt und die Chat-Zeile wird erst nach den ersten awaits geleert - ein zweiter
+// Aufruf im selben Fenster (Doppel-Tap auf Senden, Enter direkt nach der Browser-
+// Diktation plus Tap) darf dieselbe Nachricht nicht erneut POSTen.
+let sending = false;
+
 export async function send() {
   // auch serverseitig laufendes generating (z. B. nach Reload) zeigt Abbrechen statt Senden
   if (state.streaming || activeSession()?.generating) {
     abortStream();
     return;
   }
-  // laufende Aufnahme stoppen und Puffer verwerfen, bevor die Chat-Zeile geleert wird
-  stopRecording({ discard: true });
-  const input = $("input");
-  const text = input.value.trim();
-  if (!text && !state.pendingAttachments.length) return;
-  let s = activeSession();
-  if (!s) {
-    await newSession(true);
-    s = activeSession();
+  if (sending) return;
+  sending = true;
+  try {
+    stopRecording({ discard: true });
+    const input = $("input");
+    const text = input.value.trim();
+    if (!text && !state.pendingAttachments.length) return;
+    let s = activeSession();
+    if (!s) {
+      await newSession(true);
+      s = activeSession();
+    }
+    const attachments = await uploadPendingAttachments(s.id);
+    const created = await api.post(`/sessions/${s.id}/messages`, {
+      role: "user",
+      type: "message",
+      text,
+      in_context: true,
+      attachments,
+    });
+    applyLocalMessage(created);
+    await loadSessions();
+    input.value = "";
+    input.style.height = "auto";
+    input.style.overflowY = "hidden";
+    changed();
+    await triggerGeneration(s);
+  } finally {
+    sending = false;
   }
-  const attachments = await uploadPendingAttachments(s.id);
-  const created = await api.post(`/sessions/${s.id}/messages`, {
-    role: "user",
-    type: "message",
-    text,
-    in_context: true,
-    attachments,
-  });
-  applyLocalMessage(created);
-  await loadSessions();
-  input.value = "";
-  input.style.height = "auto";
-  input.style.overflowY = "hidden";
-  changed();
-  await triggerGeneration(s);
 }
 
 export function renderHeader() {
