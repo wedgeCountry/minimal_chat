@@ -13,10 +13,10 @@ from .auth import init_auth
 from .config import LOOPBACK_HOSTS, AppConfig, bootstrap_env, load_config
 from .db.database import Database
 from .deps import get_session_email
-from .routers import auth, chat, log, meta, sessions, settings, voice, visits
+from .routers import auth, chat, log, meta, models, sessions, settings, voice, visits
 from .services.chat import MessageService
 from .services.files import UploadTooLarge
-from .services.store import AttachmentQuotaExceeded, MessageNotFound, SessionNotFound, SqliteUserStore
+from .services.store import AttachmentQuotaExceeded, LlmModelNotFound, MessageNotFound, SessionNotFound, SqliteUserStore
 from .services.voice import VoiceServiceUnavailable, VoiceUpstreamError
 from .visit_stack import VisitStackMiddleware, VisitStackStore
 
@@ -75,6 +75,10 @@ def create_app(
     async def _on_message_not_found(request: Request, exc: MessageNotFound) -> JSONResponse:
         return JSONResponse({"detail": "Nachricht nicht gefunden"}, status_code=404)
 
+    @app.exception_handler(LlmModelNotFound)
+    async def _on_llm_model_not_found(request: Request, exc: LlmModelNotFound) -> JSONResponse:
+        return JSONResponse({"detail": "Modell nicht gefunden"}, status_code=404)
+
     @app.exception_handler(AttachmentQuotaExceeded)
     async def _on_quota_exceeded(request: Request, exc: AttachmentQuotaExceeded) -> JSONResponse:
         return JSONResponse({"detail": str(exc)}, status_code=413)
@@ -127,6 +131,7 @@ def create_app(
     app.include_router(auth.router)
     app.include_router(sessions.router)
     app.include_router(settings.router)
+    app.include_router(models.router)
     app.include_router(chat.router)
     app.include_router(log.router)
     app.include_router(meta.router)

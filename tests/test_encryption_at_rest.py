@@ -32,8 +32,8 @@ def _seed_user_data(client, auth_headers) -> str:
         headers=auth_headers,
     )
     assert res.status_code == 201, res.text
-    res = client.put("/api/settings", json={"api_key": SECRET_API_KEY}, headers=auth_headers)
-    assert res.status_code == 200, res.text
+    res = client.post("/api/settings/models", json={"api_key": SECRET_API_KEY, "model": "m"}, headers=auth_headers)
+    assert res.status_code == 201, res.text
     res = client.post(
         f"/api/sessions/{sid}/attachments",
         files={"file": ("geheim.txt", SECRET_ATTACHMENT.encode(), "text/plain")},

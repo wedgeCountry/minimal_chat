@@ -64,6 +64,18 @@ class SessionSettingRow(TypedDict):
     value: str
 
 
+class LlmModelRow(TypedDict):
+    """Eine Zeile aus ``llm_models`` (DB-Format)."""
+
+    id: int
+    provider: str
+    host: str
+    port: str
+    base: str
+    api_key: str
+    model: str
+
+
 class AttachmentRow(TypedDict):
     """Eine Zeile aus ``attachments`` (DB-Format)."""
 

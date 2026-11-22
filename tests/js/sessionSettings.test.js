@@ -18,8 +18,11 @@ test("resolveSystemPrompt: beide leer -> leerer String", () => {
   assert.equal(resolveSystemPrompt({}, undefined), "");
 });
 
-test("pickSessionSettings: nur bekannte Keys, fehlende/unbekannte fehlen bzw. werden leer", () => {
-  assert.deepEqual(pickSessionSettings({ session_id: "abc", system_prompt: "p", tool_use: "x" }), { system_prompt: "p" });
-  assert.deepEqual(pickSessionSettings({}), { system_prompt: "" });
+test("pickSessionSettings: nur bekannte Keys (system_prompt, model_id), fehlende/unbekannte werden leer", () => {
+  assert.deepEqual(pickSessionSettings({ session_id: "abc", system_prompt: "p", model_id: "3", tool_use: "x" }), {
+    system_prompt: "p",
+    model_id: "3",
+  });
+  assert.deepEqual(pickSessionSettings({}), { system_prompt: "", model_id: "" });
   assert.deepEqual(pickSessionSettings(undefined), Object.fromEntries(SESSION_SETTING_KEYS.map((k) => [k, ""])));
 });

@@ -13,8 +13,7 @@
 .sessionName{flex:1;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .sessionName input{width:100%;font-size:13px;background:var(--panel);border:1px solid var(--accent);border-radius:4px;padding:2px 4px;outline:none}
 .tile .iconBtn{padding:3px}
-.tile .editBtn{opacity:0;transition:opacity .12s}
-.tile:hover .editBtn,.tile.active .editBtn{opacity:1}
+.tile .editBtn{opacity:1;transition:opacity .12s}
 .tile .iconBtn svg{width:13px;height:13px}
 .tile .delBtn:hover{color:var(--danger)}
 
@@ -42,6 +41,7 @@
 .overlay.open{display:flex}
 #overlay{z-index:100}
 #sessionOverlay{z-index:120}
+#modelOverlay{z-index:130}
 #confirmOverlay,#errorOverlay{z-index:150}
 #errorOverlay .modal{width:min(640px,94vw);padding:26px}
 .confirmText{font-size:14px;margin-bottom:4px}
@@ -63,6 +63,14 @@
 .btn{padding:8px 16px;border-radius:9px;font-size:14px;border:1px solid var(--border)}
 .btn.primary{background:var(--accent);color:var(--on-accent);border-color:var(--accent)}
 .btn.danger{background:var(--danger);border-color:var(--danger);color:var(--on-danger)}
+
+/* Modell-Tiles in den LLM-Einstellungen (LLM-Tab rendert #modelTiles) */
+#modelTiles{display:flex;flex-direction:column;gap:8px}
+.modelTile .modelRow{display:flex;align-items:center;gap:6px}
+.modelTile .modelTitle{flex:1;font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.modelTile .modelSub{font-size:12px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.modelTile .defaultRow{margin-top:6px;font-size:12px;color:var(--muted)}
+.modelTile.add{display:flex;align-items:center;gap:8px;font-weight:600;color:var(--accent);border-style:dashed}
 
 /* Kontextmenue (Minimalismus: Rechtsklick auf Desktop / Doppel-Tap auf Touch) — nur Text, keine Icons */
 .ctxMenu{position:fixed;z-index:200;background:var(--panel);border:1px solid var(--border);border-radius:10px;box-shadow:var(--shadow);min-width:200px;padding:4px}

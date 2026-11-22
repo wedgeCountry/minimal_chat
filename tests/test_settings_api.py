@@ -2,18 +2,11 @@ from __future__ import annotations
 
 import re
 
-import httpx
-
 from app.config import REPO_ROOT
 from app.services.settings import BOOL_SETTINGS
 
-RealAsyncClient = httpx.AsyncClient
-
 DEFAULTS = {
-    "base": "http://llm.test/v1",
-    "host": "llm.test",
-    "port": "",
-    "model": "gpt-4o-mini",
+    "default_model_id": "",
     "system_prompt": "",
     "theme": "light",
     **BOOL_SETTINGS,
@@ -27,19 +20,38 @@ def test_default_settings(client, auth_headers):
     assert res.json() == DEFAULTS
 
 
-def test_update_settings_and_api_key_write_only(client, auth_headers):
-    res = client.put(
-        "/api/settings",
-        json={"base": "http://other.test/v1", "model": "gpt-x", "theme": "dark", "api_key": "sk-geheim"},
+def test_default_model_id_roundtrip_and_validation(client, auth_headers):
+    """default_model_id zeigt auf ein llm_models-Tile; ungueltige IDs werden abgelehnt."""
+    created = client.post(
+        "/api/settings/models",
+        json={"provider": "Lokal", "host": "192.168.1.10", "port": "8000", "model": "gpt-x"},
         headers=auth_headers,
     )
+    assert created.status_code == 201, created.text
+    mid = created.json()["id"]
+    # erstes Tile wird automatisch zum Standard
+    assert client.get("/api/settings", headers=auth_headers).json()["default_model_id"] == str(mid)
+
+    res = client.put("/api/settings", json={"theme": "dark", "default_model_id": str(mid)}, headers=auth_headers)
     assert res.status_code == 200
-    assert res.json()["base"] == "http://other.test/v1"
+    assert res.json()["default_model_id"] == str(mid)
     assert res.json()["theme"] == "dark"
     got = client.get("/api/settings", headers=auth_headers).json()
-    assert got["theme"] == "dark"
+    assert got["default_model_id"] == str(mid)
     assert "api_key" not in got
-    assert "sk-geheim" not in str(got)
+
+    assert client.put("/api/settings", json={"default_model_id": "999"}, headers=auth_headers).status_code == 422
+    assert client.put("/api/settings", json={"default_model_id": "abc"}, headers=auth_headers).status_code == 422
+    assert client.get("/api/settings", headers=auth_headers).json()["default_model_id"] == str(mid)
+
+    # default_model_id und weitere Keys in einem PUT landen gemeinsam
+    res = client.put(
+        "/api/settings", json={"default_model_id": str(mid), "theme": "dark", "system_prompt": "p"}, headers=auth_headers
+    )
+    assert res.status_code == 200
+    assert res.json()["default_model_id"] == str(mid)
+    assert res.json()["theme"] == "dark"
+    assert res.json()["system_prompt"] == "p"
 
 
 def test_boolean_display_settings_roundtrip(client, auth_headers):
@@ -71,7 +83,6 @@ def test_boolean_display_settings_roundtrip(client, auth_headers):
     assert got["show_system_prompt"] is False
     assert got["show_tool_output"] is False
     assert got["show_reasoning"] is False
-    assert got["base"] == DEFAULTS["base"]
 
 
 def test_legacy_user_setting_keys_fall_back_to_default(client, auth_headers, app):
@@ -88,30 +99,6 @@ def test_legacy_user_setting_keys_fall_back_to_default(client, auth_headers, app
     got = client.get("/api/settings", headers=auth_headers).json()
     assert got["bubbles_checkable"] is False
     assert got["bubbles_deletable"] is False
-
-
-def test_host_port_compute_base_url(client, auth_headers):
-    res = client.put(
-        "/api/settings",
-        json={"host": "192.168.1.10", "port": "8000"},
-        headers=auth_headers,
-    )
-    assert res.status_code == 200
-    body = res.json()
-    assert body["base"] == "http://192.168.1.10:8000/v1"
-    assert body["host"] == "192.168.1.10"
-    assert body["port"] == "8000"
-    got = client.get("/api/settings", headers=auth_headers).json()
-    assert got["base"] == "http://192.168.1.10:8000/v1"
-
-
-def test_host_without_port_and_legacy_base_fallback(client, auth_headers):
-    res = client.put("/api/settings", json={"host": "llm.local"}, headers=auth_headers)
-    assert res.json()["base"] == "http://llm.local/v1"
-    # host leeren -> wieder gespeicherte base / Default
-    client.put("/api/settings", json={"host": "", "base": "http://legacy.test/v1"}, headers=auth_headers)
-    got = client.get("/api/settings", headers=auth_headers).json()
-    assert got["base"] == "http://legacy.test/v1"
 
 
 def test_system_prompt_roundtrip_and_clear(client, auth_headers):
@@ -142,79 +129,9 @@ def test_speech_mode_rejects_invalid_value(client, auth_headers):
 def test_settings_require_auth(client):
     assert client.get("/api/settings").status_code == 401
     assert client.put("/api/settings", json={}).status_code == 401
-    assert client.post("/api/settings/test", json={}).status_code == 401
-
-
-def _mock_llm_models(monkeypatch, handler):
-    def factory(**kwargs):
-        kwargs.pop("timeout", None)
-        return RealAsyncClient(transport=httpx.MockTransport(handler))
-
-    monkeypatch.setattr("app.services.llm.httpx.AsyncClient", factory)
-
-
-def test_connection_test_ok(client, auth_headers, monkeypatch):
-    seen = {}
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        seen["url"] = str(request.url)
-        seen["auth"] = request.headers.get("authorization")
-        return httpx.Response(200, json={"data": []})
-
-    _mock_llm_models(monkeypatch, handler)
-    res = client.post("/api/settings/test", json={}, headers=auth_headers)
-    assert res.status_code == 200
-    body = res.json()
-    assert body["ok"] is True
-    assert seen["url"] == "http://llm.test/v1/models"
-    assert seen["auth"] == "Bearer test-api-key"
-
-
-def test_connection_test_uses_body_overrides(client, auth_headers, monkeypatch):
-    seen = {}
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        seen["url"] = str(request.url)
-        seen["auth"] = request.headers.get("authorization")
-        return httpx.Response(200, json={"data": []})
-
-    _mock_llm_models(monkeypatch, handler)
-    res = client.post(
-        "/api/settings/test",
-        json={"base": "http://other.test/v1", "api_key": "sk-other"},
-        headers=auth_headers,
-    )
-    assert res.json()["ok"] is True
-    assert seen["url"] == "http://other.test/v1/models"
-    assert seen["auth"] == "Bearer sk-other"
-
-
-def test_connection_test_unreachable(client, auth_headers, monkeypatch):
-    def handler(request: httpx.Request) -> httpx.Response:
-        raise httpx.ConnectError("no route")
-
-    _mock_llm_models(monkeypatch, handler)
-    res = client.post("/api/settings/test", json={}, headers=auth_headers)
-    assert res.status_code == 200
-    assert res.json()["ok"] is False
-
-
-def test_connection_test_http_error_is_red(client, auth_headers, monkeypatch):
-    def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(401, json={"error": "bad key"})
-
-    _mock_llm_models(monkeypatch, handler)
-    res = client.post("/api/settings/test", json={}, headers=auth_headers)
-    assert res.json() == {"ok": False, "detail": "http://llm.test/v1/models -> HTTP 401"}
-
-
-def test_settings_out_uses_env_default_host_port(client, auth_headers, app):
-    app.state.config.default_llm_host = "10.9.8.7"
-    app.state.config.default_llm_port = "9999"
-    got = client.get("/api/settings", headers=auth_headers).json()
-    assert got["host"] == "10.9.8.7"
-    assert got["port"] == "9999"
-    assert got["base"] == "http://10.9.8.7:9999/v1"
+    assert client.get("/api/settings/models").status_code == 401
+    assert client.post("/api/settings/models", json={}).status_code == 401
+    assert client.post("/api/settings/models/test", json={}).status_code == 401
 
 
 def test_frontend_bool_setting_keys_match_backend():

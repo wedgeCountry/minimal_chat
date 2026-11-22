@@ -89,9 +89,15 @@ def test_settings_and_sessions_survive_app_restart(config):
     """Neue App-Instanz auf demselben Datenverzeichnis sieht alte Daten."""
     app1 = create_app(config=config)
     client1 = login_client(app1, "restart@example.com")
+    res = client1.post(
+        "/api/settings/models",
+        json={"host": "10.0.0.9", "port": "1234", "model": "gpt-restart"},
+    )
+    assert res.status_code == 201, res.text
+    mid = res.json()["id"]
     res = client1.put(
         "/api/settings",
-        json={"theme": "dark", "model": "gpt-restart", "system_prompt": "Bleib dran."},
+        json={"theme": "dark", "default_model_id": str(mid), "system_prompt": "Bleib dran."},
     )
     assert res.status_code == 200, res.text
     sid = _new_session(client1, {}, "Restart-Session")
@@ -108,8 +114,11 @@ def test_settings_and_sessions_survive_app_restart(config):
 
     settings = client2.get("/api/settings").json()
     assert settings["theme"] == "dark"
-    assert settings["model"] == "gpt-restart"
+    assert settings["default_model_id"] == str(mid)
     assert settings["system_prompt"] == "Bleib dran."
+    models = client2.get("/api/settings/models").json()
+    assert [m["model"] for m in models] == ["gpt-restart"]
+    assert models[0]["host"] == "10.0.0.9"
 
     sessions = client2.get("/api/sessions").json()
     assert [s["id"] for s in sessions] == [sid]

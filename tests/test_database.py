@@ -12,15 +12,21 @@ from app.db.database import (
     Database,
     q_add_message,
     q_create_session,
+    q_delete_llm_model,
     q_delete_session,
+    q_get_llm_model,
     q_get_messages,
     q_get_session,
     q_get_session_settings,
     q_get_user_settings,
+    q_insert_llm_model,
+    q_list_llm_models,
+    q_migrate_legacy_llm_settings,
     q_set_generating,
     q_set_session_setting,
     q_set_user_setting,
     q_try_start_generating,
+    q_update_llm_model,
     q_update_message,
 )
 
@@ -221,6 +227,52 @@ def test_session_settings_table_roundtrip_upsert_and_cascade(db):
         assert q_get_session_settings(con, s["id"]) == {}
 
 
+def test_llm_models_table_crud(db):
+    user = _make_user()
+    with db.user_db(user) as con:
+        assert q_list_llm_models(con) == []
+        m = q_insert_llm_model(con, {"provider": "Lokal", "host": "h", "port": "1", "base": "", "api_key": "sk", "model": "m"})
+        m2 = q_insert_llm_model(con, {"model": "m2"})
+        assert [x["id"] for x in q_list_llm_models(con)] == [m["id"], m2["id"]]
+        assert q_get_llm_model(con, m["id"])["api_key"] == "sk"
+        assert q_get_llm_model(con, 999) is None
+        updated = q_update_llm_model(con, m["id"], {"model": "m-neu", "host": ""})
+        assert updated is not None and updated["model"] == "m-neu" and updated["host"] == ""
+        assert q_update_llm_model(con, 999, {"model": "x"}) is None
+        q_delete_llm_model(con, m["id"])
+        assert [x["id"] for x in q_list_llm_models(con)] == [m2["id"]]
+
+
+def test_migrate_legacy_llm_settings_into_tile(db):
+    user = _make_user()
+    with db.user_db(user) as con:
+        q_set_user_setting(con, "host", "10.1.2.3")
+        q_set_user_setting(con, "port", "8000")
+        q_set_user_setting(con, "model", "legacy")
+        q_set_user_setting(con, "api_key", "sk-legacy")
+        q_set_user_setting(con, "theme", "dark")
+        q_migrate_legacy_llm_settings(con)
+        models = q_list_llm_models(con)
+        assert len(models) == 1
+        assert models[0]["host"] == "10.1.2.3" and models[0]["model"] == "legacy" and models[0]["api_key"] == "sk-legacy"
+        stored = q_get_user_settings(con)
+        assert stored["default_model_id"] == str(models[0]["id"])
+        assert stored["theme"] == "dark"
+        for key in ("base", "host", "port", "model", "api_key"):
+            assert key not in stored
+        # idempotent: zweite Migration legt kein weiteres Tile an
+        q_migrate_legacy_llm_settings(con)
+        assert len(q_list_llm_models(con)) == 1
+
+
+def test_migrate_legacy_llm_settings_without_legacy_keys_is_noop(db):
+    user = _make_user()
+    with db.user_db(user) as con:
+        q_migrate_legacy_llm_settings(con)
+        assert q_list_llm_models(con) == []
+        assert "default_model_id" not in q_get_user_settings(con)
+
+
 def test_schema_file_exists():
     assert Path(SCHEMA_PATH).exists()
     content = Path(SCHEMA_PATH).read_text()
@@ -228,3 +280,4 @@ def test_schema_file_exists():
     assert "CREATE TABLE IF NOT EXISTS messages" in content
     assert "CREATE TABLE IF NOT EXISTS user_settings" in content
     assert "CREATE TABLE IF NOT EXISTS session_settings" in content
+    assert "CREATE TABLE IF NOT EXISTS llm_models" in content

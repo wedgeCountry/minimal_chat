@@ -1,0 +1,20 @@
+<div id="modelOverlay" class="overlay" data-testid="model-overlay">
+  <div class="modal" data-testid="model-modal">
+    <h2 id="modelTitle" data-testid="model-title">Neues Modell</h2>
+    <div class="field" data-testid="field-model-provider"><label data-testid="label-model-provider">Anbieter (optional)</label><input id="modelProvider" data-testid="model-provider" placeholder="z. B. Ollama lokal" /></div>
+    <div class="field" data-testid="field-model-host"><label data-testid="label-model-host">LLM IP/Host</label><input id="modelHost" data-testid="model-host" placeholder="192.168.1.10" /></div>
+    <div class="field" data-testid="field-model-port"><label data-testid="label-model-port">Port</label><input id="modelPort" data-testid="model-port" type="number" min="1" max="65535" placeholder="8000" /></div>
+    <div class="field" data-testid="field-model-base"><label data-testid="label-model-base">Base-URL (berechnet)</label><input id="modelBase" data-testid="model-base" readonly /></div>
+    <div class="row connRow" data-testid="model-conn-test-row">
+      <button class="btn" id="modelTestConn" data-testid="model-test-conn" type="button">Verbindung testen</button>
+      <span id="modelConnStatus" class="connStatus" data-testid="model-conn-status"></span>
+    </div>
+    <div class="field" data-testid="field-model-key"><label data-testid="label-model-key">API-Schl&uuml;ssel (serverseitig gespeichert)</label><input id="modelKey" data-testid="model-key" type="password" placeholder="sk-&hellip; (optional, &uuml;berschreibt Server-Key)" /></div>
+    <div class="field" data-testid="field-model-model"><label data-testid="label-model-model">Modell</label><input id="modelModel" data-testid="model-model" placeholder="gpt-4o-mini" /></div>
+    <div class="row" data-testid="model-actions">
+      <button class="btn danger" id="modelDelete" data-testid="model-delete" type="button" hidden>L&ouml;schen</button>
+      <button class="btn" id="modelCancel" data-testid="model-cancel" type="button">Abbrechen</button>
+      <button class="btn primary" id="modelSave" data-testid="model-save" type="button">Speichern</button>
+    </div>
+  </div>
+</div>

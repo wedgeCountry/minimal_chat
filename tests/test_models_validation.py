@@ -38,15 +38,16 @@ def test_settings_reject_invalid_theme(client, auth_headers):
 
 
 def test_chat_rejects_missing_fields(client, auth_headers):
-    assert client.post("/api/chat", json={"session_id": "x"}, headers=auth_headers).status_code == 422
-    assert client.post("/api/chat", json={"model": "m", "messages": []}, headers=auth_headers).status_code == 422
+    # nur session_id ist Pflicht; Modell/Verbindung kommen serverseitig aus dem Tile
+    assert client.post("/api/chat", json={}, headers=auth_headers).status_code == 422
+    assert client.post("/api/chat", json={"session_id": "x" * 65}, headers=auth_headers).status_code == 422
 
 
 def test_chat_message_requires_role_and_content(client, auth_headers):
     sid = _new_session(client, auth_headers)
     res = client.post(
         "/api/chat",
-        json={"session_id": sid, "model": "m", "messages": [{"role": "user"}]},
+        json={"session_id": sid, "messages": [{"role": "user"}]},
         headers=auth_headers,
     )
     assert res.status_code == 422

@@ -531,8 +531,9 @@ async function triggerGeneration(s) {
   renderChat(viewMessages()); // lokal gepflegte History (send/resubmit) direkt rendern
   scrollChatToBottom(); // nach dem Absenden direkt zur neuen Nachricht/Antwort springen
   try {
-    // Chat-History baut der Server aus der Session-DB (gueltiges LLM-Format inkl. Tool-Calls)
-    await api.post("/chat", { session_id: s.id, model: state.settings.model });
+    // Chat-History baut der Server aus der Session-DB (gueltiges LLM-Format inkl. Tool-Calls);
+    // Modell/Verbindung kommen serverseitig aus dem Session-/Standard-Tile
+    await api.post("/chat", { session_id: s.id });
   } catch (err) {
     if (err.status === 409) {
       // Es laeuft bereits eine Generierung (z. B. Doppel-POST): kein Fehler persistieren,
