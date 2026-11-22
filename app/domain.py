@@ -56,11 +56,35 @@ class Attachment(BaseModel):
     content: str = ""
 
 
+class LlmModel(BaseModel):
+    """Ein LLM-Modell-Tile: Verbindungsdaten fuer einen Provider/Modell-Setup.
+
+    ``api_key`` ist ein Secret und darf nie in eine API-Antwort (LlmModelOut) gelangen.
+    """
+
+    id: int
+    provider: str = ""
+    host: str = ""
+    port: str = ""
+    base: str = ""
+    api_key: str = ""
+    model: str = ""
+
+
+class LlmConnection(BaseModel):
+    """Effektive LLM-Verbindung fuer einen Chat-Request (aus gewaehltem Tile oder Server-Defaults)."""
+
+    base_url: str
+    api_key: str
+    model: str
+
+
 class ChatContext(BaseModel):
     """Alles, was ein Chat-Request aus der per-user DB braucht (in einem DB-Oeffnen geladen)."""
 
     session: Session
     user_settings: dict[str, str]
     session_settings: dict[str, str]
+    llm_models: list[LlmModel]
     attachments: dict[int, Attachment]
     messages: list[Message]

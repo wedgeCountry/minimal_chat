@@ -7,6 +7,7 @@ import { abortStream, initBubbleMenu, pollOnce, renderChatView, renderHeader, se
 import { isToolbarMinimal } from "./visibility.js";
 import { addAttachments } from "./attachments.js";
 import { initSettings, loadSettings, openSettings } from "./settings.js";
+import { initModels, loadModels } from "./models.js";
 import { initSessionSettings, pickSessionSettings } from "./sessionSettings.js";
 import { initConfirm } from "./confirm.js";
 import { controlsVisible, refreshSpeechAvailability } from "./ttsDetectionService.js";
@@ -70,6 +71,7 @@ function renderAll() {
 
 async function bootstrap() {
   initSettings();
+  initModels();
   if (window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches)
     document.documentElement.classList.add("dark");
   
@@ -97,6 +99,7 @@ async function bootstrap() {
     return;
   }
   await loadSettings();
+  await loadModels();
   await refreshSpeechAvailability();
   try {
     const meta = await api.get("/meta");

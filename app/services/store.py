@@ -21,8 +21,8 @@ from typing import Any, Protocol, TypeVar, runtime_checkable
 
 from ..db import database as dbq
 from ..db.database import Database
-from ..domain import Attachment, AttachmentRef, ChatContext, Message, Session
-from ..types import AttachmentRow, MessageInput, MessageRow, SessionRow, UserIdentity
+from ..domain import Attachment, AttachmentRef, ChatContext, LlmModel, Message, Session
+from ..types import AttachmentRow, LlmModelRow, MessageInput, MessageRow, SessionRow, UserIdentity
 
 T = TypeVar("T")
 
@@ -34,6 +34,10 @@ class SessionNotFound(Exception):
 
 
 class MessageNotFound(Exception):
+    pass
+
+
+class LlmModelNotFound(Exception):
     pass
 
 
@@ -76,6 +80,18 @@ def _to_message(row: MessageRow) -> Message:
     )
 
 
+def _to_llm_model(row: LlmModelRow) -> LlmModel:
+    return LlmModel(
+        id=row["id"],
+        provider=row["provider"],
+        host=row["host"],
+        port=row["port"],
+        base=row["base"],
+        api_key=row["api_key"],
+        model=row["model"],
+    )
+
+
 def _to_attachment(row: AttachmentRow) -> Attachment:
     return Attachment(
         id=row["id"],
@@ -111,6 +127,11 @@ class UserStoreProtocol(Protocol):
     async def update_user_settings(self, user: UserIdentity, values: Mapping[str, str]) -> dict[str, str]: ...
     async def get_session_settings(self, user: UserIdentity, sid: str) -> dict[str, str]: ...
     async def update_session_settings(self, user: UserIdentity, sid: str, values: Mapping[str, str]) -> dict[str, str]: ...
+    async def list_llm_models(self, user: UserIdentity) -> list[LlmModel]: ...
+    async def get_llm_model(self, user: UserIdentity, model_id: int) -> LlmModel | None: ...
+    async def create_llm_model(self, user: UserIdentity, values: Mapping[str, str]) -> LlmModel: ...
+    async def update_llm_model(self, user: UserIdentity, model_id: int, values: Mapping[str, str]) -> LlmModel | None: ...
+    async def delete_llm_model(self, user: UserIdentity, model_id: int) -> bool: ...
     async def try_start_generating(self, user: UserIdentity, sid: str) -> str: ...
     async def set_generating(self, user: UserIdentity, sid: str, on: bool) -> None: ...
     async def clear_generating_if_idle(self, user: UserIdentity, sid: str, running: bool) -> None: ...
@@ -301,6 +322,40 @@ class SqliteUserStore(UserStoreProtocol):
 
         return await self._run(user, _do)
 
+    # --- LLM Models ---
+
+    async def list_llm_models(self, user: UserIdentity) -> list[LlmModel]:
+        return await self._run(user, lambda con: [_to_llm_model(r) for r in dbq.q_list_llm_models(con)])
+
+    async def get_llm_model(self, user: UserIdentity, model_id: int) -> LlmModel | None:
+        return await self._run(user, lambda con: (lambda r: _to_llm_model(r) if r else None)(dbq.q_get_llm_model(con, model_id)))
+
+    async def create_llm_model(self, user: UserIdentity, values: Mapping[str, str]) -> LlmModel:
+        def _do(con: sqlite3.Connection) -> LlmModel:
+            row = dbq.q_insert_llm_model(con, values)
+            # Das erste Tile wird automatisch zum Standard (default_model_id)
+            if not dbq.q_get_user_settings(con).get("default_model_id"):
+                dbq.q_set_user_setting(con, "default_model_id", str(row["id"]))
+            return _to_llm_model(row)
+
+        return await self._run(user, _do)
+
+    async def update_llm_model(self, user: UserIdentity, model_id: int, values: Mapping[str, str]) -> LlmModel | None:
+        return await self._run(user, lambda con: (lambda r: _to_llm_model(r) if r else None)(dbq.q_update_llm_model(con, model_id, values)))
+
+    async def delete_llm_model(self, user: UserIdentity, model_id: int) -> bool:
+        def _do(con: sqlite3.Connection) -> bool:
+            if not dbq.q_get_llm_model(con, model_id):
+                return False
+            dbq.q_delete_llm_model(con, model_id)
+            # default_model_id darf nicht auf ein geloeschtes Tile zeigen
+            if dbq.q_get_user_settings(con).get("default_model_id") == str(model_id):
+                remaining = dbq.q_list_llm_models(con)
+                dbq.q_set_user_setting(con, "default_model_id", str(remaining[0]["id"]) if remaining else "")
+            return True
+
+        return await self._run(user, _do)
+
     # --- Generierungs-Status ---
 
     async def try_start_generating(self, user: UserIdentity, sid: str) -> str:
@@ -330,6 +385,7 @@ class SqliteUserStore(UserStoreProtocol):
                 session=_to_session(row),
                 user_settings=dbq.q_get_user_settings(con),
                 session_settings=dbq.q_get_session_settings(con, sid),
+                llm_models=[_to_llm_model(r) for r in dbq.q_list_llm_models(con)],
                 attachments={a["id"]: _to_attachment(a) for a in dbq.q_get_session_attachments(con, sid)},
                 messages=[_to_message(r) for r in dbq.q_get_messages(con, sid)],
             )

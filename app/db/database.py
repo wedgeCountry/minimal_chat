@@ -6,7 +6,7 @@ Zwei Daten:
   aller User; wird von der externen ``user_registry``-Bibliothek verwaltet
   (siehe app/auth.py) und liegt bewusst getrennt von den App-Daten.
 - **Pro-User-Datenbank** (``<data_dir>/users/<uid>.db.enc``): Sessions,
-  Messages, ``user_settings`` und ``session_settings`` (Schema: ``schema.sql``), verschluesselt
+  Messages, ``user_settings``, ``session_settings`` und ``llm_models`` (Schema: ``schema.sql``), verschluesselt
   mit einem Schluessel, der aus dem Server-Secret und der E-Mail abgeleitet
   wird (``app/auth.py:user_identity``) - es gibt keine lokale User-Tabelle.
 
@@ -28,7 +28,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
-from ..types import AttachmentRow, MessageRow, SessionRow, UserIdentity
+from ..types import AttachmentRow, LlmModelRow, MessageRow, SessionRow, UserIdentity
 from . import crypto
 
 SCHEMA_PATH = Path(__file__).with_name("schema.sql")
@@ -66,6 +66,18 @@ def _row_to_message(row: sqlite3.Row) -> MessageRow:
 
 def _row_to_session(row: sqlite3.Row) -> SessionRow:
     return {"id": row["id"], "name": row["name"], "ts": row["ts"], "generating": bool(row["generating"])}
+
+
+def _row_to_llm_model(row: sqlite3.Row) -> LlmModelRow:
+    return {
+        "id": row["id"],
+        "provider": row["provider"],
+        "host": row["host"],
+        "port": row["port"],
+        "base": row["base"],
+        "api_key": row["api_key"],
+        "model": row["model"],
+    }
 
 
 class Database:
@@ -144,6 +156,7 @@ class Database:
                         raise last_error or ValueError("Entschluesselung fehlgeschlagen")
                     con.deserialize(plain)
                 con.executescript(_SCHEMA_SQL)
+                q_migrate_legacy_llm_settings(con)
                 # Migration fuer bestehende DBs: generating-Spalte nachziehen
                 cols = {r[1] for r in con.execute("PRAGMA table_info(sessions)").fetchall()}
                 if "generating" not in cols:
@@ -356,3 +369,63 @@ def q_set_session_setting(con: sqlite3.Connection, sid: str, key: str, value: st
         "ON CONFLICT(session_id, key) DO UPDATE SET value = excluded.value",
         (sid, key, value),
     )
+
+
+# --- LLM Models ---
+
+
+def q_list_llm_models(con: sqlite3.Connection) -> list[LlmModelRow]:
+    rows = con.execute("SELECT * FROM llm_models ORDER BY id ASC").fetchall()
+    return [_row_to_llm_model(r) for r in rows]
+
+
+def q_get_llm_model(con: sqlite3.Connection, model_id: int) -> LlmModelRow | None:
+    row = con.execute("SELECT * FROM llm_models WHERE id = ?", (model_id,)).fetchone()
+    return _row_to_llm_model(row) if row else None
+
+
+def q_insert_llm_model(con: sqlite3.Connection, values: Mapping[str, str]) -> LlmModelRow:
+    cols = ("provider", "host", "port", "base", "api_key", "model")
+    con.execute(
+        f"INSERT INTO llm_models ({', '.join(cols)}) VALUES ({', '.join('?' * len(cols))})",
+        tuple(values.get(c, "") for c in cols),
+    )
+    row = con.execute("SELECT * FROM llm_models WHERE id = last_insert_rowid()").fetchone()
+    assert row is not None
+    return _row_to_llm_model(row)
+
+
+def q_update_llm_model(con: sqlite3.Connection, model_id: int, values: Mapping[str, str]) -> LlmModelRow | None:
+    if not q_get_llm_model(con, model_id):
+        return None
+    cols = ("provider", "host", "port", "base", "api_key", "model")
+    set_cols = [c for c in cols if c in values]
+    if set_cols:
+        con.execute(
+            f"UPDATE llm_models SET {', '.join(c + ' = ?' for c in set_cols)} WHERE id = ?",
+            tuple(values[c] for c in set_cols) + (model_id,),
+        )
+    return q_get_llm_model(con, model_id)
+
+
+def q_delete_llm_model(con: sqlite3.Connection, model_id: int) -> None:
+    con.execute("DELETE FROM llm_models WHERE id = ?", (model_id,))
+
+
+# Alte flache LLM-Settings (user_settings-Keys), die die Migration in ein Tile uebernimmt
+LEGACY_LLM_SETTING_KEYS: tuple[str, ...] = ("base", "host", "port", "model", "api_key")
+
+
+def q_migrate_legacy_llm_settings(con: sqlite3.Connection) -> None:
+    """Einmalige Migration: flache LLM-Settings (base/host/port/model/api_key) werden in
+    ein llm_models-Tile uebernommen, als default_model_id gesetzt und anschliessend entfernt -
+    danach ist die Tile-Tabelle die einzige Quelle fuer LLM-Verbindungsdaten."""
+    if con.execute("SELECT COUNT(*) FROM llm_models").fetchone()[0]:
+        return
+    stored = q_get_user_settings(con)
+    if not any(stored.get(k) for k in LEGACY_LLM_SETTING_KEYS):
+        return
+    row = q_insert_llm_model(con, {k: stored.get(k, "") for k in ("host", "port", "base", "api_key", "model")})
+    q_set_user_setting(con, "default_model_id", str(row["id"]))
+    for key in LEGACY_LLM_SETTING_KEYS:
+        con.execute("DELETE FROM user_settings WHERE key = ?", (key,))

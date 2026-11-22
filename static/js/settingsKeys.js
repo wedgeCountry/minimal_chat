@@ -28,4 +28,4 @@ export function defaultBoolSettings() {
 }
 
 // Single Source of Truth fuer Session-Settings; muss zu SESSION_SETTING_KEYS (app/services/settings.py) passen.
-export const SESSION_SETTING_KEYS = ["system_prompt"];
+export const SESSION_SETTING_KEYS = ["system_prompt", "model_id"];

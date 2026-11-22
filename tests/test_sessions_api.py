@@ -239,14 +239,14 @@ def test_session_settings_default_roundtrip_and_clear(client, auth_headers):
     s = _create_session(client, auth_headers)
     res = client.get(f"/api/sessions/{s['id']}/settings", headers=auth_headers)
     assert res.status_code == 200
-    assert res.json() == {"session_id": s["id"], "system_prompt": ""}
+    assert res.json() == {"session_id": s["id"], "system_prompt": "", "model_id": ""}
     # Session-Detail traegt die Settings mit (ein DB-Oeffnen, kein Extra-Request)
     detail = client.get(f"/api/sessions/{s['id']}", headers=auth_headers).json()
-    assert detail["settings"] == {"session_id": s["id"], "system_prompt": ""}
+    assert detail["settings"] == {"session_id": s["id"], "system_prompt": "", "model_id": ""}
 
     res = client.put(f"/api/sessions/{s['id']}/settings", json={"system_prompt": "Sei knapp."}, headers=auth_headers)
     assert res.status_code == 200, res.text
-    assert res.json() == {"session_id": s["id"], "system_prompt": "Sei knapp."}
+    assert res.json() == {"session_id": s["id"], "system_prompt": "Sei knapp.", "model_id": ""}
     got = client.get(f"/api/sessions/{s['id']}/settings", headers=auth_headers).json()
     assert got["system_prompt"] == "Sei knapp."
     detail = client.get(f"/api/sessions/{s['id']}", headers=auth_headers).json()
@@ -255,6 +255,27 @@ def test_session_settings_default_roundtrip_and_clear(client, auth_headers):
     # Leerer String loescht den Session-Prompt wieder
     client.put(f"/api/sessions/{s['id']}/settings", json={"system_prompt": ""}, headers=auth_headers)
     assert client.get(f"/api/sessions/{s['id']}/settings", headers=auth_headers).json()["system_prompt"] == ""
+
+
+def test_session_settings_model_id_roundtrip_and_validation(client, auth_headers):
+    """model_id (Session-Override des Standard-Tiles) rundet sich und wird validiert."""
+    s = _create_session(client, auth_headers)
+    res = client.post("/api/settings/models", json={"host": "192.168.1.10", "model": "gpt-x"}, headers=auth_headers)
+    assert res.status_code == 201, res.text
+    mid = res.json()["id"]
+
+    res = client.put(f"/api/sessions/{s['id']}/settings", json={"model_id": str(mid)}, headers=auth_headers)
+    assert res.status_code == 200, res.text
+    assert res.json()["model_id"] == str(mid)
+    assert client.get(f"/api/sessions/{s['id']}/settings", headers=auth_headers).json()["model_id"] == str(mid)
+    detail = client.get(f"/api/sessions/{s['id']}", headers=auth_headers).json()
+    assert detail["settings"]["model_id"] == str(mid)
+
+    # unbekanntes/nicht-numerisches Tile -> 422, leerer String loescht (Zurueck auf Standard)
+    assert client.put(f"/api/sessions/{s['id']}/settings", json={"model_id": "999"}, headers=auth_headers).status_code == 422
+    assert client.put(f"/api/sessions/{s['id']}/settings", json={"model_id": "abc"}, headers=auth_headers).status_code == 422
+    client.put(f"/api/sessions/{s['id']}/settings", json={"model_id": ""}, headers=auth_headers)
+    assert client.get(f"/api/sessions/{s['id']}/settings", headers=auth_headers).json()["model_id"] == ""
 
 
 def test_session_settings_404_and_require_auth(client, app, auth_headers):

@@ -4,6 +4,7 @@ import { $ } from "./util.js";
 import { applyTheme } from "./theme.js";
 import { BOOL_SETTING_KEYS } from "./settingsKeys.js";
 import { SPEECH_MODES, statusLabel, refreshSpeechAvailability } from "./ttsDetectionService.js";
+import { renderModelTiles } from "./models.js";
 
 const CHECK_IDS = {
   bubbles_deletable: "setDeletableAll",
@@ -16,13 +17,6 @@ const CHECK_IDS = {
   show_file_button: "setShowFile",
   show_image_button: "setShowImage",
 };
-
-export function buildBaseUrl(host, port) {
-  const h = (host || "").trim();
-  if (!h) return "";
-  const p = (port || "").trim();
-  return `http://${h}${p ? ":" + p : ""}/v1`;
-}
 
 export async function loadSettings() {
   state.settings = { ...state.settings, ...(await api.get("/settings")) };
@@ -75,53 +69,17 @@ export function initSettings() {
   document.querySelectorAll('input[name="speechMode"]').forEach((r) => {
     r.addEventListener("change", () => updateSpeechStatus());
   });
-  $("setTestConn").onclick = async () => {
-    const btn = $("setTestConn");
-    const status = $("connStatus");
-    btn.disabled = true;
-    status.textContent = "Teste Verbindung…";
-    status.className = "connStatus";
-    try {
-      const res = await api.post("/settings/test", {
-        base: $("setBase").value.trim(),
-        api_key: $("setKey").value.trim() || undefined,
-      });
-      if (res.ok) {
-        status.textContent = "Erreichbar ✓ ";
-        status.classList.add("ok");
-      } else {
-        status.textContent = "Nicht erreichbar: " + (res.detail || "unbekannter Fehler");
-        status.classList.add("err");
-      }
-    } catch (err) {
-      status.textContent = "Nicht erreichbar: " + err.message;
-      status.classList.add("err");
-    } finally {
-      btn.disabled = false;
-    }
-  };
   $("overlay").addEventListener("click", (e) => {
     if (e.target === $("overlay")) closeSettings();
   });
-  const updateBasePreview = () => {
-    $("setBase").value = buildBaseUrl($("setHost").value, $("setPort").value);
-  };
-  $("setHost").addEventListener("input", updateBasePreview);
-  $("setPort").addEventListener("input", updateBasePreview);
   $("setSave").onclick = async () => {
     const body = {
-      base: $("setBase").value.trim(),
-      host: $("setHost").value.trim(),
-      port: $("setPort").value.trim(),
-      model: $("setModel").value.trim(),
       system_prompt: $("setSystemPrompt").value,
       theme: $("setTheme").value,
       speech_mode: selectedSpeechMode(),
     };
     for (const key of BOOL_SETTING_KEYS) body[key] = $(CHECK_IDS[key]).checked;
-    if ($("setKey").value.trim()) body.api_key = $("setKey").value.trim();
     state.settings = { ...state.settings, ...(await api.put("/settings", body)) };
-    $("setKey").value = "";
     await refreshSpeechAvailability();
     applyTheme();
     $("overlay").classList.remove("open");
@@ -132,14 +90,10 @@ export function initSettings() {
 export function openSettings(tab = "general") {
   $("settingsGeneral").hidden = tab !== "general";
   $("settingsLlm").hidden = tab !== "llm";
+  // Speichern/Abbrechen gelten nur fuer den Allgemein-Tab; der LLM-Tab arbeitet mit Tiles + eigenem Modal
+  $("settingsActions").hidden = tab !== "general";
   $("settings-title").textContent = tab === "llm" ? "LLM-Einstellungen" : "Einstellungen";
-  $("setHost").value = state.settings.host || "";
-  $("setPort").value = state.settings.port || "";
-  $("setBase").value = state.settings.host
-    ? buildBaseUrl(state.settings.host, state.settings.port)
-    : state.settings.base;
-  $("setKey").value = "";
-  $("setModel").value = state.settings.model;
+  if (tab === "llm") renderModelTiles();
   $("setSystemPrompt").value = state.settings.system_prompt || "";
   $("setTheme").value = state.settings.theme;
   for (const key of BOOL_SETTING_KEYS) $(CHECK_IDS[key]).checked = state.settings[key] !== false;

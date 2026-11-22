@@ -66,15 +66,22 @@ def _post_user_message(client, auth_headers, sid: str, text="Hi") -> None:
 
 
 def _start_chat(client, auth_headers, sid: str, messages=None) -> httpx.Response:
+    # Modell/Verbindung kommen serverseitig aus dem gewaehlten llm_models-Tile
     return client.post(
         "/api/chat",
         json={
             "session_id": sid,
-            "model": "gpt-4o-mini",
             "messages": messages if messages is not None else [{"role": "user", "content": "Hi"}],
         },
         headers=auth_headers,
     )
+
+
+def _create_model(client, auth_headers, **fields) -> dict:
+    body = {"host": "192.168.1.10", "port": "8000", "model": "gpt-x", **fields}
+    res = client.post("/api/settings/models", json=body, headers=auth_headers)
+    assert res.status_code == 201, res.text
+    return res.json()
 
 
 def _wait_generation(client, auth_headers, sid: str, timeout: float = 10.0) -> dict:
@@ -417,19 +424,57 @@ def test_chat_filters_system_prompt_from_request_server_side(client, auth_header
     assert seen["body"]["messages"] == [{"role": "user", "content": "Hi"}]
 
 
-def test_chat_uses_per_user_settings_and_key(client, auth_headers, monkeypatch):
+def test_chat_uses_default_model_tile_and_key(client, auth_headers, monkeypatch):
+    """Ohne Session-Override gewinnt das Standard-Tile (default_model_id) inkl. api_key."""
     seen = _mock_llm(monkeypatch)
-    client.put(
-        "/api/settings",
-        json={"base": "http://per-user.test/v1", "api_key": "sk-user"},
-        headers=auth_headers,
-    )
+    # ohne host/port gewinnt die gespeicherte base des Tiles
+    _create_model(client, auth_headers, host="", port="", base="http://per-user.test/v1", api_key="sk-user", model="tile-model")
     sid = _new_session(client, auth_headers)
     _post_user_message(client, auth_headers, sid)
     assert _start_chat(client, auth_headers, sid).status_code == 202
     _wait_generation(client, auth_headers, sid)
     assert seen["url"] == "http://per-user.test/v1/chat/completions"
     assert seen["auth"] == "Bearer sk-user"
+    assert seen["body"]["model"] == "tile-model"
+
+
+def test_chat_session_model_overrides_default(client, auth_headers, monkeypatch):
+    """Session-model_id gewinnt gegen default_model_id (resolve_llm_connection)."""
+    seen = _mock_llm(monkeypatch)
+    default_tile = _create_model(client, auth_headers, host="default.test", model="default-model")
+    session_tile = _create_model(client, auth_headers, host="session.test", model="session-model", api_key="sk-session")
+    sid = _new_session(client, auth_headers)
+    res = client.put(
+        f"/api/sessions/{sid}/settings", json={"model_id": str(session_tile["id"])}, headers=auth_headers
+    )
+    assert res.status_code == 200, res.text
+    _post_user_message(client, auth_headers, sid)
+    assert _start_chat(client, auth_headers, sid).status_code == 202
+    _wait_generation(client, auth_headers, sid)
+    assert seen["url"] == "http://session.test:8000/v1/chat/completions"
+    assert seen["auth"] == "Bearer sk-session"
+    assert seen["body"]["model"] == "session-model"
+    # default_model_id bleibt unberuehrt
+    assert client.get("/api/settings", headers=auth_headers).json()["default_model_id"] == str(default_tile["id"])
+
+
+def test_chat_dangling_session_model_falls_back_to_default(client, auth_headers, monkeypatch):
+    """Zeigt session model_id auf ein inzwischen geloeschtes Tile, gewinnt default_model_id."""
+    seen = _mock_llm(monkeypatch)
+    default_tile = _create_model(client, auth_headers, host="default.test", model="default-model")
+    gone_tile = _create_model(client, auth_headers, host="gone.test", model="gone-model")
+    sid = _new_session(client, auth_headers)
+    res = client.put(
+        f"/api/sessions/{sid}/settings", json={"model_id": str(gone_tile["id"])}, headers=auth_headers
+    )
+    assert res.status_code == 200, res.text
+    assert client.delete(f"/api/settings/models/{gone_tile['id']}", headers=auth_headers).status_code == 204
+    _post_user_message(client, auth_headers, sid)
+    assert _start_chat(client, auth_headers, sid).status_code == 202
+    _wait_generation(client, auth_headers, sid)
+    assert seen["url"] == "http://default.test:8000/v1/chat/completions"
+    assert seen["body"]["model"] == "default-model"
+    assert default_tile["id"] is not None
 
 
 def test_chat_upstream_error_persisted_as_system_message(client, auth_headers, monkeypatch):
@@ -591,9 +636,9 @@ def test_chat_no_session_prompt_uses_global(client, auth_headers, monkeypatch):
 
 
 def test_chat_uses_host_port_computed_base_url(client, auth_headers, monkeypatch):
-    """Regression: host/port settings must drive the chat URL (single source of truth)."""
+    """Regression: host/port des Tiles bestimmen die Chat-URL (single source of truth)."""
     seen = _mock_llm(monkeypatch)
-    client.put("/api/settings", json={"host": "192.168.1.10", "port": "8000"}, headers=auth_headers)
+    _create_model(client, auth_headers, host="192.168.1.10", port="8000")
     sid = _new_session(client, auth_headers)
     _post_user_message(client, auth_headers, sid)
     assert _start_chat(client, auth_headers, sid).status_code == 202

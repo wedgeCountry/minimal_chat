@@ -17,10 +17,10 @@ app/                  FastAPI backend (uvicorn)
   models.py           Pydantic-API-Models (Request/Response), abgeleitet von domain.py
   deps.py             FastAPI-Dependencies (Auth via signiertem Session-Cookie)
   db/
-    schema.sql        SQL-Schema der pro-User-DB (eigene Datei, inkl. user_settings und session_settings)
+    schema.sql        SQL-Schema der pro-User-DB (eigene Datei, inkl. user_settings, session_settings und llm_models)
     crypto.py         Fernet-Ver-/Entschluesselung
     database.py       Low-Level-Persistenz: verschluesselte per-user SQLite-Dateien (einzige Stelle mit SQLite/Crypto)
-  routers/            auth.py, sessions.py, settings.py, chat.py (serverseitige Generierung)
+  routers/            auth.py, sessions.py, settings.py, models.py (LLM-Modell-Tiles), chat.py (serverseitige Generierung)
   services/chat.py    MessageService: Single Write Funnel — haelt pro heisser Session das volle In-Memory-Message-Memory,
                       SSE-Live-Stream an den Client (GET /api/chat/stream/{sid}), persistiert write-through ueber den Store
   services/store.py   UserStoreProtocol (Persistenz-Gateway): einziger DB-Zugriff fuer Router/Service
@@ -35,12 +35,12 @@ app/                  FastAPI backend (uvicorn)
 static/               Frontend (statisch, ohne Build-Schritt)
   index.html          schlanke Shell mit Partial-Platzhaltern
   partials/           eigene HTML-Dateien: side-panel, chat-window,
-                      settings-overlay, session-settings-overlay (werden per js/html.js geladen)
+                      settings-overlay, model-overlay, session-settings-overlay (werden per js/html.js geladen)
   css/                base.css, components.css, bubbles.css (variables-gesteuertes
                       Bubble-Styling: Rolle + collapsed/expanded/compact/selected),
                       responsive.css
   js/                 ES-Module: main, html, api, auth, state, sessions, chat,
-                      bubbles, attachments, settings, sessionSettings, theme, payload, util, icons
+                      bubbles, attachments, settings, models, sessionSettings, theme, payload, util, icons
 tests/
   test_*.py           Python-Unit-Tests (pytest + httpx TestClient)
   js/*.test.js        JS-Unit-Tests (node:test, ohne npm-Abhaengigkeiten)
@@ -49,7 +49,7 @@ tests/
 
 ## Data storage
 
-- Pro User genau eine **verschluesselte SQLite-Datei** (`data/users/<uid>.db.enc`, Fernet) mit Sessions, Messages, der Tabelle **`user_settings`** (globale serverseitige Einstellungen) und der Tabelle **`session_settings`** (Einstellungen pro Session).
+- Pro User genau eine **verschluesselte SQLite-Datei** (`data/users/<uid>.db.enc`, Fernet) mit Sessions, Messages, der Tabelle **`user_settings`** (globale serverseitige Einstellungen inkl. `default_model_id`), der Tabelle **`session_settings`** (Einstellungen pro Session inkl. `model_id`) und der Tabelle **`llm_models`** (LLM-Modell-Tiles mit Verbindungsdaten; `api_key` ist ein Secret und wird nie per API ausgeliefert). Alte flache LLM-Keys (`base`/`host`/`port`/`model`/`api_key`) werden beim Oeffnen der DB einmalig in ein Tile migriert (`q_migrate_legacy_llm_settings`).
 - uid und Verschluesselungsschluessel der per-user DB werden aus dem **Server-Secret und der E-Mail** abgeleitet (`user_identity` in `app/auth.py`) — es gibt keine lokale User-Tabelle.
 - **Login/Registrierung** laufen ueber die Bibliothek [`user_registry`](docs/user_registry_implementation_guidelines.md) (vendored Wheel in `vendors/`, Argon2id-Passwort-Hashing, Passwort-Policy, AGB-Akzeptanz): Credentials liegen in der eigenen Registry-DB (`data/user_registry.db`), Sessions sind itsdangerous-signierte `auth_session`-Cookies, und unter `/auth` stehen professionelle Seiten (Login, Registrieren, Passwort aendern/loeschen, AGB, Impressum). Die Zuordnung zu den per-user App-Daten erfolgt credential-frei per E-Mail.
 - Das SQL-Schema der pro-User-DB liegt in [`app/db/schema.sql`](app/db/schema.sql); Low-Level-Zugriff (SQLite/Crypto) nur in [`app/db/database.py`](app/db/database.py), alle Aufrufe darueber laufen ueber das Repository [`app/services/store.py`](app/services/store.py).
@@ -58,13 +58,14 @@ tests/
 
 - **Auth** – Registrieren/Anmelden per user_registry (signiertes Session-Cookie), Logout; Daten sind pro User getrennt
 - **Sessions** – Side-Panel mit chronologisch sortierten Tiles; anlegen, inline umbenennen, löschen
-- **Session-Einstellungen** – Zahnrad-Button oben links im Chat-Panel öffnet ein Modal pro Session (z. B. System-Prompt, der den globalen Prompt überschreibt; Tool-Nutzung ist vorbereitet, aber noch leer/deaktiviert); Speichern per `PUT /api/sessions/{id}/settings`, Laden per `GET /api/sessions/{id}/settings` (im Session-Detail `GET /api/sessions/{id}` enthalten); Abbrechen verwirft ohne API-Aufruf
+- **Session-Einstellungen** – Zahnrad-Button oben links im Chat-Panel öffnet ein Modal pro Session (System-Prompt, der den globalen Prompt überschreibt; Modell-Select, der das Standard-Modell dieser Session überschreibt; Tool-Nutzung ist vorbereitet, aber noch leer/deaktiviert); Speichern per `PUT /api/sessions/{id}/settings`, Laden per `GET /api/sessions/{id}/settings` (im Session-Detail `GET /api/sessions/{id}` enthalten); Abbrechen verwirft ohne API-Aufruf
 - **Streaming** – die Generierung laeuft serverseitig als Hintergrund-Task (`POST /api/chat` -> `202`); der LLM-SSE-Stream wird chunk-weise in der per-user DB persistiert, der Client pollt `GET /api/sessions/{id}`
 - **Cancel** – laufende Generierung per X abbrechen, Teilausgabe bleibt erhalten
 - **Message bubbles** – Rolle/Typ (message, tool-call, reasoning), kollabierbar, kopieren, vorlesen, Kontext-Checkbox (auch auf Tool-Call-/Tool-Result-Bubbles), löschen; die letzte Nutzernachricht hat zusätzlich **Bearbeiten** (Stift, Inline-Edit direkt in der Bubble: Textarea in den Bubble-Farben mit X-Button rechts daneben, Enter sendet, Esc bricht ab) und **Erneut senden** (Refresh) – beide nutzen denselben Pfad: die Nachricht wird per `PATCH` übernommen, alle Nachrichten danach (Assistenten-Antworten) gelöscht (`DELETE /api/sessions/{id}/messages/after/{mid}`) und die Antwort neu generiert
 - **Attachments** – Dateien, Kamera (mobil), Spracheingabe (Mikrofon-Button nutzt STT des Voice Companion); Datei-Uploads gehen als Multipart (`POST /api/sessions/{id}/attachments`) an den Server und werden serverseitig verarbeitet (Tabelle `attachments`)
 - **Voice** – Vorlesen (Lautsprecher-Button) und Spracheingabe (Mikrofon-Button) ueber **Voice Companion** (vendored Wheel in `vendors/`, eigener Server, Base-URL via `LEANCHAT_VOICE_BASE`, Default `http://127.0.0.1:8001`) oder die Browser-System-API. Modus per User-Setting `speech_mode` (Radio-Buttons in den Einstellungen: *System-API* / *Server* / *Aus*); die Einstellungen zeigen die Verfuegbarkeit des gewaehlten Modus pro Richtung (STT/TTS) gruen/rot an ("Verfuegbar" / "Nur STT bzw. TTS verfuegbar" / "Nicht verfuegbar"); die Radio-Auswahl wirkt sofort, auch vor dem Speichern (beim Abbrechen wird der gespeicherte Modus wiederhergestellt); bei *Aus* oder nicht verfuegbarem Modus wird das jeweilige Mikrofon-/Speaker-Control ausgeblendet, sonst erscheint beim Klick eine Fehlermeldung ("Sprachdienst nicht verfügbar"). Funktionspruefung des Servers per `GET /api/voice/status`. Zusammenspiel: Laeuft die Wiedergabe (Speaker-Button), wird die Aufnahme unterdrueckt; startet die Wiedergabe waehrend einer Aufnahme, stoppt diese (Puffer wird verworfen); Senden stoppt die Aufnahme und leert Chat-Zeile + Aufnahme-Puffer; erneuter Klick auf den Speaker stoppt die Wiedergabe
-- **Settings** – Base-URL, Modell, Theme; API-Schlüssel serverseitig (write-only, Env-Fallback) sowie sechs Darstellungsschalter im Settings-Overlay: *Bubbles Deletable* (Mülleimer-Button), *Bubbles Checkable* (Kontext-Checkbox) und *Bubbles Speaker* (Vorlesen) gelten fuer alle Bubbles (User + Assistant), dazu *Show System Prompt*, *Show Tool Output*, *Show Reasoning*. Diese steuern clientseitig das Bubble-Rendering und werden serverseitig als Filter auf Request (System-Prompt) und LLM-SSE-Response (Reasoning, Tool-Calls) angewendet
+- **LLM-Modelle (Tiles)** – der LLM-Tab in den Einstellungen zeigt alle Modell-Setups als Tiles nebeneinander plus ein *Neues Modell*-Tile; Klick öffnet ein Modal mit Anbieter, Host, Port, berechneter Base-URL, API-Schlüssel (write-only, serverseitig in `llm_models` gespeichert), Modell, *Verbindung testen* und *Löschen*. CRUD unter `/api/settings/models` (`GET`/`POST`/`PUT`/`DELETE`/`POST /test`, api_key nie in Antworten). Pro Tile ein *Standard-Modell*-Radio: das Standard-Tile steht in `user_settings.default_model_id` und wird von neuen Sessions ohne eigenes `model_id` genutzt. Effektive Verbindung beim Chat: Session-`model_id` > `default_model_id` > Server-Defaults (`LEANCHAT_LLM_HOST/PORT/MODEL/API_KEY`) – `resolve_llm_connection` in `app/services/settings.py`
+- **Settings** – Theme, globaler System-Prompt sowie Darstellungsschalter im Allgemein-Tab des Settings-Overlays: *Bubbles Deletable* (Mülleimer-Button), *Bubbles Checkable* (Kontext-Checkbox) und *Bubbles Speaker* (Vorlesen) gelten fuer alle Bubbles (User + Assistant), dazu *Show System Prompt*, *Show Tool Output*, *Show Reasoning*. Diese steuern clientseitig das Bubble-Rendering und werden serverseitig als Filter auf Request (System-Prompt) und LLM-SSE-Response (Reasoning, Tool-Calls) angewendet
 - **Theme** – hell/dunkel via CSS Custom Properties
 - **Mobile** – auf Smartphones bleibt der Composer bei geoeffneter Tastatur sichtbar und am unteren Rand: `interactive-widget=resizes-content` im Viewport-Meta (Android/Chrome) plus Visual-Viewport-Fallback in `static/js/viewport.js` (iOS/aeltere Browser), dazu `env(safe-area-inset-bottom)`-Padding fuer Geraete mit Notch/Home-Indicator
 

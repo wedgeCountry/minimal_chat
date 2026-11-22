@@ -12,11 +12,10 @@ export const state = {
   messagesSid: null,
   // Session-Settings der aktiven Session (nur die bekannten Keys, siehe settingsKeys.js)
   sessionSettings: {},
+  // LLM-Modell-Tiles (GET /api/settings/models, ohne api_key); default_model_id in settings
+  llmModels: [],
   settings: {
-    base: "",
-    host: "",
-    port: "",
-    model: "",
+    default_model_id: "",
     system_prompt: "",
     theme: "light",
     speech_mode: "server",

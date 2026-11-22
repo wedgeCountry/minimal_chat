@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, File, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 
 from ..config import AppConfig
 from ..deps import get_config, get_current_user, get_message_service, get_store
@@ -64,6 +64,10 @@ async def put_session_settings(
         value = getattr(body, key)
         if value is not None and (value != "" or key in SESSION_CLEARABLE_WITH_EMPTY):
             values[key] = value
+    if values.get("model_id"):
+        raw = values["model_id"]
+        if not raw.isdigit() or await store.get_llm_model(user, int(raw)) is None:
+            raise HTTPException(status_code=422, detail=f"Unbekanntes Modell: {raw}")
     stored = await store.update_session_settings(user, sid, values)
     return _session_settings_out(sid, stored)
 

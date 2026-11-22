@@ -91,20 +91,22 @@ Darstellung nach Typ:
 
 ## 5. Einstellungen
 
-Dialog (Modal) mit Feldern:
+Zwei Tabs im Settings-Overlay:
 
-- **Base-URL** (z. B. `https://api.openai.com/v1`)
-- **API-Schlüssel** (Passwortfeld, lokal gespeichert)
-- **Modell** (freie Texteingabe oder Auswahl aus `/v1/models`, wenn erreichbar)
-- **Theme**: hell / dunkel (Standard hell), umgeschaltet per CSS-Klasse und `prefers-color-scheme` als Initial-Fallback
+- **Allgemein**: **Theme** (hell/dunkel, Standard hell, umgeschaltet per CSS-Klasse und `prefers-color-scheme` als Initial-Fallback), globaler **System-Prompt**, Darstellungsschalter (Bubbles Deletable/Checkable/Speaker, Show System Prompt/Tool Output/Reasoning, Datei-/Bild-Button), Sprache (STT/TTS)
+- **LLM**: Raster aus **Modell-Tiles** (`model-tile-<id>`) nebeneinander plus ein **Neues Modell**-Tile (`model-add-tile`). Klick auf ein Tile (oder das Add-Tile) oeffnet ein Modal mit: **Anbieter** (freies Label, optional), **Host**, **Port**, **Base-URL** (berechnet, readonly), **Verbindung testen**, **API-Schlüssel** (Passwortfeld, serverseitig gespeichert, write-only), **Modell**, sowie **Löschen** (nur beim Bearbeiten), **Abbrechen**, **Speichern**. Jedes Tile hat ein **Standard-Modell**-Radio: das Standard-Tile steht in `user_settings.default_model_id` und wird von neuen Sessions genutzt, solange die Session kein eigenes `model_id` setzt.
 
-Speicherung: serverseitig in der verschlüsselten per-user SQLite (`user_settings`, `session_settings`); nur UI-Zustand (aktives Panel) liegt im `localStorage`/`sessionStorage` (Key `leanchat.*`).
+Speicherung: serverseitig in der verschlüsselten per-user SQLite (`user_settings`, `session_settings`, `llm_models`; `api_key` nur in `llm_models` und nie in API-Antworten); nur UI-Zustand (aktives Panel) liegt im `localStorage`/`sessionStorage` (Key `leanchat.*`).
+
+LLM-Modell-Endpunkte (`app/routers/models.py`, alle hinter Auth): `GET/POST /api/settings/models`, `GET/PUT/DELETE /api/settings/models/{id}`, `POST /api/settings/models/test` (optionale `model_id`-Referenz; explizite `base`/`api_key` im Body gewinnen sonst gegen das Tile bzw. die Server-Defaults; SSRF-Validierung wie bisher). Das erste angelegte Tile wird automatisch zum Standard; beim Löschen des Standard-Tiles wird `default_model_id` auf ein verbleibendes Tile neu gesetzt (oder geleert). Beim Oeffnen einer bestehenden per-user DB werden alte flache LLM-Keys (`base`/`host`/`port`/`model`/`api_key` aus `user_settings`) einmalig in ein Tile migriert und entfernt (`q_migrate_legacy_llm_settings`).
+
+Effektive LLM-Verbindung beim Chat (`resolve_llm_connection` in `app/services/settings.py`): Session-`model_id` > User-`default_model_id` > Server-Defaults (`LEANCHAT_LLM_HOST/PORT/MODEL/API_KEY`); Base-URL eines Tiles: aus Host/Port berechnet > gespeicherte `base` > Server-Default. Ungueltige Tile-Referenzen (z. B. nach dem Löschen) fallen auf die naechste Stufe zurueck.
 
 ### Session-Einstellungen (pro Session)
 
-- Zahnrad-Button oben links im Chat-Panel (nur bei aktiver Session sichtbar) oeffnet ein Modal im App-Stil mit: **System-Prompt** (Textarea, ueberschreibt den globalen Settings-Prompt fuer diese Session, leer = globaler Prompt), **Tool-Nutzung** (vorbereitet, vorerst leer/deaktiviert), sowie **Speichern** und **Abbrechen**
-- Speichern: `PUT /api/sessions/{id}/settings` (Tabelle `session_settings`, key/value; leerer String loescht den Session-Prompt); Laden: `GET /api/sessions/{id}/settings` beim Oeffnen des Modals sowie ueber das Session-Detail `GET /api/sessions/{id}` (Feld `settings`) beim Session-Wechsel; Abbrechen/Overlay-Klick/Esc: Modal schliessen ohne API-Aufruf (keine Aenderungen)
-- Der Session-System-Prompt wird beim naechsten `POST /api/chat` als effektiver System-Prompt an den LLM-Request gehaengt (Override-Regel siehe Abschnitt 4) und als System-Bubble oben im Chat gerendert (bei `show_system_prompt` an)
+- Zahnrad-Button oben links im Chat-Panel (nur bei aktiver Session sichtbar) oeffnet ein Modal im App-Stil mit: **System-Prompt** (Textarea, ueberschreibt den globalen Settings-Prompt fuer diese Session, leer = globaler Prompt), **Modell** (Select aller Tiles; leer/"Standard" = Standard-Tile des Users), **Tool-Nutzung** (vorbereitet, vorerst leer/deaktiviert), sowie **Speichern** und **Abbrechen**
+- Speichern: `PUT /api/sessions/{id}/settings` (Tabelle `session_settings`, key/value; leerer String loescht Session-Prompt/-Modell); Laden: `GET /api/sessions/{id}/settings` beim Oeffnen des Modals sowie ueber das Session-Detail `GET /api/sessions/{id}` (Feld `settings`) beim Session-Wechsel; Abbrechen/Overlay-Klick/Esc: Modal schliessen ohne API-Aufruf (keine Aenderungen); `model_id` muss auf ein bestehendes Tile zeigen (sonst 422)
+- Der Session-System-Prompt wird beim naechsten `POST /api/chat` als effektiver System-Prompt an den LLM-Request gehaengt (Override-Regel siehe Abschnitt 4) und als System-Bubble oben im Chat gerendert (bei `show_system_prompt` an); das Session-`model_id` bestimmt zusammen mit `default_model_id` die effektive LLM-Verbindung des Requests
 
 ## 6. Design
 

@@ -11,7 +11,7 @@ from ..deps import get_config, get_current_user, get_message_service, get_store
 from ..models import ChatAbortRequest, ChatRequest
 from ..services.chat import MessageService
 from ..services.context import build_llm_context
-from ..services.settings import BOOL_SETTINGS, resolve_base_url, resolve_system_prompt, stored_bool
+from ..services.settings import BOOL_SETTINGS, resolve_llm_connection, resolve_system_prompt, stored_bool
 from ..services.sse import sse_event
 from ..services.ssrf import validate_llm_base_url
 from ..services.store import SessionNotFound, UserStoreProtocol
@@ -37,13 +37,15 @@ async def chat(
     ctx = await store.load_chat_context(user, req.session_id)
     if ctx is None:
         raise SessionNotFound(req.session_id)
-    base_url = resolve_base_url(ctx.user_settings, config)
+    # Effektive LLM-Verbindung: Session-model_id > default_model_id (Tile) > Server-Defaults
+    conn = resolve_llm_connection(ctx.session_settings, ctx.user_settings, ctx.llm_models, config)
+    base_url = conn.base_url
     try:
         # DNS-Lookup in validate_llm_base_url ist blockierend -> nicht auf dem Event-Loop
         await asyncio.to_thread(validate_llm_base_url, base_url, config.allow_private_llm)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
-    api_key = ctx.user_settings.get("api_key") or config.default_api_key
+    api_key = conn.api_key
     flags = {key: stored_bool(ctx.user_settings, key) for key in BOOL_SETTINGS}
     # Effektiver System-Prompt: nicht-leerer Session-Prompt gewinnt, sonst der globale Settings-Prompt
     system_prompt = resolve_system_prompt(ctx.session_settings, ctx.user_settings)
@@ -51,7 +53,7 @@ async def chat(
     # nicht aus dem Client-Request uebernehmen
     llm_ctx = build_llm_context([m.model_dump() for m in ctx.messages], system_prompt=system_prompt, attachments_by_id=ctx.attachments)
     payload = {
-        "model": req.model,
+        "model": conn.model,
         "stream": True,
         "messages": llm_ctx.compile(),
     }

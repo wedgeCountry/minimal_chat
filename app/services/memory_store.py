@@ -9,7 +9,7 @@ import time
 from collections.abc import Mapping
 from typing import Any
 
-from ..domain import Attachment, AttachmentRef, ChatContext, Message, Session
+from ..domain import Attachment, AttachmentRef, ChatContext, LlmModel, Message, Session
 from ..types import MessageInput, UserIdentity
 from .store import (
     AttachmentQuotaExceeded,
@@ -32,8 +32,10 @@ class InMemoryUserStore(UserStoreProtocol):
         self._attachments: dict[str, dict[str, list[Attachment]]] = {}
         self._settings: dict[str, dict[str, str]] = {}
         self._session_settings: dict[str, dict[str, dict[str, str]]] = {}  # uid -> sid -> key -> value
+        self._llm_models: dict[str, dict[int, LlmModel]] = {}  # uid -> model_id -> LlmModel
         self._next_mid: dict[str, int] = {}
         self._next_aid: dict[str, int] = {}
+        self._next_model_id: dict[str, int] = {}
 
     @staticmethod
     def now_ms() -> int:
@@ -192,6 +194,56 @@ class InMemoryUserStore(UserStoreProtocol):
         stored.update(values)
         return dict(stored)
 
+    # --- LLM Models ---
+
+    def _models(self, user: UserIdentity) -> dict[int, LlmModel]:
+        return self._llm_models.setdefault(self._uid(user), {})
+
+    async def list_llm_models(self, user: UserIdentity) -> list[LlmModel]:
+        return [m.model_copy() for m in sorted(self._models(user).values(), key=lambda m: m.id)]
+
+    async def get_llm_model(self, user: UserIdentity, model_id: int) -> LlmModel | None:
+        m = self._models(user).get(model_id)
+        return m.model_copy() if m else None
+
+    async def create_llm_model(self, user: UserIdentity, values: Mapping[str, str]) -> LlmModel:
+        uid = self._uid(user)
+        mid = self._next_model_id.get(uid, 0) + 1
+        self._next_model_id[uid] = mid
+        model = LlmModel(
+            id=mid,
+            provider=values.get("provider", ""),
+            host=values.get("host", ""),
+            port=values.get("port", ""),
+            base=values.get("base", ""),
+            api_key=values.get("api_key", ""),
+            model=values.get("model", ""),
+        )
+        self._models(user)[mid] = model
+        # Das erste Tile wird automatisch zum Standard (default_model_id)
+        stored = self._settings.setdefault(uid, {})
+        if not stored.get("default_model_id"):
+            stored["default_model_id"] = str(mid)
+        return model.model_copy()
+
+    async def update_llm_model(self, user: UserIdentity, model_id: int, values: Mapping[str, str]) -> LlmModel | None:
+        m = self._models(user).get(model_id)
+        if m is None:
+            return None
+        updated = m.model_copy(update={k: v for k, v in values.items() if k in LlmModel.model_fields})
+        self._models(user)[model_id] = updated
+        return updated.model_copy()
+
+    async def delete_llm_model(self, user: UserIdentity, model_id: int) -> bool:
+        uid = self._uid(user)
+        if self._models(user).pop(model_id, None) is None:
+            return False
+        stored = self._settings.setdefault(uid, {})
+        if stored.get("default_model_id") == str(model_id):
+            remaining = sorted(self._models(user).values(), key=lambda m: m.id)
+            stored["default_model_id"] = str(remaining[0].id) if remaining else ""
+        return True
+
     # --- Generierungs-Status ---
 
     async def try_start_generating(self, user: UserIdentity, sid: str) -> str:
@@ -221,6 +273,7 @@ class InMemoryUserStore(UserStoreProtocol):
             session=session,
             user_settings=settings,
             session_settings=session_settings,
+            llm_models=await self.list_llm_models(user),
             attachments={a.id: a for a in atts if a.id is not None},
             messages=messages,
         )

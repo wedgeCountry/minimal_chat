@@ -100,15 +100,17 @@ def test_chat_rejects_private_llm_target_on_public_bind(tmp_path):
 
 def test_settings_test_rejects_private_base_on_public_bind(tmp_path):
     c = _public_client(tmp_path)
-    res = c.post("/api/settings/test", json={"base": "http://127.0.0.1:1234/v1"})
+    res = c.post("/api/settings/models/test", json={"base": "http://127.0.0.1:1234/v1"})
     assert res.status_code == 400
 
 
 def test_chat_rejects_malformed_base_url(client, auth_headers):
     sid_res = client.post("/api/sessions", json={"name": "S"}, headers=auth_headers)
     sid = sid_res.json()["id"]
-    client.put("/api/settings", json={"base": "file:///etc/passwd"}, headers=auth_headers)
-    res = client.post("/api/chat", json={"session_id": sid, "model": "m", "messages": [{"role": "user", "content": "x"}]}, headers=auth_headers)
+    # erster Tile-Eintrag wird automatisch zum Standard -> Chat nutzt dessen base
+    res = client.post("/api/settings/models", json={"base": "file:///etc/passwd"}, headers=auth_headers)
+    assert res.status_code == 201, res.text
+    res = client.post("/api/chat", json={"session_id": sid, "messages": [{"role": "user", "content": "x"}]}, headers=auth_headers)
     assert res.status_code == 400
 
 

@@ -48,3 +48,15 @@ CREATE TABLE IF NOT EXISTS session_settings (
     value      TEXT NOT NULL,
     PRIMARY KEY (session_id, key)
 );
+
+-- LLM-Modelle (Tiles in den LLM-Einstellungen): Verbindungsdaten pro
+-- Provider/Modell-Setup; api_key ist ein Secret und wird nie per API ausgeliefert
+CREATE TABLE IF NOT EXISTS llm_models (
+    id       INTEGER PRIMARY KEY AUTOINCREMENT,
+    provider TEXT NOT NULL DEFAULT '',
+    host     TEXT NOT NULL DEFAULT '',
+    port     TEXT NOT NULL DEFAULT '',
+    base     TEXT NOT NULL DEFAULT '',
+    api_key  TEXT NOT NULL DEFAULT '',
+    model    TEXT NOT NULL DEFAULT ''
+);
