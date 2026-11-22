@@ -26,3 +26,6 @@ export const BOOL_SETTING_DEFAULTS = {
 export function defaultBoolSettings() {
   return Object.fromEntries(BOOL_SETTING_KEYS.map((k) => [k, BOOL_SETTING_DEFAULTS[k]]));
 }
+
+// Single Source of Truth fuer Session-Settings; muss zu SESSION_SETTING_KEYS (app/services/settings.py) passen.
+export const SESSION_SETTING_KEYS = ["system_prompt"];

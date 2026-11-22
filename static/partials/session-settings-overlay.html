@@ -1,0 +1,17 @@
+<div id="sessionOverlay" class="overlay" data-testid="session-settings-overlay">
+  <div class="modal" data-testid="session-settings-modal">
+    <h2 data-testid="session-settings-title">Session-Einstellungen</h2>
+    <div class="field" data-testid="field-session-system-prompt">
+      <label data-testid="label-session-system-prompt">System-Prompt (optional)</label>
+      <textarea id="sessSystemPrompt" data-testid="session-settings-system-prompt" rows="5" placeholder="Überschreibt den globalen System-Prompt für diese Session"></textarea>
+    </div>
+    <div class="field" data-testid="field-session-tool-use">
+      <label data-testid="label-session-tool-use">Tool-Nutzung</label>
+      <input id="sessToolUse" data-testid="session-settings-tool-use" type="text" disabled placeholder="Noch nicht verfügbar" />
+    </div>
+    <div class="row" data-testid="session-settings-actions">
+      <button class="btn" id="sessSettingsCancel" data-testid="session-settings-cancel" type="button">Abbrechen</button>
+      <button class="btn primary" id="sessSettingsSave" data-testid="session-settings-save" type="button">Speichern</button>
+    </div>
+  </div>
+</div>

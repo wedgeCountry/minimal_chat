@@ -10,6 +10,8 @@ export const state = {
   // lokal aus den Endpoint-Antworten uebernommen, Poll/Fetch bleibt Quelle der Wahrheit
   messages: [],
   messagesSid: null,
+  // Session-Settings der aktiven Session (nur die bekannten Keys, siehe settingsKeys.js)
+  sessionSettings: {},
   settings: {
     base: "",
     host: "",

@@ -29,6 +29,17 @@ STRING_SETTING_KEYS: tuple[str, ...] = ("base", "host", "port", "model", "system
 # host/port/system_prompt duerfen per leerem String geloescht werden
 CLEARABLE_WITH_EMPTY: frozenset[str] = frozenset({"host", "port", "system_prompt"})
 
+# Session-Settings (pro Session, key/value in der Tabelle session_settings)
+SESSION_SETTING_KEYS: tuple[str, ...] = ("system_prompt",)
+# system_prompt darf per leerem String geloescht werden
+SESSION_CLEARABLE_WITH_EMPTY: frozenset[str] = frozenset({"system_prompt"})
+
+
+def resolve_system_prompt(session_settings: dict[str, str], stored: dict[str, str]) -> str:
+    """Effektiver System-Prompt: ein nicht-leerer Session-Prompt gewinnt, sonst der globale Settings-Prompt."""
+    prompt = (session_settings.get("system_prompt") or "").strip()
+    return prompt or (stored.get("system_prompt") or "")
+
 def stored_bool(stored: dict[str, str], key: str) -> bool:
     default = "1" if BOOL_SETTINGS[key] else "0"
     value = stored.get(key, default)
@@ -100,7 +111,7 @@ def _assert_api_models_match() -> None:
     """Import-Zeit-Check: die API-Models in app/models.py duerfen nicht von den
     Setting-Keys hier abweichen (sonst wuerde z. B. ein neuer BOOL_SETTINGS-Eintrag
     im Settings-Response landen, den SettingsOut nicht kennt, oder nie persistiert)."""
-    from ..models import SettingsIn, SettingsOut
+    from ..models import SessionSettingsIn, SessionSettingsOut, SettingsIn, SettingsOut
 
     assert set(BOOL_SETTINGS) == _field_names(SettingsIn, bool), "SettingsIn: Bool-Felder != BOOL_SETTINGS"
     assert set(BOOL_SETTINGS) == _field_names(SettingsOut, bool), "SettingsOut: Bool-Felder != BOOL_SETTINGS"
@@ -108,6 +119,10 @@ def _assert_api_models_match() -> None:
     # api_key ist das einzige beschreibbare String-Setting, das nie in die API-Antwort rausgeht (Secret)
     assert _field_names(SettingsOut, str) == set(STRING_SETTING_KEYS) - {"api_key"}, "SettingsOut: String-Felder != STRING_SETTING_KEYS ohne api_key"
     assert set(CLEARABLE_WITH_EMPTY) <= set(STRING_SETTING_KEYS), "CLEARABLE_WITH_EMPTY enthaelt unbekannte Keys"
+    assert set(SESSION_SETTING_KEYS) == _field_names(SessionSettingsIn, str), "SessionSettingsIn: String-Felder != SESSION_SETTING_KEYS"
+    # session_id ist zusaetzlich in der Antwort, damit der Client sie nicht selbst einsetzen muss
+    assert _field_names(SessionSettingsOut, str) == set(SESSION_SETTING_KEYS) | {"session_id"}, "SessionSettingsOut: String-Felder != SESSION_SETTING_KEYS + session_id"
+    assert set(SESSION_CLEARABLE_WITH_EMPTY) <= set(SESSION_SETTING_KEYS), "SESSION_CLEARABLE_WITH_EMPTY enthaelt unbekannte Keys"
 
 
 _assert_api_models_match()

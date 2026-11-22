@@ -9,7 +9,7 @@ import time
 from collections.abc import Mapping
 from typing import Any
 
-from ..domain import Attachment, AttachmentRef, Message, Session
+from ..domain import Attachment, AttachmentRef, ChatContext, Message, Session
 from ..types import MessageInput, UserIdentity
 from .store import (
     AttachmentQuotaExceeded,
@@ -31,6 +31,7 @@ class InMemoryUserStore(UserStoreProtocol):
         self._messages: dict[str, dict[str, list[Message]]] = {}  # uid -> sid -> [Message]
         self._attachments: dict[str, dict[str, list[Attachment]]] = {}
         self._settings: dict[str, dict[str, str]] = {}
+        self._session_settings: dict[str, dict[str, dict[str, str]]] = {}  # uid -> sid -> key -> value
         self._next_mid: dict[str, int] = {}
         self._next_aid: dict[str, int] = {}
 
@@ -73,11 +74,11 @@ class InMemoryUserStore(UserStoreProtocol):
     async def session_exists(self, user: UserIdentity, sid: str) -> bool:
         return sid in self._sessions.get(self._uid(user), {})
 
-    async def get_session_detail(self, user: UserIdentity, sid: str) -> tuple[Session, list[Message]] | None:
+    async def get_session_detail(self, user: UserIdentity, sid: str) -> tuple[Session, list[Message], dict[str, str]] | None:
         row = await self.get_session(user, sid)
         if row is None:
             return None
-        return row, [m.model_copy() for m in self._msgs(user, sid)]
+        return row, [m.model_copy() for m in self._msgs(user, sid)], await self.get_session_settings(user, sid)
 
     async def rename_session(self, user: UserIdentity, sid: str, name: str) -> Session:
         row = self._sess(user, sid)
@@ -91,6 +92,7 @@ class InMemoryUserStore(UserStoreProtocol):
         del self._sessions[self._uid(user)][sid]
         self._messages.get(self._uid(user), {}).pop(sid, None)
         self._attachments.get(self._uid(user), {}).pop(sid, None)
+        self._session_settings.get(self._uid(user), {}).pop(sid, None)
 
     # --- Messages ---
 
@@ -178,6 +180,18 @@ class InMemoryUserStore(UserStoreProtocol):
         stored.update(values)
         return dict(stored)
 
+    # --- Session Settings ---
+
+    async def get_session_settings(self, user: UserIdentity, sid: str) -> dict[str, str]:
+        self._sess(user, sid)
+        return dict(self._session_settings.setdefault(self._uid(user), {}).setdefault(sid, {}))
+
+    async def update_session_settings(self, user: UserIdentity, sid: str, values: Mapping[str, str]) -> dict[str, str]:
+        self._sess(user, sid)
+        stored = self._session_settings.setdefault(self._uid(user), {}).setdefault(sid, {})
+        stored.update(values)
+        return dict(stored)
+
     # --- Generierungs-Status ---
 
     async def try_start_generating(self, user: UserIdentity, sid: str) -> str:
@@ -196,16 +210,20 @@ class InMemoryUserStore(UserStoreProtocol):
         if sid in self._sessions.get(self._uid(user), {}) and not running:
             self._sessions[self._uid(user)][sid].generating = False
 
-    async def load_chat_context(
-        self, user: UserIdentity, sid: str
-    ) -> tuple[Session, dict[str, str], dict[int, Attachment], list[Message]] | None:
+    async def load_chat_context(self, user: UserIdentity, sid: str) -> ChatContext | None:
         detail = await self.get_session_detail(user, sid)
         if detail is None:
             return None
-        session, messages = detail
+        session, messages, session_settings = detail
         atts = await self.get_session_attachments(user, sid)
         settings = await self.get_user_settings(user)
-        return session, settings, {a.id: a for a in atts if a.id is not None}, messages
+        return ChatContext(
+            session=session,
+            user_settings=settings,
+            session_settings=session_settings,
+            attachments={a.id: a for a in atts if a.id is not None},
+            messages=messages,
+        )
 
     async def finalize_generation(
         self, user: UserIdentity, sid: str, messages: list[MessageInput], error: str | None

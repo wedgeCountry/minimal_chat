@@ -12,10 +12,13 @@ from app.db.database import (
     Database,
     q_add_message,
     q_create_session,
+    q_delete_session,
     q_get_messages,
     q_get_session,
+    q_get_session_settings,
     q_get_user_settings,
     q_set_generating,
+    q_set_session_setting,
     q_set_user_setting,
     q_try_start_generating,
     q_update_message,
@@ -204,9 +207,24 @@ def test_try_start_generating_is_atomic_check_and_set(db):
         assert q_try_start_generating(con, s["id"]) == "ok"
 
 
+def test_session_settings_table_roundtrip_upsert_and_cascade(db):
+    user = _make_user()
+    with db.user_db(user) as con:
+        s = q_create_session(con, "S")
+        s2 = q_create_session(con, "S2")
+        assert q_get_session_settings(con, s["id"]) == {}
+        q_set_session_setting(con, s["id"], "system_prompt", "Sei knapp.")
+        q_set_session_setting(con, s["id"], "system_prompt", "Sei sehr knapp.")  # Upsert
+        assert q_get_session_settings(con, s["id"]) == {"system_prompt": "Sei sehr knapp."}
+        assert q_get_session_settings(con, s2["id"]) == {}
+        q_delete_session(con, s["id"])  # ON DELETE CASCADE entfernt die Settings mit
+        assert q_get_session_settings(con, s["id"]) == {}
+
+
 def test_schema_file_exists():
     assert Path(SCHEMA_PATH).exists()
     content = Path(SCHEMA_PATH).read_text()
     assert "CREATE TABLE IF NOT EXISTS sessions" in content
     assert "CREATE TABLE IF NOT EXISTS messages" in content
     assert "CREATE TABLE IF NOT EXISTS user_settings" in content
+    assert "CREATE TABLE IF NOT EXISTS session_settings" in content

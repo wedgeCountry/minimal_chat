@@ -41,8 +41,18 @@ class SessionOut(Session):
     pass
 
 
+class SessionSettingsIn(BaseModel):
+    system_prompt: str | None = Field(default=None, max_length=20000)
+
+
+class SessionSettingsOut(BaseModel):
+    session_id: str = ""
+    system_prompt: str = ""
+
+
 class SessionDetail(SessionOut):
     messages: list[MessageOut]
+    settings: SessionSettingsOut = Field(default_factory=SessionSettingsOut)
 
 
 class SettingsIn(BaseModel):

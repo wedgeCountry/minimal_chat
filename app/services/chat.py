@@ -299,7 +299,7 @@ class MessageService:
             detail = await self._store.get_session_detail(user, sid)
             if detail is None:
                 raise SessionNotFound(sid)
-            _session, messages = detail
+            _session, messages, _session_settings = detail
             state = _SessionState(messages)
             self._sessions[key] = state
         state.last_touch = time.monotonic()

@@ -7,6 +7,7 @@ import { abortStream, initBubbleMenu, pollOnce, renderChatView, renderHeader, se
 import { isToolbarMinimal } from "./visibility.js";
 import { addAttachments } from "./attachments.js";
 import { initSettings, loadSettings, openSettings } from "./settings.js";
+import { initSessionSettings, pickSessionSettings } from "./sessionSettings.js";
 import { initConfirm } from "./confirm.js";
 import { controlsVisible, refreshSpeechAvailability } from "./ttsDetectionService.js";
 import { onMicClick } from "./recorder.js";
@@ -36,6 +37,7 @@ async function refreshChat() {
   if (!s) {
     state.messages = [];
     state.messagesSid = null;
+    state.sessionSettings = {};
   } else if (state.messagesSid !== s.id) {
     // Session-Detail nur bei Session-Wechsel laden; Mutationen pflegt der Client lokal (chat.js)
     state.messagesSid = s.id;
@@ -43,6 +45,7 @@ async function refreshChat() {
     try {
       const detail = await api.get(`/sessions/${s.id}`);
       state.messages = normalizeMessages(detail.messages);
+      state.sessionSettings = pickSessionSettings(detail.settings);
     } catch {
       state.messagesSid = null; // naechster Aufruf versucht es erneut
     }
@@ -58,6 +61,7 @@ function applyComposerButtons() {
 
 function renderAll() {
   document.documentElement.classList.toggle("bubbles-minimal", isToolbarMinimal(state.settings));
+  $("sessionSettingsBtn").classList.toggle("u-hidden", !activeSession());
   renderSessions();
   renderHeader();
   refreshChat();
@@ -114,6 +118,7 @@ async function bootstrap() {
 
 function initEvents() {
   initConfirm();
+  initSessionSettings();
   $("panelBtn").onclick = () => setSideHidden(!$("side").classList.contains("hidden"));
   $("burgerBtn").onclick = (e) => {
     e.stopPropagation();

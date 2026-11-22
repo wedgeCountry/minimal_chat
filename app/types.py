@@ -56,6 +56,14 @@ class MessageInput(_MessageInputBase, total=False):
     created_at: int
 
 
+class SessionSettingRow(TypedDict):
+    """Eine Zeile aus ``session_settings`` (DB-Format)."""
+
+    session_id: str
+    key: str
+    value: str
+
+
 class AttachmentRow(TypedDict):
     """Eine Zeile aus ``attachments`` (DB-Format)."""
 

@@ -54,3 +54,13 @@ class Attachment(BaseModel):
     kind: str
     size: int
     content: str = ""
+
+
+class ChatContext(BaseModel):
+    """Alles, was ein Chat-Request aus der per-user DB braucht (in einem DB-Oeffnen geladen)."""
+
+    session: Session
+    user_settings: dict[str, str]
+    session_settings: dict[str, str]
+    attachments: dict[int, Attachment]
+    messages: list[Message]

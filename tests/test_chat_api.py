@@ -553,6 +553,43 @@ def test_chat_system_prompt_filtered_when_disabled(client, auth_headers, monkeyp
     assert seen["body"]["messages"] == [{"role": "user", "content": "Hi"}]
 
 
+def test_chat_session_system_prompt_overrides_global(client, auth_headers, monkeypatch):
+    """Nicht-leerer Session-Prompt gewinnt gegen den globalen Settings-Prompt (resolve_system_prompt)."""
+    seen = _mock_llm(monkeypatch)
+    client.put("/api/settings", json={"system_prompt": "Globaler Prompt."}, headers=auth_headers)
+    sid = _new_session(client, auth_headers)
+    client.put(f"/api/sessions/{sid}/settings", json={"system_prompt": "Session-Prompt."}, headers=auth_headers)
+    _post_user_message(client, auth_headers, sid)
+    assert _start_chat(client, auth_headers, sid).status_code == 202
+    _wait_generation(client, auth_headers, sid)
+    msgs = seen["body"]["messages"]
+    assert msgs[0] == {"role": "system", "content": "Session-Prompt."}
+    assert {"role": "system", "content": "Globaler Prompt."} not in msgs
+    assert msgs[1] == {"role": "user", "content": "Hi"}
+
+
+def test_chat_blank_session_prompt_falls_back_to_global(client, auth_headers, monkeypatch):
+    """Leer/Whitespace-only Session-Prompt: der globale Settings-Prompt wird gesendet."""
+    seen = _mock_llm(monkeypatch)
+    client.put("/api/settings", json={"system_prompt": "Globaler Prompt."}, headers=auth_headers)
+    sid = _new_session(client, auth_headers)
+    client.put(f"/api/sessions/{sid}/settings", json={"system_prompt": "   "}, headers=auth_headers)
+    _post_user_message(client, auth_headers, sid)
+    assert _start_chat(client, auth_headers, sid).status_code == 202
+    _wait_generation(client, auth_headers, sid)
+    assert seen["body"]["messages"][0] == {"role": "system", "content": "Globaler Prompt."}
+
+
+def test_chat_no_session_prompt_uses_global(client, auth_headers, monkeypatch):
+    seen = _mock_llm(monkeypatch)
+    client.put("/api/settings", json={"system_prompt": "Globaler Prompt."}, headers=auth_headers)
+    sid = _new_session(client, auth_headers)
+    _post_user_message(client, auth_headers, sid)
+    assert _start_chat(client, auth_headers, sid).status_code == 202
+    _wait_generation(client, auth_headers, sid)
+    assert seen["body"]["messages"][0] == {"role": "system", "content": "Globaler Prompt."}
+
+
 def test_chat_uses_host_port_computed_base_url(client, auth_headers, monkeypatch):
     """Regression: host/port settings must drive the chat URL (single source of truth)."""
     seen = _mock_llm(monkeypatch)
