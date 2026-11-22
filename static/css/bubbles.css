@@ -6,8 +6,8 @@
    ------------------------------------------------------------------ */
 
 #chat{flex:1;min-width:0;overflow-y:auto;padding:18px 14px;display:flex;flex-direction:column;gap:12px;background:var(--chat-bg)}
-/* Erstes Kind von #chat: bleibt als sticky immer oben im Chat, ohne die Bubbles zu ueberlagern */
-#sessionSettingsBtn{position:sticky;top:0;z-index:20;align-self:flex-start;background:var(--panel);border:1px solid var(--border);border-radius:9px;box-shadow:var(--shadow)}
+/* Erstes Kind von #chat: scrollt wie eine normale Bubble mit (kein sticky/overlay) */
+#sessionSettingsBtn{align-self:flex-start;background:var(--panel);border:1px solid var(--border);border-radius:9px;box-shadow:var(--shadow)}
 .chatEmpty{margin:auto;color:var(--muted);font-size:14px;text-align:center}
 
 .bubble{
