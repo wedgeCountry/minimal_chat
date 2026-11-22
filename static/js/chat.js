@@ -237,7 +237,8 @@ export function renderChat(messages) {
   if (!s || !messages?.length) {
     lastMessages = [];
     cancelEdit();
-    chat.innerHTML = "";
+    // Nur Bubbles entfernen; der Session-Settings-Button bleibt als erstes Kind von #chat stehen
+    for (const el of [...chat.children]) if (el.id !== "sessionSettingsBtn") el.remove();
     bubbleNodes.clear();
     const empty = document.createElement("div");
     empty.dataset.testid = "chat-empty";

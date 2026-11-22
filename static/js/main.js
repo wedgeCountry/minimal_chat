@@ -61,7 +61,7 @@ function applyComposerButtons() {
 
 function renderAll() {
   document.documentElement.classList.toggle("bubbles-minimal", isToolbarMinimal(state.settings));
-  $("chatHead").classList.toggle("u-hidden", !activeSession());
+  $("sessionSettingsBtn").classList.toggle("u-hidden", !activeSession());
   renderSessions();
   renderHeader();
   refreshChat();
