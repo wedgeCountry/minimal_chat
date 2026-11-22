@@ -143,12 +143,14 @@ export function initModels() {
         model_id: editingId ?? undefined,
         base: $("modelBase").value.trim() || undefined,
         api_key: $("modelKey").value.trim() || undefined,
+        model: $("modelModel").value.trim() || undefined,
       });
       if (res.ok) {
-        status.textContent = "Erreichbar ✓ ";
+        // res.detail ist self-beschreibend (z. B. "Modell „x“ verfügbar")
+        status.textContent = "Erreichbar ✓" + (res.detail ? " – " + res.detail : "");
         status.classList.add("ok");
       } else {
-        status.textContent = "Nicht erreichbar: " + (res.detail || "unbekannter Fehler");
+        status.textContent = res.detail || "Nicht erreichbar: unbekannter Fehler";
         status.classList.add("err");
       }
     } catch (err) {

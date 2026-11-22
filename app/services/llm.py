@@ -97,16 +97,34 @@ class LlmClient:
             headers["Authorization"] = f"Bearer {self._api_key}"
         return headers
 
-    async def check_connection(self) -> tuple[bool, str]:
-        """Prueft die Erreichbarkeit des LLM-Servers (GET {base}/models)."""
+    async def check_connection(self, model: str = "") -> tuple[bool, str]:
+        """Prueft Erreichbarkeit, API-Schluessel und (falls ``model`` gesetzt) die
+        Modell-Verfuegbarkeit ueber GET {base}/models. Die Detail-Meldungen sind
+        self-beschreibend und unterscheiden: nicht erreichbar / 401 / 403 / HTTP x /
+        Modell nicht angeboten."""
         url = self._base_url + "/models"
         try:
             async with self._client_factory(timeout=5.0) as client:
                 res = await client.get(url, headers=self._headers())
         except (httpx.ConnectError, httpx.TimeoutException, httpx.NetworkError):
             return False, f"LLM-Server nicht erreichbar ({url})"
+        if res.status_code == 401:
+            return False, f"HTTP 401 von {url} – API-Schlüssel ungültig oder fehlt"
+        if res.status_code == 403:
+            return False, f"HTTP 403 von {url} – Zugriff verweigert (API-Schlüssel prüfen)"
         if res.status_code >= 400:
             return False, f"{url} -> HTTP {res.status_code}"
+        if model:
+            try:
+                offered = [str(m.get("id")) for m in res.json().get("data", []) if isinstance(m, dict) and m.get("id")]
+            except ValueError:
+                offered = []
+            if offered:
+                if model not in offered:
+                    shown = ", ".join(offered[:5]) + (" …" if len(offered) > 5 else "")
+                    return False, f"Modell „{model}“ nicht verfügbar auf {url} (angeboten: {shown})"
+                return True, f"Modell „{model}“ verfügbar"
+            # leere/nicht parsebare Modell-Liste: Erreichbarkeit ok, Modell nicht pruefbar
         return True, f"{url} -> HTTP {res.status_code}"
 
     async def stream_completion(
@@ -168,5 +186,5 @@ async def stream_completion(
         yield chunk
 
 
-async def check_llm_connection(base_url: str, api_key: str) -> tuple[bool, str]:
-    return await LlmClient(base_url, api_key).check_connection()
+async def check_llm_connection(base_url: str, api_key: str, model: str = "") -> tuple[bool, str]:
+    return await LlmClient(base_url, api_key).check_connection(model)

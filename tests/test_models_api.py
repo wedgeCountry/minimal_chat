@@ -219,10 +219,79 @@ def test_connection_test_unreachable(client, auth_headers, monkeypatch):
     assert res.json()["ok"] is False
 
 
-def test_connection_test_http_error_is_red(client, auth_headers, monkeypatch):
+def test_connection_test_http_401_is_reported_as_invalid_key(client, auth_headers, monkeypatch):
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(401, json={"error": "bad key"})
 
     _mock_llm_models(monkeypatch, handler)
     res = client.post("/api/settings/models/test", json={}, headers=auth_headers)
-    assert res.json() == {"ok": False, "detail": "http://llm.test/v1/models -> HTTP 401"}
+    body = res.json()
+    assert body["ok"] is False
+    assert "401" in body["detail"] and "API-Schlüssel" in body["detail"]
+    # Upstream-Body darf nicht durchgereicht werden
+    assert "bad key" not in body["detail"]
+
+
+def test_connection_test_http_403_is_reported_as_denied(client, auth_headers, monkeypatch):
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(403, json={"error": "forbidden"})
+
+    _mock_llm_models(monkeypatch, handler)
+    res = client.post("/api/settings/models/test", json={}, headers=auth_headers)
+    assert res.json()["ok"] is False
+    assert "403" in res.json()["detail"]
+
+
+def test_connection_test_other_http_error_keeps_status(client, auth_headers, monkeypatch):
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(500, content=b"boom")
+
+    _mock_llm_models(monkeypatch, handler)
+    res = client.post("/api/settings/models/test", json={}, headers=auth_headers)
+    assert res.json() == {"ok": False, "detail": "http://llm.test/v1/models -> HTTP 500"}
+
+
+def test_connection_test_model_available(client, auth_headers, monkeypatch):
+    """GET /models listet das Modell -> ok mit Verfuegbarkeits-Hinweis."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"data": [{"id": "gpt-x"}, {"id": "gpt-y"}]})
+
+    _mock_llm_models(monkeypatch, handler)
+    m = _create_model(client, auth_headers, model="gpt-x")
+    res = client.post("/api/settings/models/test", json={"model_id": m["id"]}, headers=auth_headers)
+    assert res.json()["ok"] is True
+    assert "gpt-x" in res.json()["detail"] and "verfügbar" in res.json()["detail"]
+
+
+def test_connection_test_model_not_offered_is_differentiated(client, auth_headers, monkeypatch):
+    """Server erreichbar + Key ok, aber Modell fehlt in /models -> eigene Meldung."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"data": [{"id": "anderes-modell"}]})
+
+    _mock_llm_models(monkeypatch, handler)
+    m = _create_model(client, auth_headers, model="gpt-x")
+    res = client.post("/api/settings/models/test", json={"model_id": m["id"]}, headers=auth_headers)
+    body = res.json()
+    assert body["ok"] is False
+    assert "nicht verfügbar" in body["detail"] and "gpt-x" in body["detail"]
+    assert "anderes-modell" in body["detail"]  # angebotene Modelle als Hinweis
+
+
+def test_connection_test_body_model_overrides_tile(client, auth_headers, monkeypatch):
+    seen = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["models"] = True
+        return httpx.Response(200, json={"data": [{"id": "nur-dieses"}]})
+
+    _mock_llm_models(monkeypatch, handler)
+    m = _create_model(client, auth_headers, model="gpt-x")
+    # Body-Modell gewinnt gegen das Tile-Modell
+    res = client.post(
+        "/api/settings/models/test", json={"model_id": m["id"], "model": "nur-dieses"}, headers=auth_headers
+    )
+    assert res.json()["ok"] is True
+    res = client.post("/api/settings/models/test", json={"model_id": m["id"]}, headers=auth_headers)
+    assert res.json()["ok"] is False and "gpt-x" in res.json()["detail"]

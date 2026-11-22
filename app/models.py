@@ -149,10 +149,11 @@ class LlmModelOut(BaseModel):
 
 
 class LlmModelTestIn(BaseModel):
-    # optionale Tile-Referenz: base/api_key aus dem Body gewinnen sonst gegen das Tile
+    # optionale Tile-Referenz: base/api_key/model aus dem Body gewinnen sonst gegen das Tile
     model_id: int | None = None
     base: str | None = None
     api_key: str | None = None
+    model: str | None = Field(default=None, max_length=200)
 
 
 class VoiceTTSRequest(BaseModel):

@@ -85,7 +85,8 @@ async def test_connection(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     api_key = body.api_key or (model.api_key if model else "") or config.default_api_key
-    ok, detail = await check_llm_connection(base, api_key)
+    model_name = body.model or (model.model if model else "") or config.default_model
+    ok, detail = await check_llm_connection(base, api_key, model_name)
     return {"ok": ok, "detail": detail}
 
 
