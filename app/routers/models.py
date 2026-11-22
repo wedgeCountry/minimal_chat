@@ -85,7 +85,9 @@ async def test_connection(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     api_key = body.api_key or (model.api_key if model else "") or config.default_api_key
-    model_name = body.model or (model.model if model else "") or config.default_model
+    # Modell-Verfuegbarkeit wird nur geprueft, wenn der Client explizit ein Modell sendet
+    # (leeres Feld im Modal = nur Erreichbarkeit testen + models-Liste fuer das Dropdown)
+    model_name = body.model or ""
     ok, detail, offered = await check_llm_connection(base, api_key, model_name)
     # offered: Modell-Liste aus GET /models (Client baut daraus bei leerem Modell-Feld ein Dropdown)
     return {"ok": ok, "detail": detail, "models": offered}

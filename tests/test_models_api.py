@@ -259,7 +259,7 @@ def test_connection_test_model_available(client, auth_headers, monkeypatch):
 
     _mock_llm_models(monkeypatch, handler)
     m = _create_model(client, auth_headers, model="gpt-x")
-    res = client.post("/api/settings/models/test", json={"model_id": m["id"]}, headers=auth_headers)
+    res = client.post("/api/settings/models/test", json={"model_id": m["id"], "model": "gpt-x"}, headers=auth_headers)
     assert res.json()["ok"] is True
     assert "gpt-x" in res.json()["detail"] and "verfügbar" in res.json()["detail"]
     # die Modell-Liste kommt mit -> Client kann bei leerem Modell-Feld ein Dropdown bauen
@@ -274,7 +274,8 @@ def test_connection_test_model_not_offered_is_differentiated(client, auth_header
 
     _mock_llm_models(monkeypatch, handler)
     m = _create_model(client, auth_headers, model="gpt-x")
-    res = client.post("/api/settings/models/test", json={"model_id": m["id"]}, headers=auth_headers)
+    # explizit gesendetes Modell fehlt in /models -> eigene Meldung
+    res = client.post("/api/settings/models/test", json={"model_id": m["id"], "model": "gpt-x"}, headers=auth_headers)
     body = res.json()
     assert body["ok"] is False
     assert "nicht verfügbar" in body["detail"] and "gpt-x" in body["detail"]
@@ -282,19 +283,48 @@ def test_connection_test_model_not_offered_is_differentiated(client, auth_header
     assert body["models"] == ["anderes-modell"]
 
 
-def test_connection_test_body_model_overrides_tile(client, auth_headers, monkeypatch):
-    seen = {}
+def test_connection_test_without_model_only_checks_reachability(client, auth_headers, monkeypatch):
+    """Leeres Modell (kein body.model): kein Modell-Fehler, egal was /models meldet -
+    die Liste kommt als models zurueck (Dropdown im Modal)."""
 
     def handler(request: httpx.Request) -> httpx.Response:
-        seen["models"] = True
+        return httpx.Response(200, json={"data": [{"id": "nur-dieses"}]})
+
+    _mock_llm_models(monkeypatch, handler)
+    # weder model_id noch body.model (neues Tile, Feld leer)
+    res = client.post("/api/settings/models/test", json={}, headers=auth_headers)
+    body = res.json()
+    assert body["ok"] is True
+    assert "nicht verfügbar" not in body["detail"]
+    assert body["models"] == ["nur-dieses"]
+
+    # vorhandenes Tile ohne body.model: ebenfalls nur Erreichbarkeit + Tile-Verbindungsdaten
+    m = _create_model(client, auth_headers, model="gpt-x")
+    seen = {}
+
+    def handler2(request: httpx.Request) -> httpx.Response:
+        seen["url"] = str(request.url)
+        seen["auth"] = request.headers.get("authorization")
+        return httpx.Response(200, json={"data": [{"id": "nur-dieses"}]})
+
+    _mock_llm_models(monkeypatch, handler2)
+    res = client.post("/api/settings/models/test", json={"model_id": m["id"]}, headers=auth_headers)
+    assert res.json()["ok"] is True
+    assert res.json()["models"] == ["nur-dieses"]
+    assert seen["url"] == "http://192.168.1.10:8000/v1/models"
+    assert seen["auth"] == "Bearer " + "test-api-key"
+
+
+def test_connection_test_body_model_is_validated_against_list(client, auth_headers, monkeypatch):
+    def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(200, json={"data": [{"id": "nur-dieses"}]})
 
     _mock_llm_models(monkeypatch, handler)
     m = _create_model(client, auth_headers, model="gpt-x")
-    # Body-Modell gewinnt gegen das Tile-Modell
+    # explizit gesendetes Modell wird geprueft
     res = client.post(
         "/api/settings/models/test", json={"model_id": m["id"], "model": "nur-dieses"}, headers=auth_headers
     )
     assert res.json()["ok"] is True
-    res = client.post("/api/settings/models/test", json={"model_id": m["id"]}, headers=auth_headers)
-    assert res.json()["ok"] is False and "gpt-x" in res.json()["detail"]
+    res = client.post("/api/settings/models/test", json={"model_id": m["id"], "model": "gpt-x"}, headers=auth_headers)
+    assert res.json()["ok"] is False and "nicht verfügbar" in res.json()["detail"]
