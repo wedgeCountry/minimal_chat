@@ -59,6 +59,12 @@ class SessionDetail(SessionOut):
     settings: SessionSettingsOut = Field(default_factory=SessionSettingsOut)
 
 
+class VisitIn(BaseModel):
+    """Serverseitig gemerkter Seitenaufruf (z. B. In-App-View "/#s/<id>" der SPA)."""
+
+    path: str = Field(min_length=1, max_length=2048)
+
+
 class SettingsIn(BaseModel):
     # default_model_id zeigt auf ein llm_models-Tile (String wie im key/value-Speicher)
     default_model_id: str | None = Field(default=None, max_length=20)

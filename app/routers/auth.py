@@ -6,12 +6,16 @@ from fastapi.responses import JSONResponse
 from ..auth import clear_auth_cookie
 from ..deps import get_current_user
 from ..types import UserIdentity
+from ..visit_stack import session_key
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 
 @router.post("/logout")
 def logout(request: Request) -> Response:
+    key = session_key(request)
+    if key is not None:
+        request.app.state.visit_stacks.drop(key)
     resp = JSONResponse({"ok": True})
     clear_auth_cookie(resp, request.app)
     return resp

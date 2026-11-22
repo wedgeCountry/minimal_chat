@@ -1,6 +1,7 @@
 import { api } from "./api.js";
-import { state, activeSession, normalizeMessages } from "./state.js";
+import { state, activeSession, normalizeMessages, setActiveId } from "./state.js";
 import { $ } from "./util.js";
+import { initViewHistory, pushView, replaceView, sessionIdFromPath } from "./visits.js";
 import { goToLogin } from "./auth.js";
 import { loadSessions, renderSessions, newSession } from "./sessions.js";
 import { abortStream, initBubbleMenu, pollOnce, renderChatView, renderHeader, send, setStreamingUI, syncAllBubbleTts } from "./chat.js";
@@ -15,15 +16,13 @@ import { onMicClick } from "./recorder.js";
 import { initPartials } from "./html.js";
 import { initGlobalErrorHandling } from "./errors.js";
 import { initViewportSync } from "./viewport.js";
+import { setSideHidden, initSidePanelHistory } from "./sidePanel.js";
 
 let autoLoginEnabled = false;
 
 function applyAutoLoginUI() {
   if (!autoLoginEnabled) return;
   document.documentElement.classList.add("auto-login");
-}
-function setSideHidden(hidden) {
-  $("side").classList.toggle("hidden", hidden);
 }
 
 export function isMobileInput() {
@@ -112,7 +111,12 @@ async function bootstrap() {
   // serverseitig laufende Generierung (z. B. nach Reload) -> Abbrechen-Button statt Senden
   setStreamingUI(!!activeSession()?.generating);
   if (state.sessions.length === 0) await newSession(true);
-  $("side").classList.add("hidden");
+  // View aus dem URL-Pfad wiederherstellen (z. B. nach 303-Redirect vom
+  // Visit-Stack auf /s/<id>) und als aktuellen History-Eintrag setzen
+  const pathId = sessionIdFromPath(location.pathname);
+  if (pathId && state.sessions.some((s) => s.id === pathId)) setActiveId(pathId);
+  replaceView();
+  setSideHidden(true);
   renderAll();
   // Falls serverseitig noch eine Generierung laeuft (z.B. nach App-Neustart
   // oder Wechsel aus einer anderen App): sofort synchronisieren und polln.
@@ -123,6 +127,7 @@ function initEvents() {
   initConfirm();
   initSessionSettings();
   $("panelBtn").onclick = () => setSideHidden(!$("side").classList.contains("hidden"));
+  initSidePanelHistory();
   $("burgerBtn").onclick = (e) => {
     e.stopPropagation();
     $("burgerMenu").classList.toggle("open");
@@ -194,8 +199,8 @@ function initEvents() {
   window.addEventListener("resize", syncInputSize);
   syncInputSize();
   if (mobile) {
-    $("composerWrap").addEventListener("pointerdown", () => $("side").classList.add("hidden"));
-    $("chat").addEventListener("pointerdown", () => $("side").classList.add("hidden"));
+    $("composerWrap").addEventListener("pointerdown", () => setSideHidden(true));
+    $("chat").addEventListener("pointerdown", () => setSideHidden(true));
   }
 
   $("micBtn").onclick = () => onMicClick(input);
@@ -210,8 +215,12 @@ function initEvents() {
     syncAllBubbleTts();
   });
   document.addEventListener("leanchat:session-selected", () => {
-    if (isMobileInput()) $("side").classList.add("hidden");
+    // Panel nur per Klasse schliessen (kein history.back(): das wuerde mit dem
+    // pushView() unten racen und die URL zuruecksetzen), dann View pushen.
+    if (isMobileInput()) setSideHidden(true, false);
+    pushView();
   });
+  initViewHistory();
   document.addEventListener("leanchat:unauthorized", () => goToLogin());
   // Zurueck aus dem Hintergrund: Server-Stand sofort abrufen, damit eine
   // laufende Generierung (Progress-Bar, neue Bubbles) direkt sichtbar ist.
