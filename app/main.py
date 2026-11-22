@@ -13,7 +13,7 @@ from .auth import init_auth
 from .config import LOOPBACK_HOSTS, AppConfig, bootstrap_env, load_config
 from .db.database import Database
 from .deps import get_session_email
-from .routers import auth, chat, log, meta, sessions, settings, voice
+from .routers import auth, chat, log, meta, sessions, settings, voice, visits
 from .services.chat import MessageService
 from .services.files import UploadTooLarge
 from .services.store import AttachmentQuotaExceeded, MessageNotFound, SessionNotFound, SqliteUserStore
@@ -131,6 +131,7 @@ def create_app(
     app.include_router(log.router)
     app.include_router(meta.router)
     app.include_router(voice.router)
+    app.include_router(visits.router)
 
     @app.get("/", include_in_schema=False)
     def root(request: Request) -> Response:

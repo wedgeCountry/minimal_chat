@@ -132,3 +132,36 @@ def test_stack_size_limit_from_config(tmp_path):
     c.get("/", headers=HTML)
     stack = next(iter(app.state.visit_stacks._stacks.values()))
     assert stack.maxlen == 2
+
+
+def test_visits_api_requires_auth(client):
+    assert client.post("/api/visits", json={"path": "/#s/1"}).status_code == 401
+
+
+def test_visits_api_records_in_app_view_and_redirect_uses_it(tmp_path):
+    c, app = _logged_in(tmp_path)
+    c.get("/", headers=HTML)
+    res = c.post("/api/visits", json={"path": "/#s/42"})
+    assert res.status_code == 200
+    res = c.get("/auth/login", headers=HTML, follow_redirects=False)
+    assert res.status_code == 303
+    assert res.headers["location"] == "/#s/42"
+
+
+def test_visits_api_rejects_non_local_paths(tmp_path):
+    c, app = _logged_in(tmp_path)
+    for bad in ("//evil.example", "https://evil.example", "relativ", "\\\\evil"):
+        res = c.post("/api/visits", json={"path": bad})
+        assert res.status_code == 422, bad
+    assert len(app.state.visit_stacks) == 0
+
+
+def test_visits_api_respects_stack_limit(tmp_path):
+    c, app = _logged_in(tmp_path, visit_stack_size=2)
+    c.get("/", headers=HTML)
+    for i in (1, 2, 3):
+        assert c.post("/api/visits", json={"path": f"/#s/{i}"}).status_code == 200
+    stack = next(iter(app.state.visit_stacks._stacks.values()))
+    assert list(stack) == ["/#s/2", "/#s/3"]
+    res = c.get("/auth/login", headers=HTML, follow_redirects=False)
+    assert res.headers["location"] == "/#s/3"
