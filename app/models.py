@@ -55,6 +55,12 @@ class SessionDetail(SessionOut):
     settings: SessionSettingsOut = Field(default_factory=SessionSettingsOut)
 
 
+class VisitIn(BaseModel):
+    """Serverseitig gemerkter Seitenaufruf (z. B. In-App-View "/#s/<id>" der SPA)."""
+
+    path: str = Field(min_length=1, max_length=2048)
+
+
 class SettingsIn(BaseModel):
     base: str | None = None
     host: str | None = None

@@ -13,11 +13,12 @@ from .auth import init_auth
 from .config import LOOPBACK_HOSTS, AppConfig, bootstrap_env, load_config
 from .db.database import Database
 from .deps import get_session_email
-from .routers import auth, chat, log, meta, sessions, settings, voice
+from .routers import auth, chat, log, meta, sessions, settings, voice, visits
 from .services.chat import MessageService
 from .services.files import UploadTooLarge
 from .services.store import AttachmentQuotaExceeded, MessageNotFound, SessionNotFound, SqliteUserStore
 from .services.voice import VoiceServiceUnavailable, VoiceUpstreamError
+from .visit_stack import VisitStackMiddleware, VisitStackStore
 
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
 
@@ -58,6 +59,11 @@ def create_app(
     app.state.store = SqliteUserStore(app.state.db)
     app.state.message_service = MessageService(app.state.store, hot_ttl_s=cfg.hot_session_ttl_s)
     init_auth(app, cfg)
+    app.state.visit_stacks = VisitStackStore(cfg.visit_stack_size)
+    app.add_middleware(
+        VisitStackMiddleware,
+        non_page_prefixes=("/auth", "/api", "/static", "/css", "/js", "/partials"),
+    )
 
     # Domain-Exceptions zentral an der HTTP-Grenze mappen: Router und Services
     # werfen sie nur, die Status/Detail-Zuordnung lebt genau hier an einer Stelle.
@@ -125,9 +131,21 @@ def create_app(
     app.include_router(log.router)
     app.include_router(meta.router)
     app.include_router(voice.router)
+    app.include_router(visits.router)
 
     @app.get("/", include_in_schema=False)
     def root(request: Request) -> Response:
+        if get_session_email(request) is None:
+            return RedirectResponse("/auth/login", status_code=303)
+        return FileResponse(STATIC_DIR / "index.html")
+
+    @app.get("/s/{sid:path}", include_in_schema=False)
+    def session_page(request: Request, sid: str) -> Response:
+        # SPA-Route: In-App-View einer Session als eigener Pfad (vor dem Static-Mount),
+        # damit die Session-ID in der Browser-URL steht und serverseitig im Visit-Stack
+        # landet. {sid:path} + immer index.html: auch ungueltige/leer IDs sollen per
+        # Refresh die App laden ({"detail":"Not Found"}), nicht 404 — der Client faellt
+        # auf die gespeicherte aktive Session zurueck.
         if get_session_email(request) is None:
             return RedirectResponse("/auth/login", status_code=303)
         return FileResponse(STATIC_DIR / "index.html")

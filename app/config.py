@@ -19,6 +19,7 @@ LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1"}
 DEFAULT_MAX_UPLOAD_BYTES = 20 * 1024 * 1024
 DEFAULT_MAX_USER_STORAGE_BYTES = 512 * 1024 * 1024
 DEFAULT_MAX_REQUEST_BYTES = 25 * 1024 * 1024
+DEFAULT_VISIT_STACK_SIZE = 20
 
 
 def _parse_env_bool(value: str) -> bool:
@@ -67,6 +68,7 @@ class AppConfig(BaseModel):
     max_user_storage_bytes: int = Field(default=DEFAULT_MAX_USER_STORAGE_BYTES, ge=1)
     max_request_bytes: int = Field(default=DEFAULT_MAX_REQUEST_BYTES, ge=1)
     hot_session_ttl_s: float = Field(default=300.0, ge=0)  # In-Memory-Session-State im MessageService
+    visit_stack_size: int = Field(default=DEFAULT_VISIT_STACK_SIZE, ge=1)  # Page-Visit-Stack pro User/Session
 
     @model_validator(mode="after")
     def _loopback_allows_private_llm(self) -> "AppConfig":
@@ -98,6 +100,7 @@ class AppConfig(BaseModel):
             "max_user_storage_bytes": self.max_user_storage_bytes,
             "max_request_bytes": self.max_request_bytes,
             "hot_session_ttl_s": self.hot_session_ttl_s,
+            "visit_stack_size": self.visit_stack_size,
         }
 
     @classmethod
@@ -144,6 +147,7 @@ ENV_FIELD_SPEC: dict[str, tuple[str, Callable[[str], Any]]] = {
     "max_user_storage_bytes": ("LEANCHAT_MAX_USER_STORAGE_BYTES", int),
     "max_request_bytes": ("LEANCHAT_MAX_REQUEST_BYTES", int),
     "hot_session_ttl_s": ("LEANCHAT_HOT_SESSION_TTL_S", float),
+    "visit_stack_size": ("LEANCHAT_VISIT_STACK_SIZE", int),
 }
 
 
