@@ -195,10 +195,25 @@ export function removeLocalMessagesAfter(mid) {
 // Keyed reconciliation: Bubbles werden pro Nachricht wiederverwendet und nur
 // bei Aenderung aktualisiert, statt das gesamte Chat-DOM bei jedem Poll neu zu bauen.
 const bubbleNodes = new Map();
+let bubbleNodesSid = null;
 
 function bubbleKey(m, idx) {
   if (m.id != null) return `msg-${m.id}`;
   return m.role === "system" ? "sys-prompt" : `live-${idx}`;
+}
+
+// Stream-Ende/Typwechsel: der offene Block (id=null, Key live-<idx>) wird persistiert
+// (Key msg-<id>) und seine Bubble dafuer neu gebaut. Ohne Uebernahme faellt der vom
+// Nutzer gewaehlte Expand-Modus auf defaultBubbleMode zurueck. Es gibt hoechstens einen
+// Live-Block, daher genuegt der Abgleich von Rolle+Typ (testbar, nodes als Parameter).
+export function inheritedBubbleMode(nodes, m) {
+  if (!m) return undefined;
+  for (const [key, el] of nodes) {
+    if (!key.startsWith("live-")) continue;
+    const lm = el._msg;
+    if (lm && lm.id == null && lm.role === m.role && lm.type === m.type) return el.dataset.mode;
+  }
+  return undefined;
 }
 
 function updateBubble(b, m, showResend, showEdit) {
@@ -234,6 +249,14 @@ export function scrollChatToBottom() {
 export function renderChat(messages) {
   const chat = $("chat");
   const s = activeSession();
+  // Keys sind pro Session vergeben (msg-<id> startet pro Session bei 1): Bubbles der
+  // alten Session duerfen nach einem Wechsel nicht wiederverwendet werden - auch nicht
+  // deren Expand-Modus. Aus dem Map-Clear allein verschwinden die DOM-Knoten nicht.
+  if (bubbleNodesSid !== (s?.id ?? null)) {
+    for (const el of bubbleNodes.values()) el.remove();
+    bubbleNodes.clear();
+    bubbleNodesSid = s?.id ?? null;
+  }
   if (!s || !messages?.length) {
     lastMessages = [];
     cancelEdit();
@@ -275,7 +298,11 @@ export function renderChat(messages) {
     seen.add(key);
     let b = bubbleNodes.get(key);
     if (!b) {
-      b = bubbleEl(item.m, handlers, { showResend: item.showResend, showEdit: item.showEdit });
+      b = bubbleEl(item.m, handlers, {
+        showResend: item.showResend,
+        showEdit: item.showEdit,
+        mode: inheritedBubbleMode(bubbleNodes, item.m),
+      });
       bubbleNodes.set(key, b);
     } else {
       updateBubble(b, item.m, item.showResend, item.showEdit);

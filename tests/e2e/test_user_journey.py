@@ -1439,6 +1439,55 @@ def test_long_message_bubble_clamp_cycle(page, base_url, llm_expect):
     )
 
 
+def test_expand_mode_survives_stream_completion(page, base_url, llm_expect):
+    """Regression: lange Antwort streamt in Chunks (Mock 'vielechunks'); klappt der Nutzer
+    die Live-Bubble waehrend des Streams auf 'full', darf der Modus nicht auf 'normal'
+    zurueckfallen, sobald der Stream endet und der Poll den persistierten Stand laedt
+    (Key-Wechsel live-<idx> -> msg-<id> baut die Bubble neu)."""
+    if llm_expect["default"] is None:
+        pytest.skip("braucht den Mock-LLM (lange Antwort in Chunks)")
+    email = "expand-stream-user@example.com"
+    api_client = _register_client(base_url, email, "Geheim-123")
+    # Minimalismus aus: der Expand-Button (Chevron im Bubble-Head) ist sonst display:none
+    res = api_client.put("/api/settings", json={"bubbles_minimal": False})
+    assert res.status_code == 200, res.text
+    _login(page, base_url, email, "Geheim-123")
+    _new_named_session(page, api_client)
+    page.wait_for_function("() => !document.documentElement.classList.contains('bubbles-minimal')")
+
+    page.fill(T["chat_input"], "vielechunks")
+    page.click(T["send_btn"])
+    bubble = _bubble("assistant", "message")
+    send_btn = '[data-testid="send-btn"]'
+    # Live-Bubble waehrend des Streams, deren Text in 'normal' gekuerzt ist (>10 Zeilen)
+    page.wait_for_function(
+        f"() => {{ const b = document.querySelector('{bubble}');"
+        f" const body = b && b.querySelector('[data-testid=\"bubble-body\"]');"
+        f" return !!body && body.classList.contains('clamped') && b.getAttribute('data-mode') === 'normal'"
+        f" && document.querySelector('{send_btn}').classList.contains('abort'); }}",
+        timeout=llm_expect["timeout_ms"],
+    )
+    page.locator(f'{bubble} [data-testid="bubble-toggle-btn"]').click()  # normal -> full
+    page.wait_for_function(
+        f"() => document.querySelector('{bubble}').getAttribute('data-mode') === 'full'",
+        timeout=llm_expect["timeout_ms"],
+    )
+
+    # Stream-Ende abwarten (Abort-Button wechselt zurueck auf Senden)
+    page.wait_for_function(
+        f"() => document.querySelectorAll('{bubble}').length === 1"
+        f" && !document.querySelector('{send_btn}').classList.contains('abort')",
+        timeout=llm_expect["timeout_ms"],
+    )
+    # persistierte Bubble (data-msg-id gesetzt = Key msg-<id>, nicht mehr live) behaelt 'full'
+    page.wait_for_function(
+        f"() => {{ const b = document.querySelector('{bubble}');"
+        f" return b && !!b.dataset.msgId && b.getAttribute('data-mode') === 'full'; }}",
+        timeout=llm_expect["timeout_ms"],
+    )
+    assert "Zeile 15" in page.locator(f'{bubble} [data-testid="bubble-body"]').inner_text()
+
+
 def test_collapsed_bubble_caps_single_long_line_at_one_rendered_row(page, base_url, llm_expect):
     """Eine einzige sehr lange (umbrechende) Zeile: im collapsed-Modus genau eine gerenderte GUI-Zeile."""
     if llm_expect["default"] is None:
