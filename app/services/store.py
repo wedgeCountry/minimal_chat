@@ -129,6 +129,7 @@ class UserStoreProtocol(Protocol):
     async def update_session_settings(self, user: UserIdentity, sid: str, values: Mapping[str, str]) -> dict[str, str]: ...
     async def list_llm_models(self, user: UserIdentity) -> list[LlmModel]: ...
     async def get_llm_model(self, user: UserIdentity, model_id: int) -> LlmModel | None: ...
+    async def set_default_model(self, user: UserIdentity, model_id: int) -> dict[str, str]: ...
     async def create_llm_model(self, user: UserIdentity, values: Mapping[str, str]) -> LlmModel: ...
     async def update_llm_model(self, user: UserIdentity, model_id: int, values: Mapping[str, str]) -> LlmModel | None: ...
     async def delete_llm_model(self, user: UserIdentity, model_id: int) -> bool: ...
@@ -329,6 +330,17 @@ class SqliteUserStore(UserStoreProtocol):
 
     async def get_llm_model(self, user: UserIdentity, model_id: int) -> LlmModel | None:
         return await self._run(user, lambda con: (lambda r: _to_llm_model(r) if r else None)(dbq.q_get_llm_model(con, model_id)))
+
+    async def set_default_model(self, user: UserIdentity, model_id: int) -> dict[str, str]:
+        """default_model_id setzen; Validierung (Tile existiert) und Schreiben in einem DB-Oeffnen."""
+
+        def _do(con: sqlite3.Connection) -> dict[str, str]:
+            if not dbq.q_get_llm_model(con, model_id):
+                raise LlmModelNotFound(str(model_id))
+            dbq.q_set_user_setting(con, "default_model_id", str(model_id))
+            return dbq.q_get_user_settings(con)
+
+        return await self._run(user, _do)
 
     async def create_llm_model(self, user: UserIdentity, values: Mapping[str, str]) -> LlmModel:
         def _do(con: sqlite3.Connection) -> LlmModel:

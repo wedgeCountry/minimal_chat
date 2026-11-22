@@ -2,7 +2,7 @@ import { api } from "./api.js";
 import { state } from "./state.js";
 import { $, esc } from "./util.js";
 import { ICONS } from "./icons.js";
-import { confirmModal } from "./confirm.js";
+import { confirmModal, showError } from "./confirm.js";
 
 export function buildBaseUrl(host, port) {
   const h = (host || "").trim();
@@ -58,9 +58,26 @@ export function renderModelTiles() {
   box.appendChild(add);
 }
 
-export async function setDefaultModel(id) {
-  state.settings = { ...state.settings, ...(await api.put("/settings", { default_model_id: String(id) })) };
+// Optimistisch: Tile sofort als Standard markieren, Speichern seriell im Hintergrund;
+// bei Fehler wird der serverseitige Stand neu geladen. (Jeder Settings-Write kostet ein
+// komplettes Entschluesseln/Verschluesseln der per-user DB -> nicht auf den Tap warten.)
+let defaultSaveChain = Promise.resolve();
+
+export function setDefaultModel(id) {
+  state.settings.default_model_id = String(id);
   renderModelTiles();
+  defaultSaveChain = defaultSaveChain
+    .then(async () => {
+      const res = await api.put("/settings", { default_model_id: String(id) });
+      state.settings = { ...state.settings, ...res };
+    })
+    .catch(async () => {
+      showError("Standard-Modell konnte nicht gespeichert werden – Stand wird neu geladen");
+      try {
+        state.settings = { ...state.settings, ...(await api.get("/settings")) };
+      } catch {}
+    })
+    .finally(() => renderModelTiles());
 }
 
 let editingId = null;

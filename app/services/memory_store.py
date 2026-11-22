@@ -13,6 +13,7 @@ from ..domain import Attachment, AttachmentRef, ChatContext, LlmModel, Message, 
 from ..types import MessageInput, UserIdentity
 from .store import (
     AttachmentQuotaExceeded,
+    LlmModelNotFound,
     MessageNotFound,
     SessionNotFound,
     UserStoreProtocol,
@@ -205,6 +206,11 @@ class InMemoryUserStore(UserStoreProtocol):
     async def get_llm_model(self, user: UserIdentity, model_id: int) -> LlmModel | None:
         m = self._models(user).get(model_id)
         return m.model_copy() if m else None
+
+    async def set_default_model(self, user: UserIdentity, model_id: int) -> dict[str, str]:
+        if await self.get_llm_model(user, model_id) is None:
+            raise LlmModelNotFound(str(model_id))
+        return await self.update_user_settings(user, {"default_model_id": str(model_id)})
 
     async def create_llm_model(self, user: UserIdentity, values: Mapping[str, str]) -> LlmModel:
         uid = self._uid(user)

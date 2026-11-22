@@ -44,6 +44,15 @@ def test_default_model_id_roundtrip_and_validation(client, auth_headers):
     assert client.put("/api/settings", json={"default_model_id": "abc"}, headers=auth_headers).status_code == 422
     assert client.get("/api/settings", headers=auth_headers).json()["default_model_id"] == str(mid)
 
+    # default_model_id und weitere Keys in einem PUT landen gemeinsam
+    res = client.put(
+        "/api/settings", json={"default_model_id": str(mid), "theme": "dark", "system_prompt": "p"}, headers=auth_headers
+    )
+    assert res.status_code == 200
+    assert res.json()["default_model_id"] == str(mid)
+    assert res.json()["theme"] == "dark"
+    assert res.json()["system_prompt"] == "p"
+
 
 def test_boolean_display_settings_roundtrip(client, auth_headers):
     res = client.put(
