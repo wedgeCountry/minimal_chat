@@ -5,9 +5,9 @@
    full = ungekuerzt, compact = komprimiert, selected/deselected = (ab-)gewaehlt).
    ------------------------------------------------------------------ */
 
-#chatWrap{position:relative;flex:1;min-width:0;min-height:0;display:flex}
-#chat{flex:1;min-width:0;overflow-y:auto;padding:52px 14px 18px;display:flex;flex-direction:column;gap:12px;background:var(--chat-bg)}
-#sessionSettingsBtn{position:absolute;top:10px;left:10px;z-index:20;width:32px;height:32px;background:var(--panel);border:1px solid var(--border);border-radius:9px;box-shadow:var(--shadow)}
+#chatWrap{flex:1;min-width:0;min-height:0;display:flex;flex-direction:column}
+#chatHead{flex:none;display:flex;align-items:center;padding:6px 10px;border-bottom:1px solid var(--border);background:var(--panel)}
+#chat{flex:1;min-width:0;overflow-y:auto;padding:18px 14px;display:flex;flex-direction:column;gap:12px;background:var(--chat-bg)}
 .chatEmpty{margin:auto;color:var(--muted);font-size:14px;text-align:center}
 
 .bubble{
