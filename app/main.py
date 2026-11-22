@@ -139,11 +139,13 @@ def create_app(
             return RedirectResponse("/auth/login", status_code=303)
         return FileResponse(STATIC_DIR / "index.html")
 
-    @app.get("/s/{sid}", include_in_schema=False)
+    @app.get("/s/{sid:path}", include_in_schema=False)
     def session_page(request: Request, sid: str) -> Response:
         # SPA-Route: In-App-View einer Session als eigener Pfad (vor dem Static-Mount),
-        # damit die Session-ID in der Browser-URL steht und serverseitig im
-        # Visit-Stack landet (GET /s/<id> wird vom VisitStackMiddleware erfasst).
+        # damit die Session-ID in der Browser-URL steht und serverseitig im Visit-Stack
+        # landet. {sid:path} + immer index.html: auch ungueltige/leer IDs sollen per
+        # Refresh die App laden ({"detail":"Not Found"}), nicht 404 — der Client faellt
+        # auf die gespeicherte aktive Session zurueck.
         if get_session_email(request) is None:
             return RedirectResponse("/auth/login", status_code=303)
         return FileResponse(STATIC_DIR / "index.html")

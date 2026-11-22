@@ -207,7 +207,9 @@ function initEvents() {
     syncAllBubbleTts();
   });
   document.addEventListener("leanchat:session-selected", () => {
-    if (isMobileInput()) setSideHidden(true);
+    // Panel nur per Klasse schliessen (kein history.back(): das wuerde mit dem
+    // pushView() unten racen und die URL zuruecksetzen), dann View pushen.
+    if (isMobileInput()) setSideHidden(true, false);
     pushView();
   });
   initViewHistory();

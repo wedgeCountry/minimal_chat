@@ -165,6 +165,16 @@ def test_session_page_route_anonymous_redirects_to_login(client):
     assert res.headers["location"] == "/auth/login"
 
 
+def test_session_page_route_serves_app_for_any_s_path(tmp_path):
+    # Refresh darf nie 404 liefern ("Detail not found"): auch ungueltige IDs laden
+    # die SPA, der Client faellt auf die gespeicherte aktive Session zurueck.
+    c, app = _logged_in(tmp_path)
+    for path in ("/s/", "/s/unknown-id", "/s/a/b", "/s/42/"):
+        res = c.get(path, headers=HTML)
+        assert res.status_code == 200, path
+        assert "text/html" in res.headers["content-type"]
+
+
 def test_visits_api_rejects_non_local_paths(tmp_path):
     c, app = _logged_in(tmp_path)
     for bad in ("//evil.example", "https://evil.example", "relativ", "\\\\evil"):

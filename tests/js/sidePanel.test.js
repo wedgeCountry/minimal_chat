@@ -41,6 +41,7 @@ function stubHistoryAndWindow() {
       (listeners[ev] ||= []).push(fn);
     },
   };
+  globalThis.location = { pathname: "/", search: "", hash: "" };
   return {
     calls,
     fire: (ev) => (listeners[ev] || []).forEach((fn) => fn({})),
@@ -94,5 +95,14 @@ test("initiales Ausblenden pusht keinen Eintrag", () => {
   setSideHidden(true);
   assert.equal(side.classList.contains("hidden"), true);
   assert.equal(calls.push.length, 0);
+  assert.equal(calls.back, 0);
+});
+
+test("setSideHidden(true, false) schliesst ohne history.back (kein Race mit anschliessendem pushState)", () => {
+  const side = stubSide();
+  const { calls } = stubHistoryAndWindow();
+  setSideHidden(false);
+  setSideHidden(true, false);
+  assert.equal(side.classList.contains("hidden"), true);
   assert.equal(calls.back, 0);
 });
