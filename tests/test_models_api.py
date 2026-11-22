@@ -248,7 +248,7 @@ def test_connection_test_other_http_error_keeps_status(client, auth_headers, mon
 
     _mock_llm_models(monkeypatch, handler)
     res = client.post("/api/settings/models/test", json={}, headers=auth_headers)
-    assert res.json() == {"ok": False, "detail": "http://llm.test/v1/models -> HTTP 500"}
+    assert res.json() == {"ok": False, "detail": "http://llm.test/v1/models -> HTTP 500", "models": []}
 
 
 def test_connection_test_model_available(client, auth_headers, monkeypatch):
@@ -262,6 +262,8 @@ def test_connection_test_model_available(client, auth_headers, monkeypatch):
     res = client.post("/api/settings/models/test", json={"model_id": m["id"]}, headers=auth_headers)
     assert res.json()["ok"] is True
     assert "gpt-x" in res.json()["detail"] and "verfügbar" in res.json()["detail"]
+    # die Modell-Liste kommt mit -> Client kann bei leerem Modell-Feld ein Dropdown bauen
+    assert res.json()["models"] == ["gpt-x", "gpt-y"]
 
 
 def test_connection_test_model_not_offered_is_differentiated(client, auth_headers, monkeypatch):
@@ -277,6 +279,7 @@ def test_connection_test_model_not_offered_is_differentiated(client, auth_header
     assert body["ok"] is False
     assert "nicht verfügbar" in body["detail"] and "gpt-x" in body["detail"]
     assert "anderes-modell" in body["detail"]  # angebotene Modelle als Hinweis
+    assert body["models"] == ["anderes-modell"]
 
 
 def test_connection_test_body_model_overrides_tile(client, auth_headers, monkeypatch):

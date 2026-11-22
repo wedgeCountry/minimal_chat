@@ -82,6 +82,33 @@ export function setDefaultModel(id) {
 
 let editingId = null;
 
+// Modell-Feld als Dropdown mit den vom Server gemeldeten Modellen (gleiche id -> Save/Test lesen unveraendert)
+export function ensureModelSelect(options) {
+  const cur = $("modelModel");
+  const sel = document.createElement("select");
+  sel.id = "modelModel";
+  sel.dataset.testid = "model-model-select";
+  for (const id of options) {
+    const o = document.createElement("option");
+    o.value = id;
+    o.textContent = id;
+    sel.appendChild(o);
+  }
+  if (cur.value) sel.value = cur.value;
+  cur.replaceWith(sel);
+}
+
+function ensureModelInput() {
+  const cur = $("modelModel");
+  if (cur.tagName === "SELECT") {
+    const inp = document.createElement("input");
+    inp.id = "modelModel";
+    inp.dataset.testid = "model-model";
+    inp.placeholder = "gpt-4o-mini";
+    cur.replaceWith(inp);
+  }
+}
+
 export function openModelModal(model) {
   editingId = model ? model.id : null;
   $("modelTitle").textContent = model ? "Modell bearbeiten" : "Neues Modell";
@@ -91,6 +118,7 @@ export function openModelModal(model) {
   $("modelBase").value = model ? buildBaseUrl(model.host, model.port) || model.base : "";
   // api_key ist write-only: Feld bleibt leer, nur ein neuer Eintrag wird gespeichert
   $("modelKey").value = "";
+  ensureModelInput();
   $("modelModel").value = model?.model || "";
   $("modelDelete").hidden = !model;
   const status = $("modelConnStatus");
@@ -167,6 +195,8 @@ export function initModels() {
         // res.detail ist self-beschreibend (z. B. "Modell „x“ verfügbar")
         status.textContent = "Erreichbar ✓" + (res.detail ? " – " + res.detail : "");
         status.classList.add("ok");
+        // leeres Modell-Feld + Server hat Modelle gemeldet -> Feld wird zum Dropdown
+        if (!$("modelModel").value.trim() && Array.isArray(res.models) && res.models.length) ensureModelSelect(res.models);
       } else {
         status.textContent = res.detail || "Nicht erreichbar: unbekannter Fehler";
         status.classList.add("err");
