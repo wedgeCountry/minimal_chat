@@ -698,3 +698,133 @@ test("send(): zweiter Aufruf waehrend des ersten (Doppel-Tap / Enter nach Browse
     state.pendingAttachments = savedPending;
   }
 });
+
+// --- send(): optimistisches UI ---
+
+function installSendHarness(fetchImpl) {
+  const savedDoc = globalThis.document;
+  const savedFetch = globalThis.fetch;
+  const savedEventSource = globalThis.EventSource;
+  const savedSettings = state.settings;
+  const savedSessions = state.sessions;
+  const savedActiveId = state.activeId;
+  const savedStreaming = state.streaming;
+  const savedMessages = state.messages;
+  const savedPending = state.pendingAttachments;
+
+  const input = fakeNode();
+  const elements = {
+    input,
+    attachments: fakeNode(),
+    chat: fakeNode(),
+    sendBtn: fakeNode(),
+    progress: fakeNode(),
+    abortBtnSide: fakeNode(),
+  };
+  globalThis.document = {
+    getElementById: (id) => elements[id] ?? null,
+    createElement: () => fakeNode(),
+    querySelector: () => null,
+    querySelectorAll: () => [],
+    addEventListener: () => {},
+    dispatchEvent: () => {},
+  };
+  globalThis.EventSource = class {
+    close() {}
+  };
+  globalThis.fetch = fetchImpl;
+
+  const session = { id: "s1", name: "S", generating: false, ts: 1 };
+  state.settings = { ...savedSettings, system_prompt: "" };
+  state.sessions = [session];
+  state.activeId = "s1";
+  state.streaming = false;
+  state.messages = [];
+  state.pendingAttachments = [];
+
+  return {
+    input,
+    elements,
+    session,
+    restore() {
+      stopPolling();
+      if (savedDoc === undefined) delete globalThis.document;
+      else globalThis.document = savedDoc;
+      if (savedFetch === undefined) delete globalThis.fetch;
+      else globalThis.fetch = savedFetch;
+      if (savedEventSource === undefined) delete globalThis.EventSource;
+      else globalThis.EventSource = savedEventSource;
+      state.settings = savedSettings;
+      state.sessions = savedSessions;
+      state.activeId = savedActiveId;
+      state.streaming = savedStreaming;
+      state.messages = savedMessages;
+      state.pendingAttachments = savedPending;
+    },
+  };
+}
+
+test("send(): optimistisch - Composer wird sofort geleert und die Nachricht erscheint lokal, bevor der Server antwortet", async () => {
+  const created = { id: 1, role: "user", type: "message", text: "Hallo Welt", in_context: true, ts: 1000 };
+  const messagePosts = [];
+  const calls = [];
+  let release;
+  const gate = new Promise((r) => (release = r));
+  const h = installSendHarness(async (url, opts = {}) => {
+    calls.push((opts.method ? opts.method + " " : "") + url);
+    if (opts.method === "POST" && url === "/api/sessions/s1/messages") {
+      messagePosts.push(JSON.parse(opts.body));
+      await gate; // Versand bleibt im Flug (langsames Netz)
+      return { ok: true, status: 201, json: async () => created, text: async () => "" };
+    }
+    if (url === "/api/sessions") return { ok: true, status: 200, json: async () => [h.session], text: async () => "" };
+    if (url === "/api/sessions/s1")
+      return { ok: true, status: 200, json: async () => ({ id: "s1", messages: [created] }), text: async () => "" };
+    if (opts.method === "POST" && url === "/api/chat")
+      return { ok: true, status: 202, json: async () => ({ status: "started" }), text: async () => "" };
+    throw new Error("unerwarteter fetch: " + (opts.method ? opts.method + " " : "") + url);
+  });
+  h.input.value = "Hallo Welt";
+  try {
+    const p = send();
+    await new Promise((r) => setTimeout(r, 0)); // bis zum messages-POST durchlaufen lassen
+    assert.equal(h.input.value, "", "Composer ist sofort geleert, noch waehrend der POST haengt");
+    assert.equal(messagePosts.length, 1);
+    const local = state.messages.find((m) => m.text === "Hallo Welt");
+    assert.ok(local, "optimistische Nachricht ist lokal sichtbar, bevor der Server antwortet");
+    assert.equal(local.id, null);
+    assert.equal(local.role, "user");
+    release();
+    await p;
+    const matches = state.messages.filter((m) => m.text === "Hallo Welt");
+    assert.equal(matches.length, 1, "keine Doppel-Bubble nach der Server-Antwort");
+    assert.equal(matches[0].id, 1, "optimistische Live-Message wurde durch die persistierte ersetzt");
+    assert.ok(calls.includes("POST /api/chat"), "Generierung wurde angestossen");
+    assert.ok(calls.some((c) => c.endsWith("/api/sessions")), "Session-Liste wurde neu geladen");
+  } finally {
+    h.restore();
+  }
+});
+
+test("send(): Rollback bei Server-Fehler - Text und Anhaenge landen zurueck im Composer, lokale Bubble verschwindet", async () => {
+  const h = installSendHarness(async (url, opts = {}) => {
+    if (opts.method === "POST" && url === "/api/sessions/s1/attachments")
+      return { ok: true, status: 201, json: async () => ({ id: 7, name: "a.txt", mime: "text/plain", kind: "text", size: 2 }), text: async () => "" };
+    if (opts.method === "POST" && url === "/api/sessions/s1/messages")
+      return { ok: false, status: 500, text: async () => "boom" };
+    if (url === "/api/sessions") return { ok: true, status: 200, json: async () => [h.session], text: async () => "" };
+    throw new Error("unerwarteter fetch: " + (opts.method ? opts.method + " " : "") + url);
+  });
+  h.input.value = "Hallo Welt";
+  state.pendingAttachments = [{ name: "a.txt", type: "text/plain", file: new File(["hi"], "a.txt", { type: "text/plain" }) }];
+  try {
+    await assert.rejects(send(), /boom/);
+    assert.equal(h.input.value, "Hallo Welt", "Text landet zurueck in der Chat-Zeile");
+    assert.equal(state.messages.length, 0, "optimistische Bubble wurde entfernt");
+    assert.equal(state.pendingAttachments.length, 1, "Anhang landet zurueck in der Pending-Liste");
+    assert.equal(state.pendingAttachments[0].name, "a.txt");
+    assert.equal(h.elements.attachments.children.length, 1, "Anhang-Chip wird wieder gerendert");
+  } finally {
+    h.restore();
+  }
+});

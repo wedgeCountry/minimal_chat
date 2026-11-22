@@ -5,7 +5,7 @@ import { ICONS } from "./icons.js";
 import { bubbleEl, setBubbleMode, setBubbleText, enterBubbleEdit, exitBubbleEdit, syncBubbleTts, syncBubbleDelete, copyBubbleText } from "./bubbles.js";
 import { nextBubbleMode } from "./bubbleMode.js";
 import { loadSessions, newSession, changed } from "./sessions.js";
-import { uploadPendingAttachments } from "./attachments.js";
+import { uploadPendingAttachments, renderAttachments } from "./attachments.js";
 import { confirmModal } from "./confirm.js";
 import { resolveSystemPrompt } from "./sessionSettings.js";
 import { isBubbleVisible, isDuplicateSystemPrompt, isToolbarMinimal } from "./visibility.js";
@@ -177,6 +177,15 @@ export function applyLocalMessage(m) {
   };
   state.messages = upsert(state.messages);
   sseState = applyToLiveState(sseState, liveId(), upsert);
+  return n;
+}
+
+// Optimistische Live-Message (id=null) per Referenz entfernen - removeLocalMessage(null)
+// wuerde alle Live-Messages treffen
+function dropLocalMessage(m) {
+  const drop = (list) => list.filter((x) => x !== m);
+  state.messages = drop(state.messages);
+  sseState = applyToLiveState(sseState, liveId(), drop);
 }
 
 export function removeLocalMessage(mid) {
@@ -697,26 +706,55 @@ export async function send() {
     const input = $("input");
     const text = input.value.trim();
     if (!text && !state.pendingAttachments.length) return;
-    let s = activeSession();
-    if (!s) {
-      await newSession(true);
-      s = activeSession();
-    }
-    const attachments = await uploadPendingAttachments(s.id);
-    const created = await api.post(`/sessions/${s.id}/messages`, {
-      role: "user",
-      type: "message",
-      text,
-      in_context: true,
-      attachments,
-    });
-    applyLocalMessage(created);
-    await loadSessions();
+    // Optimistisch: Composer sofort leeren und die eigene Nachricht als Live-Message
+    // (id=null) rendern, statt auf Upload/Persist/POST /chat zu warten; bei Fehler
+    // Rollback (siehe catch unten)
+    const pending = state.pendingAttachments.splice(0);
     input.value = "";
     input.style.height = "auto";
     input.style.overflowY = "hidden";
-    changed();
-    await triggerGeneration(s);
+    renderAttachments();
+    let optimistic = null;
+    try {
+      let s = activeSession();
+      if (!s) {
+        await newSession(true);
+        s = activeSession();
+      }
+      optimistic = applyLocalMessage({
+        id: null,
+        role: "user",
+        type: "message",
+        text,
+        in_context: true,
+        attachments: pending.map((a) => ({ name: a.name, type: a.type })),
+        ts: Date.now(),
+      });
+      renderChatView();
+      scrollChatToBottom();
+      changed();
+      const attachments = await uploadPendingAttachments(s.id, pending);
+      const created = await api.post(`/sessions/${s.id}/messages`, {
+        role: "user",
+        type: "message",
+        text,
+        in_context: true,
+        attachments,
+      });
+      dropLocalMessage(optimistic);
+      applyLocalMessage(created);
+      // Session-Liste (Name/Ts nach dem ersten User-Text) parallel zur Generierung laden
+      loadSessions().then(() => changed()).catch(() => {});
+      await triggerGeneration(s);
+    } catch (err) {
+      if (optimistic) dropLocalMessage(optimistic);
+      state.pendingAttachments.unshift(...pending);
+      renderAttachments();
+      input.value = text;
+      input.dispatchEvent(new Event("input")); // Auto-Grow des Composer neu ausloesen
+      renderChatView();
+      throw err;
+    }
   } finally {
     sending = false;
   }
