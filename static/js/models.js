@@ -45,7 +45,8 @@ export function renderModelTiles() {
       e.stopPropagation();
       setDefaultModel(m.id);
     });
-    t.onclick = () => openModelModal(m);
+    // Klick/Tap auf das Tile setzt es als Standard; bearbeiten nur ueber den Stift-Button
+    t.onclick = () => setDefaultModel(m.id);
     box.appendChild(t);
   }
   const add = document.createElement("div");
