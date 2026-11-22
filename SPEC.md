@@ -49,6 +49,11 @@ Eine schlanke, eigenständige Chat-Oberfläche für OpenAI-kompatible Endpunkte.
   - **X-Symbol** (ersetzt Senden-Button während des Streamings): aktuelle Generierung abbrechen
 - Zusammenspiel Sprache (STT/TTS): Läuft die Wiedergabe (Speaker-Button einer Bubble), wird eine Aufnahme unterdrückt; startet die Wiedergabe während einer Aufnahme, stoppt die Aufnahme (Puffer wird verworfen); **Senden** stoppt die Aufnahme, leert die Chat-Zeile und verwirft den Aufnahme-Puffer; erneuter Klick auf den Speaker-Button stoppt die Wiedergabe
 
+### 2.4 Embed-Modus
+
+- `?embed=1` an `/` oder `/s/<id>`: Klasse `embed` auf `<html>` blendet Header und Side-Panel aus (`static/js/embed.js`, `static/css/base.css`) – nur Hauptpanel (Chat) und Composer bleiben sichtbar, für die Einbettung in andere Apps (WebView/iframe)
+- Serverseitig gilt für diese App-Seiten kein `X-Frame-Options: DENY`, CSP mit `frame-ancestors *` (`app/main.py`); `/api/*` und `/auth/*` bleiben unverändert DENY
+
 ## 3. Message-Bubbles
 
 Eigenschaften je Bubble:
