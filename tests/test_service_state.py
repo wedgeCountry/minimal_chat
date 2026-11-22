@@ -19,10 +19,12 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 
 import pytest
 
 from app.auth import user_identity
+from app.config import AppConfig
 from app.models import MessageIn, MessagePatch
 from app.services.chat import MessageService
 from app.services.memory_store import InMemoryUserStore
@@ -42,8 +44,22 @@ def store():
 
 
 @pytest.fixture()
-def svc(store):
-    return MessageService(store)
+def config(tmp_path):
+    data = tmp_path / "data"
+    return AppConfig(
+        data_dir=data,
+        secret=SECRET,
+        registry_path=data / "user_registry.db",
+        users_dir=data / "users",
+        default_llm_host="llm.test",
+        default_llm_port="",
+        default_api_key="test-api-key",
+    )
+
+
+@pytest.fixture()
+def svc(store, config):
+    return MessageService(store, config=config)
 
 
 def _sse(*deltas) -> str:
@@ -240,5 +256,83 @@ def test_subscriber_queue_bounded_drop_oldest_keeps_done_sentinel(svc, store, us
             drained.append(q.get_nowait())
         assert [e["seq"] for e in drained if e is not None] == [4, 5], "die neuesten state-Events bleiben erhalten"
         assert drained[-1] is None, "done-Sentinel ueberlebt die volle Queue"
+
+    asyncio.run(main())
+
+
+def test_queued_followup_chains_as_next_generation(svc, store, user, monkeypatch):
+    """streaming_behavior=followUp waehrend laufender Generierung: "queued", danach startet
+    automatisch ein zweiter Lauf, dessen frisch aus der DB gebauter Kontext die gequeuete
+    Nachricht enthaelt. Ohne streaming_behavior bleibt es bei "busy"."""
+
+    async def main():
+        sid = (await store.create_session(user, "Queue-Test")).id
+        await store.add_message(user, sid, {"role": "user", "type": "message", "text": "eins", "in_context": True})
+        calls: list[list] = []
+        release = asyncio.Event()
+
+        async def fake_stream(base_url, api_key, payload, settings=None, abort=None):
+            calls.append(payload.get("messages", []))
+            if len(calls) == 1:
+                await release.wait()
+            yield _sse({"content": f"Antwort {len(calls)}"})
+
+        monkeypatch.setattr("app.services.chat.stream_completion", fake_stream)
+        payload = {"model": "m", "stream": True, "messages": [{"role": "user", "content": "eins"}]}
+        assert await svc.start_generation(user, sid, "http://llm.test/v1", "k", payload) == "ok"
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline and len(calls) < 1:
+            await asyncio.sleep(0.01)
+        assert len(calls) == 1, "erster Lauf laeuft"
+        assert await svc.start_generation(user, sid, "http://llm.test/v1", "k", payload) == "busy"
+        await store.add_message(user, sid, {"role": "user", "type": "message", "text": "zwei", "in_context": True})
+        assert await svc.start_generation(user, sid, "http://llm.test/v1", "k", payload, streaming_behavior="followUp") == "queued"
+        release.set()
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline and (len(calls) < 2 or (await store.get_session(user, sid)).generating):
+            await asyncio.sleep(0.02)
+        assert len(calls) == 2, "gequeuete Nachricht startet einen zweiten Lauf"
+        contents = [m.get("content") for m in calls[1]]
+        assert "eins" in contents and "zwei" in contents, "zweiter Lauf baut den Kontext frisch aus der DB (inkl. gequeueter Nachricht)"
+        detail = await store.get_session_detail(user, sid)
+        texts = [m.text for m in detail[1]]
+        assert "Antwort 1" in texts and "Antwort 2" in texts
+
+    asyncio.run(main())
+
+
+def test_queued_steer_aborts_running_generation_before_chaining(svc, store, user, monkeypatch):
+    """streaming_behavior=steer setzt das Abort-Event des laufenden Laufs; die Kette startet
+    danach mit der neuen Nachricht im Kontext."""
+
+    async def main():
+        sid = (await store.create_session(user, "Steer-Test")).id
+        await store.add_message(user, sid, {"role": "user", "type": "message", "text": "eins", "in_context": True})
+        calls: list[list] = []
+        aborted: list[bool] = []
+
+        async def fake_stream(base_url, api_key, payload, settings=None, abort=None):
+            calls.append(payload.get("messages", []))
+            if len(calls) == 1 and abort is not None:
+                await asyncio.wait_for(abort.wait(), timeout=5)
+                aborted.append(True)
+            yield _sse({"content": f"Antwort {len(calls)}"})
+
+        monkeypatch.setattr("app.services.chat.stream_completion", fake_stream)
+        payload = {"model": "m", "stream": True, "messages": [{"role": "user", "content": "eins"}]}
+        assert await svc.start_generation(user, sid, "http://llm.test/v1", "k", payload) == "ok"
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline and len(calls) < 1:
+            await asyncio.sleep(0.01)
+        assert len(calls) == 1
+        await store.add_message(user, sid, {"role": "user", "type": "message", "text": "zwei", "in_context": True})
+        assert await svc.start_generation(user, sid, "http://llm.test/v1", "k", payload, streaming_behavior="steer") == "queued"
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline and (len(calls) < 2 or (await store.get_session(user, sid)).generating):
+            await asyncio.sleep(0.02)
+        assert aborted == [True], "steer brach den ersten Lauf ab"
+        assert len(calls) == 2
+        contents = [m.get("content") for m in calls[1]]
+        assert "eins" in contents and "zwei" in contents
 
     asyncio.run(main())

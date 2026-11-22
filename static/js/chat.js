@@ -15,10 +15,20 @@ export function setStreamingUI(on) {
   state.streaming = on;
   $("progress").classList.toggle("show", on);
   $("abortBtnSide").classList.toggle("show", on);
+  syncSendBtn();
+}
+
+// Senden-Button im Composer: im Leerlauf Senden; waehrend einer Generierung mit leerem
+// Composer Abbrechen (X), mit Text/Anhang Einreihen (steer/followUp je queue_behavior-Setting)
+export function syncSendBtn() {
   const btn = $("sendBtn");
-  btn.classList.toggle("abort", on);
-  btn.title = on ? "Abbrechen" : "Senden";
-  btn.innerHTML = on ? ICONS.stop : ICONS.send;
+  if (!btn) return;
+  const busy = state.streaming || !!activeSession()?.generating;
+  const hasInput = (($("input")?.value || "").trim().length > 0) || state.pendingAttachments.length > 0;
+  const queueMode = busy && hasInput;
+  btn.classList.toggle("abort", busy && !hasInput);
+  btn.title = !busy ? "Senden" : queueMode ? `Einreihen (${state.settings.queue_behavior === "steer" ? "Steuern" : "Follow-up"})` : "Abbrechen";
+  btn.innerHTML = busy && !hasInput ? ICONS.stop : ICONS.send;
 }
 
 export function abortStream() {
@@ -523,17 +533,22 @@ async function resendMessage(m) {
   await resubmitMessage(s, m.id, m.text || "", m.attachments || []);
   await loadSessions();
   changed();
-  await triggerGeneration(s);
+  await triggerGeneration(s, state.settings.queue_behavior);
 }
 
 // Generierung nach dem Senden/Bearbeiten anstossen (serverseitige Hintergrund-Task).
-async function triggerGeneration(s) {
+// streamingBehavior (steer/followUp) wird mitgesendet: bei laufender Generierung queuet
+// der Server die Nachricht statt 409; der Upstream bekommt es als "streamingBehavior".
+async function triggerGeneration(s, streamingBehavior) {
   renderChat(viewMessages()); // lokal gepflegte History (send/resubmit) direkt rendern
   scrollChatToBottom(); // nach dem Absenden direkt zur neuen Nachricht/Antwort springen
   try {
     // Chat-History baut der Server aus der Session-DB (gueltiges LLM-Format inkl. Tool-Calls);
     // Modell/Verbindung kommen serverseitig aus dem Session-/Standard-Tile
-    await api.post("/chat", { session_id: s.id });
+    await api.post("/chat", {
+      session_id: s.id,
+      ...(streamingBehavior ? { streaming_behavior: streamingBehavior } : {}),
+    });
   } catch (err) {
     if (err.status === 409) {
       // Es laeuft bereits eine Generierung (z. B. Doppel-POST): kein Fehler persistieren,
@@ -572,7 +587,7 @@ async function submitEdit(mid, rawText) {
   cancelEdit();
   await loadSessions();
   changed();
-  await triggerGeneration(s);
+  await triggerGeneration(s, state.settings.queue_behavior);
 }
 
 const handlers = {
@@ -685,10 +700,15 @@ export function stopPolling() {
 let sending = false;
 
 export async function send() {
-  // auch serverseitig laufendes generating (z. B. nach Reload) zeigt Abbrechen statt Senden
+  // Laufende Generierung: leerer Composer + Senden = Abbrechen (X-Verhalten, siehe
+  // abortBtnSide); mit Text/Anhang wird die Nachricht gequeuet (steer/followUp je Setting)
   if (state.streaming || activeSession()?.generating) {
-    abortStream();
-    return;
+    const input = $("input");
+    const text = (input?.value || "").trim();
+    if (!text && !state.pendingAttachments.length) {
+      abortStream();
+      return;
+    }
   }
   if (sending) return;
   sending = true;
@@ -716,9 +736,10 @@ export async function send() {
     input.style.height = "auto";
     input.style.overflowY = "hidden";
     changed();
-    await triggerGeneration(s);
+    await triggerGeneration(s, state.settings.queue_behavior);
   } finally {
     sending = false;
+    syncSendBtn();
   }
 }
 

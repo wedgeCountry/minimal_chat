@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 from collections.abc import AsyncIterator
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -9,11 +8,8 @@ from fastapi.responses import StreamingResponse
 from ..config import AppConfig
 from ..deps import get_config, get_current_user, get_message_service, get_store
 from ..models import ChatAbortRequest, ChatRequest
-from ..services.chat import MessageService
-from ..services.context import build_llm_context
-from ..services.settings import BOOL_SETTINGS, resolve_llm_connection, resolve_system_prompt, stored_bool
+from ..services.chat import MessageService, build_generation_request
 from ..services.sse import sse_event
-from ..services.ssrf import validate_llm_base_url
 from ..services.store import SessionNotFound, UserStoreProtocol
 from ..types import UserIdentity
 
@@ -33,37 +29,38 @@ async def chat(
     Der LLM-Stream wird in den In-Memory-State des Service gelesen (SSE-Quelle fuer
     den Client, siehe GET /stream/{sid}) und blockweise in der per-user DB persistiert;
     der Client pollt zusaetzlich ``GET /api/sessions/{id}``.
+
+    Bei laufender Generierung derselben Session: ohne ``streaming_behavior`` -> 409;
+    mit ``streaming_behavior`` ("followUp"/"steer") -> 202 ``queued``, die Nachricht wird
+    nach der laufenden Generierung als eigener Lauf abgearbeitet (MessageService._settle);
+    "steer" bricht den laufenden Lauf zusaetzlich ab. Das Verhalten wird als
+    ``streamingBehavior`` an den Upstream durchgereicht (Agent-Gateways wie pi-Bridges
+    queuen damit agentenseitig, reine OpenAI-Server ignorieren das Feld).
     """
-    ctx = await store.load_chat_context(user, req.session_id)
-    if ctx is None:
-        raise SessionNotFound(req.session_id)
-    # Effektive LLM-Verbindung: Session-model_id > default_model_id (Tile) > Server-Defaults
-    conn = resolve_llm_connection(ctx.session_settings, ctx.user_settings, ctx.llm_models, config)
-    base_url = conn.base_url
     try:
-        # DNS-Lookup in validate_llm_base_url ist blockierend -> nicht auf dem Event-Loop
-        await asyncio.to_thread(validate_llm_base_url, base_url, config.allow_private_llm)
+        gen_req = await build_generation_request(store, user, req.session_id, config, streaming_behavior=req.streaming_behavior)
     except ValueError as exc:
+        # SSRF-Validierung der LLM-Ziel-URL fehlgeschlagen
         raise HTTPException(status_code=400, detail=str(exc))
-    api_key = conn.api_key
-    flags = {key: stored_bool(ctx.user_settings, key) for key in BOOL_SETTINGS}
-    # Effektiver System-Prompt: nicht-leerer Session-Prompt gewinnt, sonst der globale Settings-Prompt
-    system_prompt = resolve_system_prompt(ctx.session_settings, ctx.user_settings)
-    # Chat-History serverseitig aus der DB bauen (gueltiges Format inkl. Tool-Calls),
-    # nicht aus dem Client-Request uebernehmen
-    llm_ctx = build_llm_context([m.model_dump() for m in ctx.messages], system_prompt=system_prompt, attachments_by_id=ctx.attachments)
-    payload = {
-        "model": conn.model,
-        "stream": True,
-        "messages": llm_ctx.compile(),
-    }
+    if gen_req is None:
+        raise SessionNotFound(req.session_id)
     # generating-Flag atomar unter dem Session-Lock setzen (TOCTOU-frei); ein verwaistes
     # Flag nach Server-Neustart wird im Service geheilt
-    status = await service.start_generation(user, req.session_id, base_url, api_key, payload, flags)
+    status = await service.start_generation(
+        user,
+        req.session_id,
+        gen_req["base_url"],
+        gen_req["api_key"],
+        gen_req["payload"],
+        gen_req["flags"],
+        streaming_behavior=req.streaming_behavior,
+    )
     if status == "missing":
         raise SessionNotFound(req.session_id)
     if status == "busy":
         raise HTTPException(status_code=409, detail="Es laeuft bereits eine Generierung fuer diese Session")
+    if status == "queued":
+        return {"status": "queued", "streaming_behavior": req.streaming_behavior or ""}
     return {"status": "started"}
 
 

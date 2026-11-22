@@ -80,6 +80,7 @@ class SettingsIn(BaseModel):
     show_file_button: bool | None = None
     show_image_button: bool | None = None
     speech_mode: Literal["system", "server", "none"] | None = None
+    queue_behavior: Literal["followUp", "steer"] | None = None
 
 
 class SettingsOut(BaseModel):
@@ -96,6 +97,7 @@ class SettingsOut(BaseModel):
     show_file_button: bool = False
     show_image_button: bool = False
     speech_mode: str = "server"
+    queue_behavior: str = "followUp"
 
 
 class AttachmentOut(BaseModel):
@@ -118,6 +120,11 @@ class ChatRequest(BaseModel):
     stream: bool = True
     # veraltet: die Chat-History wird serverseitig aus der Session-DB gebaut (build_llm_context)
     messages: list[ChatMessage] = Field(default_factory=list, max_length=500)
+    # Verhalten bei laufender Generierung derselben Session: None = 409 (altes Verhalten),
+    # "followUp" = einreihen und nach der laufenden Generierung starten,
+    # "steer" = laufende Generierung abbrechen und sofort neu starten.
+    # Wird als "streamingBehavior" an den Upstream durchgereicht (pi-Agent-Gateways).
+    streaming_behavior: Literal["steer", "followUp"] | None = None
 
 
 class ChatAbortRequest(BaseModel):

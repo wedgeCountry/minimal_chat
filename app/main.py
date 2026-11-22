@@ -57,7 +57,7 @@ def create_app(
     app.state.config = cfg
     app.state.db = Database(cfg.data_dir, cfg.users_dir)
     app.state.store = SqliteUserStore(app.state.db)
-    app.state.message_service = MessageService(app.state.store, hot_ttl_s=cfg.hot_session_ttl_s)
+    app.state.message_service = MessageService(app.state.store, hot_ttl_s=cfg.hot_session_ttl_s, config=cfg)
     init_auth(app, cfg)
     app.state.visit_stacks = VisitStackStore(cfg.visit_stack_size)
     app.add_middleware(

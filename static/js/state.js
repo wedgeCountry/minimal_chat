@@ -19,6 +19,7 @@ export const state = {
     system_prompt: "",
     theme: "light",
     speech_mode: "server",
+    queue_behavior: "followUp",
     ...defaultBoolSettings(),
   },
   streaming: false,

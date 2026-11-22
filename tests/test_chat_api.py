@@ -157,6 +157,160 @@ def test_chat_marks_session_generating_while_running(client, auth_headers, monke
     _wait_generation(client, auth_headers, sid)
 
 
+def test_chat_streaming_behavior_forwarded_to_upstream_payload(client, auth_headers, monkeypatch):
+    """streaming_behavior landet als nicht-standard "streamingBehavior" im Upstream-Body
+    (Agent-Gateways wie pi-Bridges werten es aus; reine OpenAI-Server ignorieren es)."""
+    seen = _mock_llm(monkeypatch)
+    sid = _new_session(client, auth_headers)
+    _post_user_message(client, auth_headers, sid)
+    res = client.post("/api/chat", json={"session_id": sid, "streaming_behavior": "followUp"}, headers=auth_headers)
+    assert res.status_code == 202
+    assert res.json() == {"status": "started"}
+    _wait_generation(client, auth_headers, sid)
+    assert seen["body"].get("streamingBehavior") == "followUp"
+
+
+def test_chat_without_streaming_behavior_sends_no_upstream_field(client, auth_headers, monkeypatch):
+    seen = _mock_llm(monkeypatch)
+    sid = _new_session(client, auth_headers)
+    _post_user_message(client, auth_headers, sid)
+    res = _start_chat(client, auth_headers, sid)
+    assert res.status_code == 202
+    _wait_generation(client, auth_headers, sid)
+    assert "streamingBehavior" not in seen["body"]
+
+
+def _wait_busy(client, auth_headers, sid: str) -> None:
+    deadline = time.time() + 5
+    while time.time() < deadline:
+        s = client.get(f"/api/sessions/{sid}", headers=auth_headers).json()
+        if s["generating"]:
+            return
+        time.sleep(0.05)
+    raise AssertionError("Generierung lief nicht an")
+
+
+def _wait_runs(client, auth_headers, sid: str, runs: list, n: int, timeout: float = 10.0) -> dict:
+    """Pollt, bis n Generierungslaeufe fertig sind und das generating-Flag wieder 0 ist."""
+    deadline = time.time() + timeout
+    last = None
+    while time.time() < deadline:
+        last = client.get(f"/api/sessions/{sid}", headers=auth_headers).json()
+        if len(runs) >= n and not last["generating"]:
+            return last
+        time.sleep(0.05)
+    raise AssertionError(f"{n} Generierungslaeufe wurden nicht fertig (runs={len(runs)}, letzter Stand={last})")
+
+
+def test_chat_followup_queues_while_busy_and_runs_as_next_generation(client, auth_headers, monkeypatch):
+    runs: list[list] = []
+    release = asyncio.Event()
+
+    async def fake_generate(self, user, sid, state, abort, base_url, api_key, payload, settings=None):
+        runs.append(payload.get("messages", []))
+        await self._store.set_generating(user, sid, True)
+        try:
+            if len(runs) == 1:
+                await asyncio.wait_for(release.wait(), timeout=10)
+        finally:
+            await self._store.set_generating(user, sid, False)
+
+    monkeypatch.setattr(MessageService, "_generate", fake_generate)
+    sid = _new_session(client, auth_headers)
+    _post_user_message(client, auth_headers, sid, "Hi")
+
+    res = _start_chat(client, auth_headers, sid)
+    assert res.status_code == 202
+    _wait_busy(client, auth_headers, sid)
+
+    # ohne streaming_behavior bleibt es bei 409
+    assert _start_chat(client, auth_headers, sid).status_code == 409
+
+    # zweite Nachricht persistieren und mit followUp queuen
+    _post_user_message(client, auth_headers, sid, "Follow-up")
+    res = client.post("/api/chat", json={"session_id": sid, "streaming_behavior": "followUp"}, headers=auth_headers)
+    assert res.status_code == 202
+    assert res.json() == {"status": "queued", "streaming_behavior": "followUp"}
+
+    release.set()
+    detail = _wait_runs(client, auth_headers, sid, runs, 2)
+    assert len(runs) == 2, "die gequeuete Nachricht startet nach dem ersten Lauf einen zweiten"
+    contents = [m.get("content") for m in runs[1]]
+    assert "Hi" in contents and "Follow-up" in contents, "zweiter Lauf sieht beide Nachrichten im Kontext"
+    texts = [m["text"] for m in detail["messages"] if m["role"] == "user"]
+    assert texts == ["Hi", "Follow-up"]
+
+
+def test_chat_steer_aborts_running_generation_and_restarts_with_new_message(client, auth_headers, monkeypatch):
+    runs: list[list] = []
+    aborted: list[bool] = []
+
+    async def fake_generate(self, user, sid, state, abort, base_url, api_key, payload, settings=None):
+        runs.append(payload.get("messages", []))
+        await self._store.set_generating(user, sid, True)
+        try:
+            if len(runs) == 1:
+                # erster Lauf wartet, bis der steer-POST das Abort-Event setzt
+                await asyncio.wait_for(abort.wait(), timeout=10)
+                aborted.append(True)
+        finally:
+            await self._store.set_generating(user, sid, False)
+
+    monkeypatch.setattr(MessageService, "_generate", fake_generate)
+    sid = _new_session(client, auth_headers)
+    _post_user_message(client, auth_headers, sid, "Hi")
+    assert _start_chat(client, auth_headers, sid).status_code == 202
+    _wait_busy(client, auth_headers, sid)
+
+    _post_user_message(client, auth_headers, sid, "Stopp, mach stattdessen das")
+    res = client.post("/api/chat", json={"session_id": sid, "streaming_behavior": "steer"}, headers=auth_headers)
+    assert res.status_code == 202
+    assert res.json() == {"status": "queued", "streaming_behavior": "steer"}
+
+    detail = _wait_runs(client, auth_headers, sid, runs, 2)
+    assert aborted == [True], "steer bricht den laufenden Lauf ab"
+    assert len(runs) == 2
+    contents = [m.get("content") for m in runs[1]]
+    assert "Hi" in contents and "Stopp, mach stattdessen das" in contents
+    texts = [m["text"] for m in detail["messages"] if m["role"] == "user"]
+    assert texts == ["Hi", "Stopp, mach stattdessen das"]
+
+
+def test_chat_abort_discards_queued_followup(client, auth_headers, monkeypatch):
+    """Explizites Abbrechen verwirft eine gequeuete Nachricht: kein zweiter Lauf."""
+    runs: list[list] = []
+
+    async def fake_generate(self, user, sid, state, abort, base_url, api_key, payload, settings=None):
+        runs.append(payload.get("messages", []))
+        await self._store.set_generating(user, sid, True)
+        try:
+            if len(runs) == 1:
+                await asyncio.wait_for(abort.wait(), timeout=10)
+        finally:
+            await self._store.set_generating(user, sid, False)
+
+    monkeypatch.setattr(MessageService, "_generate", fake_generate)
+    sid = _new_session(client, auth_headers)
+    _post_user_message(client, auth_headers, sid, "Hi")
+    assert _start_chat(client, auth_headers, sid).status_code == 202
+    _wait_busy(client, auth_headers, sid)
+
+    _post_user_message(client, auth_headers, sid, "Follow-up")
+    res = client.post("/api/chat", json={"session_id": sid, "streaming_behavior": "followUp"}, headers=auth_headers)
+    assert res.status_code == 202
+    res = client.post("/api/chat/abort", json={"session_id": sid}, headers=auth_headers)
+    assert res.status_code == 200
+
+    deadline = time.time() + 5
+    while time.time() < deadline:
+        s = client.get(f"/api/sessions/{sid}", headers=auth_headers).json()
+        if not s["generating"]:
+            break
+        time.sleep(0.05)
+    assert s["generating"] is False
+    assert len(runs) == 1, "nach explizitem Abort startet kein gequeueter Lauf mehr"
+
+
 def test_chat_requires_auth(client):
     res = client.post("/api/chat", json={"session_id": "x", "model": "m", "messages": []})
     assert res.status_code == 401

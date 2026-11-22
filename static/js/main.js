@@ -4,7 +4,7 @@ import { $ } from "./util.js";
 import { initViewHistory, pushView, replaceView, sessionIdFromPath } from "./visits.js";
 import { goToLogin } from "./auth.js";
 import { loadSessions, renderSessions, newSession } from "./sessions.js";
-import { abortStream, initBubbleMenu, pollOnce, renderChatView, renderHeader, send, setStreamingUI, syncAllBubbleTts } from "./chat.js";
+import { abortStream, initBubbleMenu, pollOnce, renderChatView, renderHeader, send, setStreamingUI, syncAllBubbleTts, syncSendBtn } from "./chat.js";
 import { isToolbarMinimal } from "./visibility.js";
 import { addAttachments } from "./attachments.js";
 import { initSettings, loadSettings, openSettings } from "./settings.js";
@@ -196,6 +196,8 @@ function initEvents() {
     updateInputOverflow();
   };
   input.addEventListener("input", syncInputSize);
+  // Tippt der Nutzer waehrend einer Generierung, wechselt Senden zwischen Abbrechen und Einreihen
+  input.addEventListener("input", () => syncSendBtn());
   window.addEventListener("resize", syncInputSize);
   syncInputSize();
   if (mobile) {

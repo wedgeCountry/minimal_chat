@@ -29,7 +29,7 @@ BOOL_SETTINGS: dict[str, bool] = {
 # LLM-Verbindungsdaten liegen nicht mehr als flache Keys hier, sondern in der
 # Tabelle llm_models (siehe LlmModel in app/domain.py); default_model_id zeigt auf
 # das Standard-Tile (user_settings), das neue Sessions ohne eigenes model_id nutzen.
-STRING_SETTING_KEYS: tuple[str, ...] = ("default_model_id", "system_prompt", "theme", "speech_mode")
+STRING_SETTING_KEYS: tuple[str, ...] = ("default_model_id", "system_prompt", "theme", "speech_mode", "queue_behavior")
 # system_prompt darf per leerem String geloescht werden
 CLEARABLE_WITH_EMPTY: frozenset[str] = frozenset({"system_prompt"})
 
@@ -57,11 +57,23 @@ def to_db(value: bool) -> str:
 SPEECH_MODES = ("system", "server", "none")
 DEFAULT_SPEECH_MODE = "server"
 
+# Verhalten, wenn der Nutzer eine Nachricht sendet, waehrend eine Generierung laeuft:
+# "followUp" reiht sie nach der laufenden Generierung ein, "steer" bricht die laufende
+# Generierung ab und startet sofort neu (analog pi-Agent streamingBehavior)
+QUEUE_BEHAVIORS = ("followUp", "steer")
+DEFAULT_QUEUE_BEHAVIOR = "followUp"
+
 
 def stored_speech_mode(stored: dict[str, str]) -> str:
     """Gueltiger Speech-Modus aus den gespeicherten Settings (Default: server)."""
     value = stored.get("speech_mode")
     return value if value in SPEECH_MODES else DEFAULT_SPEECH_MODE
+
+
+def stored_queue_behavior(stored: dict[str, str]) -> str:
+    """Gueltiges Queue-Verhalten aus den gespeicherten Settings (Default: followUp)."""
+    value = stored.get("queue_behavior")
+    return value if value in QUEUE_BEHAVIORS else DEFAULT_QUEUE_BEHAVIOR
 
 
 def base_from_host_port(host: str, port: str) -> str | None:

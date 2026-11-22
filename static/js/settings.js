@@ -2,7 +2,7 @@ import { api } from "./api.js";
 import { state } from "./state.js";
 import { $ } from "./util.js";
 import { applyTheme } from "./theme.js";
-import { BOOL_SETTING_KEYS } from "./settingsKeys.js";
+import { BOOL_SETTING_KEYS, DEFAULT_QUEUE_BEHAVIOR, QUEUE_BEHAVIORS } from "./settingsKeys.js";
 import { SPEECH_MODES, statusLabel, refreshSpeechAvailability } from "./ttsDetectionService.js";
 import { renderModelTiles } from "./models.js";
 
@@ -39,12 +39,31 @@ function syncSpeechModeRadios() {
   });
 }
 
+function selectedQueueBehavior() {
+  const r = document.querySelector('input[name="queueBehavior"]:checked');
+  return r && QUEUE_BEHAVIORS.includes(r.value) ? r.value : DEFAULT_QUEUE_BEHAVIOR;
+}
+
+function normalizedQueueBehavior() {
+  return QUEUE_BEHAVIORS.includes(state.settings.queue_behavior) ? state.settings.queue_behavior : DEFAULT_QUEUE_BEHAVIOR;
+}
+
+function syncQueueBehaviorRadios() {
+  const behavior = normalizedQueueBehavior();
+  document.querySelectorAll('input[name="queueBehavior"]').forEach((r) => {
+    r.checked = r.value === behavior;
+  });
+}
+
 // Stand beim Oeffnen des Overlays; Schliessen ohne Speichern stellt ihn wieder her
 let openedSpeechMode = "server";
+let openedQueueBehavior = DEFAULT_QUEUE_BEHAVIOR;
 
 function closeSettings() {
   state.settings.speech_mode = openedSpeechMode;
   syncSpeechModeRadios();
+  state.settings.queue_behavior = openedQueueBehavior;
+  syncQueueBehaviorRadios();
   document.dispatchEvent(new CustomEvent("leanchat:speech-availability"));
   $("overlay").classList.remove("open");
 }
@@ -77,6 +96,7 @@ export function initSettings() {
       system_prompt: $("setSystemPrompt").value,
       theme: $("setTheme").value,
       speech_mode: selectedSpeechMode(),
+      queue_behavior: selectedQueueBehavior(),
     };
     for (const key of BOOL_SETTING_KEYS) body[key] = $(CHECK_IDS[key]).checked;
     state.settings = { ...state.settings, ...(await api.put("/settings", body)) };
@@ -99,6 +119,8 @@ export function openSettings(tab = "general") {
   for (const key of BOOL_SETTING_KEYS) $(CHECK_IDS[key]).checked = state.settings[key] !== false;
   openedSpeechMode = normalizedSpeechMode();
   syncSpeechModeRadios();
+  openedQueueBehavior = normalizedQueueBehavior();
+  syncQueueBehaviorRadios();
   $("overlay").classList.add("open");
   updateSpeechStatus();
 }

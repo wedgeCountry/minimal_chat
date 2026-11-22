@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from ..deps import get_current_user, get_store
 from ..models import SettingsIn, SettingsOut
-from ..services.settings import BOOL_SETTINGS, CLEARABLE_WITH_EMPTY, STRING_SETTING_KEYS, stored_bool, stored_speech_mode, to_db
+from ..services.settings import BOOL_SETTINGS, CLEARABLE_WITH_EMPTY, STRING_SETTING_KEYS, stored_bool, stored_queue_behavior, stored_speech_mode, to_db
 from ..services.store import LlmModelNotFound, UserStoreProtocol
 from ..types import UserIdentity
 
@@ -17,6 +17,7 @@ def _settings_out(stored: dict[str, str]) -> SettingsOut:
         system_prompt=stored.get("system_prompt") or "",
         theme=stored.get("theme") or "light",
         speech_mode=stored_speech_mode(stored),
+        queue_behavior=stored_queue_behavior(stored),
         **{key: stored_bool(stored, key) for key in BOOL_SETTINGS},
     )
 

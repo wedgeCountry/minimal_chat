@@ -698,3 +698,105 @@ test("send(): zweiter Aufruf waehrend des ersten (Doppel-Tap / Enter nach Browse
     state.pendingAttachments = savedPending;
   }
 });
+
+// --- send() waehrend laufender Generierung: mit Text queuen (steer/followUp), leer = Abbrechen ---
+
+function setupSendWhileBusy({ inputText }) {
+  const saved = {
+    doc: globalThis.document,
+    fetch: globalThis.fetch,
+    eventSource: globalThis.EventSource,
+    settings: state.settings,
+    sessions: state.sessions,
+    activeId: state.activeId,
+    streaming: state.streaming,
+    messages: state.messages,
+    pending: state.pendingAttachments,
+  };
+  const input = fakeNode();
+  input.value = inputText;
+  const elements = { input, attachments: fakeNode(), chat: fakeNode(), sendBtn: fakeNode(), progress: fakeNode(), abortBtnSide: fakeNode() };
+  globalThis.document = {
+    getElementById: (id) => elements[id] ?? null,
+    createElement: () => fakeNode(),
+    querySelector: () => null,
+    querySelectorAll: () => [],
+    addEventListener: () => {},
+    dispatchEvent: () => {},
+  };
+  globalThis.EventSource = class {
+    close() {}
+  };
+  const session = { id: "s1", name: "S", generating: true, ts: 1 };
+  const created = { id: 1, role: "user", type: "message", text: inputText, in_context: true, ts: 1000 };
+  const posts = { messages: [], chat: [], abort: [] };
+  globalThis.fetch = async (url, opts = {}) => {
+    if (opts.method === "POST" && url === "/api/sessions/s1/messages") {
+      posts.messages.push(JSON.parse(opts.body));
+      return { ok: true, status: 201, json: async () => created, text: async () => "" };
+    }
+    if (opts.method === "POST" && url === "/api/chat") {
+      posts.chat.push(JSON.parse(opts.body));
+      return { ok: true, status: 202, json: async () => ({ status: "queued", streaming_behavior: "followUp" }), text: async () => "" };
+    }
+    if (opts.method === "POST" && url === "/api/chat/abort") {
+      posts.abort.push(JSON.parse(opts.body));
+      return { ok: true, status: 200, json: async () => ({ status: "aborted" }), text: async () => "" };
+    }
+    if (url === "/api/sessions") return { ok: true, status: 200, json: async () => [session], text: async () => "" };
+    if (url === "/api/sessions/s1") return { ok: true, status: 200, json: async () => ({ id: "s1", messages: [created] }), text: async () => "" };
+    throw new Error("unerwarteter fetch: " + url);
+  };
+  state.settings = { ...saved.settings, queue_behavior: "followUp" };
+  state.sessions = [session];
+  state.activeId = "s1";
+  state.streaming = true;
+  state.messages = [];
+  state.pendingAttachments = [];
+  const restore = () => {
+    stopPolling();
+    if (saved.doc === undefined) delete globalThis.document;
+    else globalThis.document = saved.doc;
+    if (saved.fetch === undefined) delete globalThis.fetch;
+    else globalThis.fetch = saved.fetch;
+    if (saved.eventSource === undefined) delete globalThis.EventSource;
+    else globalThis.EventSource = saved.eventSource;
+    state.settings = saved.settings;
+    state.sessions = saved.sessions;
+    state.activeId = saved.activeId;
+    state.streaming = saved.streaming;
+    state.messages = saved.messages;
+    state.pendingAttachments = saved.pending;
+  };
+  return { posts, input, restore };
+}
+
+test("send(): laufende Generierung + Text im Composer -> Nachricht persistieren und als followUp queuen (kein Abort)", async () => {
+  const { posts, restore } = setupSendWhileBusy({ inputText: "Queue mich" });
+  try {
+    await send();
+    assert.equal(posts.abort.length, 0, "kein Abort bei Text im Composer");
+    assert.equal(posts.messages.length, 1, "Nachricht wurde persistiert");
+    assert.equal(posts.messages[0].text, "Queue mich");
+    assert.equal(posts.chat.length, 1, "POST /api/chat mit streaming_behavior");
+    assert.equal(posts.chat[0].session_id, "s1");
+    assert.equal(posts.chat[0].streaming_behavior, "followUp", "queue_behavior-Setting wird mitgesendet");
+  } finally {
+    restore();
+  }
+});
+
+test("send(): laufende Generierung + leerer Composer -> Abbrechen (X), keine Nachricht", async () => {
+  const { posts, restore } = setupSendWhileBusy({ inputText: "" });
+  try {
+    await send();
+    // abortStream() feuert pollOnce() ohne await - vor dem Restore der Globals laufen lassen
+    await new Promise((r) => setTimeout(r, 20));
+    assert.equal(posts.abort.length, 1, "leerer Composer waehrend Generierung = Abbrechen");
+    assert.equal(posts.abort[0].session_id, "s1");
+    assert.equal(posts.messages.length, 0, "keine Nachricht persistiert");
+    assert.equal(posts.chat.length, 0, "kein POST /api/chat");
+  } finally {
+    restore();
+  }
+});

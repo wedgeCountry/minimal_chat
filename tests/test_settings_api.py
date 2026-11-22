@@ -11,6 +11,7 @@ DEFAULTS = {
     "theme": "light",
     **BOOL_SETTINGS,
     "speech_mode": "server",
+    "queue_behavior": "followUp",
 }
 
 
@@ -124,6 +125,22 @@ def test_speech_mode_rejects_invalid_value(client, auth_headers):
     assert res.status_code == 422
     got = client.get("/api/settings", headers=auth_headers).json()
     assert got["speech_mode"] == "server"
+
+
+def test_queue_behavior_roundtrip(client, auth_headers):
+    for behavior in ("followUp", "steer"):
+        res = client.put("/api/settings", json={"queue_behavior": behavior}, headers=auth_headers)
+        assert res.status_code == 200
+        assert res.json()["queue_behavior"] == behavior
+        got = client.get("/api/settings", headers=auth_headers).json()
+        assert got["queue_behavior"] == behavior
+
+
+def test_queue_behavior_rejects_invalid_value(client, auth_headers):
+    res = client.put("/api/settings", json={"queue_behavior": "interrupt"}, headers=auth_headers)
+    assert res.status_code == 422
+    got = client.get("/api/settings", headers=auth_headers).json()
+    assert got["queue_behavior"] == "followUp"
 
 
 def test_settings_require_auth(client):

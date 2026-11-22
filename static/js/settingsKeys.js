@@ -29,3 +29,7 @@ export function defaultBoolSettings() {
 
 // Single Source of Truth fuer Session-Settings; muss zu SESSION_SETTING_KEYS (app/services/settings.py) passen.
 export const SESSION_SETTING_KEYS = ["system_prompt", "model_id"];
+
+// Gueltige Werte fuer das User-Setting queue_behavior; muss zu QUEUE_BEHAVIORS (app/services/settings.py) passen.
+export const QUEUE_BEHAVIORS = ["followUp", "steer"];
+export const DEFAULT_QUEUE_BEHAVIOR = "followUp";

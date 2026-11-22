@@ -20,6 +20,10 @@
         <label class="checkRow" data-testid="checkrow-speech-none"><input type="radio" name="speechMode" id="setSpeechNone" data-testid="set-speech-none" value="none" /> Aus</label>
         <span id="speechStatus" class="connStatus" data-testid="speech-status"></span>
       </div>
+      <div class="field" data-testid="field-queue-behavior"><label data-testid="label-queue-behavior">Senden während laufender Generierung</label>
+        <label class="checkRow" data-testid="checkrow-queue-followup"><input type="radio" name="queueBehavior" id="setQueueFollowUp" data-testid="set-queue-followup" value="followUp" /> Einreihen (nach der laufenden Antwort ausführen)</label>
+        <label class="checkRow" data-testid="checkrow-queue-steer"><input type="radio" name="queueBehavior" id="setQueueSteer" data-testid="set-queue-steer" value="steer" /> Laufende Generierung abbrechen und sofort neu starten</label>
+      </div>
       <div class="field" data-testid="field-system-prompt"><label data-testid="label-system-prompt">System-Prompt (optional)</label><textarea id="setSystemPrompt" data-testid="set-system-prompt" rows="3" placeholder="Wird als System-Nachricht an den LLM-Server mitgesendet (pro Session überschreibbar)"></textarea></div>
     </div>
     <div id="settingsLlm" data-testid="settings-llm" hidden>

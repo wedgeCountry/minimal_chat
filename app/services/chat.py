@@ -20,20 +20,70 @@ from __future__ import annotations
 import asyncio
 import time
 from collections.abc import AsyncIterator, Callable
-from typing import Any
+from typing import Any, TypedDict
 
+from ..config import AppConfig
 from ..db.database import now_ms
 from ..domain import Message, MessageType
 from ..models import MessageIn, MessagePatch
 from ..types import MessageInput, UserIdentity
+from .context import build_llm_context
 from .llm import stream_completion
+from .settings import BOOL_SETTINGS, resolve_llm_connection, resolve_system_prompt, stored_bool
 from .sse import SseParser
+from .ssrf import validate_llm_base_url
 from .store import MessageNotFound, SessionNotFound, UserStoreProtocol
 
 DEFAULT_HOT_TTL_S = 300.0
 
 # Puffer pro SSE-Subscriber (Voll-Snapshot-Events); bei Ueberlauf Drop-Oldest, siehe _put
 _SUBSCRIBER_QUEUE_MAX = 8
+
+
+class GenerationRequest(TypedDict):
+    """Fertiger Upstream-Request einer Generierung (Verbindung + Payload + Settings-Flags)."""
+
+    base_url: str
+    api_key: str
+    payload: dict[str, Any]
+    flags: dict[str, bool]
+
+
+async def build_generation_request(
+    store: UserStoreProtocol,
+    user: UserIdentity,
+    sid: str,
+    config: AppConfig,
+    streaming_behavior: str | None = None,
+) -> GenerationRequest | None:
+    """Baut den Upstream-Request aus dem persistierten Stand (ein DB-Oeffnen via load_chat_context).
+
+    Einzige Quelle fuer den Chat-Request: der Router nutzt sie bei POST /api/chat, der
+    MessageService beim Abarbeiten einer gequeueten Nachricht (steer/followUp) - so sieht
+    der naechste Lauf den frischesten Kontext inkl. der gequeueten Nachrichten.
+    None = Session unbekannt; ValueError = SSRF-Validierung fehlgeschlagen.
+    """
+    ctx = await store.load_chat_context(user, sid)
+    if ctx is None:
+        return None
+    # Effektive LLM-Verbindung: Session-model_id > default_model_id (Tile) > Server-Defaults
+    conn = resolve_llm_connection(ctx.session_settings, ctx.user_settings, ctx.llm_models, config)
+    # DNS-Lookup in validate_llm_base_url ist blockierend -> nicht auf dem Event-Loop
+    await asyncio.to_thread(validate_llm_base_url, conn.base_url, config.allow_private_llm)
+    flags = {key: stored_bool(ctx.user_settings, key) for key in BOOL_SETTINGS}
+    # Effektiver System-Prompt: nicht-leerer Session-Prompt gewinnt, sonst der globale Settings-Prompt
+    system_prompt = resolve_system_prompt(ctx.session_settings, ctx.user_settings)
+    llm_ctx = build_llm_context([m.model_dump() for m in ctx.messages], system_prompt=system_prompt, attachments_by_id=ctx.attachments)
+    payload: dict[str, Any] = {
+        "model": conn.model,
+        "stream": True,
+        "messages": llm_ctx.compile(),
+    }
+    if streaming_behavior is not None:
+        # Nicht-Standard-Feld: Agent-Gateways (z. B. pi-Bridge) werten "streamingBehavior"
+        # aus und queuen die Nachricht agentenseitig; reine OpenAI-Server ignorieren es
+        payload["streamingBehavior"] = streaming_behavior
+    return GenerationRequest(base_url=conn.base_url, api_key=conn.api_key, payload=payload, flags=flags)
 
 
 def _render_toolcall(a: dict[str, Any]) -> str:
@@ -167,6 +217,9 @@ class _SessionState:
         self.lock = asyncio.Lock()
         self.subscribers: set[asyncio.Queue[dict[str, Any] | None]] = set()
         self.generation: asyncio.Event | None = None  # Abort-Event der laufenden Generierung
+        # gesetztes streaming_behavior ("steer"/"followUp") = gequeuete Nachricht, die nach
+        # der laufenden Generierung als eigener Lauf abgearbeitet wird (siehe _settle)
+        self.queued_behavior: str | None = None
         self.last_touch = time.monotonic()
 
 
@@ -265,9 +318,11 @@ class _GenerationRun:
 class MessageService:
     """In-Memory-Message-Store + Schreib-Funnel + Persistenz-Orchestrierung."""
 
-    def __init__(self, store: UserStoreProtocol, hot_ttl_s: float = DEFAULT_HOT_TTL_S) -> None:
+    def __init__(self, store: UserStoreProtocol, hot_ttl_s: float = DEFAULT_HOT_TTL_S, config: AppConfig | None = None) -> None:
         self._store = store
         self._hot_ttl_s = hot_ttl_s
+        # Config fuer build_generation_request beim Abarbeiten gequeueter Nachrichten (_settle)
+        self._config = config
         self._sessions: dict[str, _SessionState] = {}
         self._abort_requested: set[str] = set()
         # Starke Referenzen auf laufende Hintergrund-Tasks, damit der GC sie nicht killt
@@ -346,6 +401,9 @@ class MessageService:
         state = self._sessions.get(self._key(user, sid))
         if state is not None and state.generation is not None:
             state.generation.set()
+            # Explizites Abbrechen verwirft auch eine gequeuete Nachricht (steer/followUp):
+            # der queued_behavior-Eintrag wird in _settle nicht mehr abgearbeitet
+            state.queued_behavior = None
             return True
         # Generierung hat ihr Event evtl. noch nicht registriert (Race direkt nach POST /api/chat)
         self._abort_requested.add(self._key(user, sid))
@@ -444,10 +502,12 @@ class MessageService:
         api_key: str,
         payload: dict[str, Any],
         settings: dict[str, bool] | None = None,
+        streaming_behavior: str | None = None,
     ) -> str:
         """Heissen Zustand anlegen und die Generierung als Hintergrund-Task starten.
 
-        Rueckgabe: "ok" (Task gestartet) | "busy" (bereits laufende Generierung) |
+        Rueckgabe: "ok" (Task gestartet) | "busy" (bereits laufende Generierung und kein
+        streaming_behavior) | "queued" (Nachricht gequeuet, siehe _settle) |
         "missing" (Session unbekannt). Das generating-Flag wird atomar unter dem
         Session-Lock gesetzt (TOCTOU-frei bei parallelen POSTs). Ein verwaistes Flag
         (z. B. Server-Neustart mitten in der Generierung) wird geheilt: unter dem Lock
@@ -457,7 +517,14 @@ class MessageService:
         key = self._key(user, sid)
         async with state.lock:
             if state.generation is not None:
-                return "busy"
+                if streaming_behavior is None:
+                    return "busy"
+                # Nachricht wird nach der laufenden Generierung als eigener Lauf
+                # abgearbeitet (_settle); "steer" bricht den laufenden Lauf zusaetzlich ab
+                state.queued_behavior = streaming_behavior
+                if streaming_behavior == "steer":
+                    state.generation.set()
+                return "queued"
             status = await self._store.try_start_generating(user, sid)
             if status == "busy":
                 await self._store.set_generating(user, sid, False)
@@ -497,8 +564,7 @@ class MessageService:
         try:
             await self._generate(user, sid, state, abort, base_url, api_key, payload, settings)
         finally:
-            state.generation = None
-            self._finish(key, state)
+            await self._settle(user, sid, key, state)
 
     async def _run_task(
         self,
@@ -515,8 +581,57 @@ class MessageService:
         try:
             await self._generate(user, sid, state, abort, base_url, api_key, payload, settings)
         finally:
-            state.generation = None
-            self._finish(key, state)
+            await self._settle(user, sid, key, state)
+
+    async def _settle(self, user: UserIdentity, sid: str, key: str, state: _SessionState) -> None:
+        """Nach einem Generierungslauf unter dem Session-Lock: gequeuete Nachricht
+        (streaming_behavior steer/followUp) als naechsten Lauf anhaengen - das generating-Flag
+        bleibt belegt und die SSE-Subscriber bleiben attached (kein 'done' dazwischen);
+        ohne Queue wird generation freigegeben und 'done' gesendet."""
+        async with state.lock:
+            behavior = state.queued_behavior
+            state.queued_behavior = None
+            if behavior is None or state.generation is None or self._config is None:
+                state.generation = None
+                self._finish(key, state)
+                return
+            # Flag sofort wieder belegen: die Luecke zwischen finalem Flush (setzt 0) und
+            # der Kette darf fuer pollers nicht als idle sichtbar sein
+            status = await self._store.try_start_generating(user, sid)
+            if status == "busy":
+                await self._store.set_generating(user, sid, False)
+                status = await self._store.try_start_generating(user, sid)
+            req: GenerationRequest | None = None
+            error: str | None = None
+            if status == "ok":
+                try:
+                    # Request frisch aus der DB bauen: enthaelt die gequeuete(n) Nachricht(en)
+                    req = await build_generation_request(self._store, user, sid, self._config, streaming_behavior=behavior)
+                except ValueError as exc:
+                    error = str(exc)
+            if status != "ok" or req is None:
+                if status == "ok":
+                    # Kette nicht moeglich: Flag heilen und Fehler als System-Message persistieren
+                    try:
+                        stored = await self._store.finalize_generation(user, sid, [], error or "Session nicht gefunden")
+                    except SessionNotFound:
+                        stored = []
+                    state.messages.extend(stored)
+                    state.seq += 1
+                    self._publish(state)
+                state.generation = None
+                self._finish(key, state)
+                return
+            abort = asyncio.Event()
+            state.generation = abort
+            if key in self._abort_requested:
+                self._abort_requested.discard(key)
+                abort.set()
+            task = asyncio.create_task(
+                self._run_task(user, sid, key, state, abort, req["base_url"], req["api_key"], req["payload"], req["flags"])
+            )
+            self._tasks.add(task)
+            task.add_done_callback(self._tasks.discard)
 
     def _finish(self, key: str, state: _SessionState) -> None:
         self._abort_requested.discard(key)
