@@ -178,7 +178,8 @@ def test_minimalism_hides_toolbar_on_touch_and_longpress_opens_menu(mobile_page,
     assert menu.locator("button").count() >= 2, "Kontextmenue muss Kopieren und die Bubble-Aktionen enthalten"
     assert menu.locator("button svg").count() == 0, "Kontextmenue darf keine Icons enthalten (nur Text)"
     assert menu.locator('[data-testid="ctx-copy"]').count() == 1, "Menue-Eintrag fehlt: ctx-copy"
-    mobile_page.touchscreen.tap(cx, cy)  # Tap bei offenem Menue -> alle Kontextmenues zu
+    # Tap auf die Bubble (ausserhalb des Menues, das am Doppel-Tap-Punkt oeffnet) schliesst es
+    mobile_page.touchscreen.tap(box["x"] + 20, box["y"] + 6)
     mobile_page.wait_for_selector('[data-testid="bubble-context-menu"]', state="detached")
 
     # System-Auswahlmenue offen (aktive Textauswahl): Tap darf kein App-Menue oeffnen
@@ -245,7 +246,7 @@ def test_minimalism_hides_toolbar_on_touch_and_longpress_opens_menu(mobile_page,
 def test_minimalism_single_tap_cycles_expansion_mode(mobile_page, base_url, llm_expect):
     """Minimalismus auf Touch: ein einfacher Tap auf eine Bubble schaltet den Expand-Modus
     zyklisch weiter (normal -> full -> collapsed -> normal), wie der Expand-Button im
-    Normalmodus — auch bei nicht gekuerztem Text. Der Doppel-Tap oeffnet als eigene Aktion
+    Normalmodus. Der Doppel-Tap oeffnet als eigene Aktion
     nur das Kontextmenue (kein Modus-Wechsel); Scroll-Gesten loesen weder Menue noch
     Modus-Wechsel aus."""
     if llm_expect["default"] is None:
@@ -256,7 +257,7 @@ def test_minimalism_single_tap_cycles_expansion_mode(mobile_page, base_url, llm_
 
     assert mobile_page.evaluate("() => matchMedia('(hover: none) and (pointer: coarse)').matches"), "Test braucht Touch-Emulation ohne Hover"
 
-    mobile_page.fill(T["chat_input"], "Hallo")
+    mobile_page.fill(T["chat_input"], "lang")
     mobile_page.click(T["send_btn"])
     mobile_page.wait_for_function(
         "() => document.querySelectorAll('[data-testid=\"chat\"] .bubble[data-role=\"assistant\"][data-type=\"message\"]').length === 1"
@@ -285,7 +286,7 @@ def test_minimalism_single_tap_cycles_expansion_mode(mobile_page, base_url, llm_
 
     assert mode() == "normal"
     tap()
-    assert mode() == "full", "erster Tap: normal -> full (auch bei nicht gekuerztem Text)"
+    assert mode() == "full", "erster Tap: normal -> full (Text ist in normal gekuerzt)"
     tap()
     assert mode() == "collapsed", "zweiter Tap: full -> collapsed"
     tap()
@@ -343,7 +344,7 @@ def test_minimalism_dbltap_or_escape_stops_playback(mobile_speech_page, base_url
 
     assert page.evaluate("() => matchMedia('(hover: none) and (pointer: coarse)').matches"), "Test braucht Touch-Emulation ohne Hover"
 
-    page.fill(T["chat_input"], "Hallo")
+    page.fill(T["chat_input"], "lang")
     page.click(T["send_btn"])
     page.wait_for_function(
         "() => document.querySelectorAll('[data-testid=\"chat\"] .bubble[data-role=\"assistant\"][data-type=\"message\"]').length === 1"

@@ -391,21 +391,14 @@ def test_reasoning_bubbles_can_be_expanded(page, base_url, llm_expect):
     )
     assert reasoning_bubble.get_attribute("data-mode") == "normal", "Nach dem ersten Klick sollte der Mode 'normal' sein"
 
-    # 7. Zweiter Klick: normal -> full
-    toggle_btn.click()
-    page.wait_for_function(
-        f"() => document.querySelector('{_reasoning_bubble()}').classList.contains('full')",
-        timeout=llm_expect["timeout_ms"]
-    )
-    assert reasoning_bubble.get_attribute("data-mode") == "full", "Nach dem zweiten Klick sollte der Mode 'full' sein"
-
-    # 8. Dritter Klick: full -> collapsed
+    # 7. Zweiter Klick: normal -> collapsed (der kurze Reasoning-Text ist in normal nicht
+    # gekuerzt, also ist full == normal und wird uebersprungen)
     toggle_btn.click()
     page.wait_for_function(
         f"() => document.querySelector('{_reasoning_bubble()}').classList.contains('collapsed')",
         timeout=llm_expect["timeout_ms"]
     )
-    assert reasoning_bubble.get_attribute("data-mode") == "collapsed", "Nach dem dritten Klick sollte der Mode wieder 'collapsed' sein"
+    assert reasoning_bubble.get_attribute("data-mode") == "collapsed", "Nach dem zweiten Klick sollte der Mode wieder 'collapsed' sein"
 
 
 def test_toolcall_and_toolresult_bubbles_are_collapsed_by_default(page, base_url, llm_expect):
@@ -1458,8 +1451,9 @@ def test_collapsed_bubble_caps_single_long_line_at_one_rendered_row(page, base_u
 
     bubble = page.locator(_bubble("assistant", "message")).first
     toggle = bubble.locator('[data-testid="bubble-toggle-btn"]')
-    toggle.click()  # normal -> full
-    toggle.click()  # full -> collapsed
+    toggle.click()  # normal -> full (bzw. bei ungekuerztem Text direkt -> collapsed, full == normal)
+    if bubble.get_attribute("data-mode") != "collapsed":
+        toggle.click()  # -> collapsed
     page.wait_for_function(
         f"() => document.querySelector('{_bubble('assistant', 'message')}').getAttribute('data-mode') === 'collapsed'",
         timeout=llm_expect["timeout_ms"],
@@ -1754,7 +1748,7 @@ def test_minimalism_desktop_hides_head_and_overrides_context_menu(page, base_url
     assert menu.count() == 0, "einfacher Tap darf auch bei gekuerzter Bubble kein Menue oeffnen"
 
     # Ziehen/Scrollen (Pointer bewegt sich) darf kein Menue oeffnen
-    box = page.locator(bubble_sel).bounding_box()
+    box = page.locator(bubble_sel).first.bounding_box()
     page.mouse.move(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
     page.mouse.down()
     page.mouse.move(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2 + 80, steps=8)
@@ -1769,8 +1763,8 @@ def test_minimalism_desktop_hides_head_and_overrides_context_menu(page, base_url
     page.wait_for_selector(_bubble("assistant", "message"), timeout=llm_expect["timeout_ms"])
     page.wait_for_function("() => !document.documentElement.classList.contains('bubbles-minimal')")
     assert page.locator(toolbar_btn).first.evaluate("el => getComputedStyle(el).display") != "none"
-    assert page.locator(f'{_bubble("assistant", "message")} .bubbleHead .role').evaluate("el => getComputedStyle(el).display") != "none"
-    page.dispatch_event(_bubble("assistant", "message"), "contextmenu")
+    assert page.locator(f'{_bubble("assistant", "message")} .bubbleHead .role').first.evaluate("el => getComputedStyle(el).display") != "none"
+    page.locator(_bubble("assistant", "message")).first.dispatch_event("contextmenu")
     page.wait_for_timeout(300)
     assert page.locator('[data-testid="bubble-context-menu"]').count() == 0, "ohne Minimalismus darf kein Kontextmenue erscheinen"
 
