@@ -6,7 +6,7 @@ Zwei Daten:
   aller User; wird von der externen ``user_registry``-Bibliothek verwaltet
   (siehe app/auth.py) und liegt bewusst getrennt von den App-Daten.
 - **Pro-User-Datenbank** (``<data_dir>/users/<uid>.db.enc``): Sessions,
-  Messages und ``user_settings`` (Schema: ``schema.sql``), verschluesselt
+  Messages, ``user_settings`` und ``session_settings`` (Schema: ``schema.sql``), verschluesselt
   mit einem Schluessel, der aus dem Server-Secret und der E-Mail abgeleitet
   wird (``app/auth.py:user_identity``) - es gibt keine lokale User-Tabelle.
 
@@ -339,4 +339,20 @@ def q_set_user_setting(con: sqlite3.Connection, key: str, value: str) -> None:
     con.execute(
         "INSERT INTO user_settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
         (key, value),
+    )
+
+
+# --- Session Settings ---
+
+
+def q_get_session_settings(con: sqlite3.Connection, sid: str) -> dict[str, str]:
+    rows = con.execute("SELECT key, value FROM session_settings WHERE session_id = ?", (sid,)).fetchall()
+    return {r["key"]: r["value"] for r in rows}
+
+
+def q_set_session_setting(con: sqlite3.Connection, sid: str, key: str, value: str) -> None:
+    con.execute(
+        "INSERT INTO session_settings (session_id, key, value) VALUES (?, ?, ?) "
+        "ON CONFLICT(session_id, key) DO UPDATE SET value = excluded.value",
+        (sid, key, value),
     )

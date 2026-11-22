@@ -7,6 +7,7 @@ import { nextBubbleMode } from "./bubbleMode.js";
 import { loadSessions, newSession, changed } from "./sessions.js";
 import { uploadPendingAttachments } from "./attachments.js";
 import { confirmModal } from "./confirm.js";
+import { resolveSystemPrompt } from "./sessionSettings.js";
 import { isBubbleVisible, isDuplicateSystemPrompt, isToolbarMinimal } from "./visibility.js";
 import { stopRecording, isSpeaking, stopSpeech } from "./ttsDetectionService.js";
 
@@ -236,7 +237,8 @@ export function renderChat(messages) {
   if (!s || !messages?.length) {
     lastMessages = [];
     cancelEdit();
-    chat.innerHTML = "";
+    // Nur Bubbles entfernen; der Session-Settings-Button bleibt als erstes Kind von #chat stehen
+    for (const el of [...chat.children]) if (el.id !== "sessionSettingsBtn") el.remove();
     bubbleNodes.clear();
     const empty = document.createElement("div");
     empty.dataset.testid = "chat-empty";
@@ -257,7 +259,7 @@ export function renderChat(messages) {
   if (editingMessageId != null && !sortedMessages.some((m) => m.id === editingMessageId)) cancelEdit();
   const lastUser = findLastUserMessage(sortedMessages);
   const items = [];
-  const sysPrompt = state.settings.system_prompt;
+  const sysPrompt = resolveSystemPrompt(state.settings, state.sessionSettings);
   const sysShown = !!(sysPrompt && sysPrompt.trim() && state.settings.show_system_prompt !== false);
   if (sysShown) {
     items.push({ m: { role: "system", type: "message", text: sysPrompt, in_context: true }, showResend: false, showEdit: false });

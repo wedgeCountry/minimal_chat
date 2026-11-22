@@ -98,7 +98,13 @@ Dialog (Modal) mit Feldern:
 - **Modell** (freie Texteingabe oder Auswahl aus `/v1/models`, wenn erreichbar)
 - **Theme**: hell / dunkel (Standard hell), umgeschaltet per CSS-Klasse und `prefers-color-scheme` als Initial-Fallback
 
-Speicherung: serverseitig in der verschlüsselten per-user SQLite (`user_settings`); nur UI-Zustand (aktives Panel) liegt im `localStorage`/`sessionStorage` (Key `leanchat.*`).
+Speicherung: serverseitig in der verschlüsselten per-user SQLite (`user_settings`, `session_settings`); nur UI-Zustand (aktives Panel) liegt im `localStorage`/`sessionStorage` (Key `leanchat.*`).
+
+### Session-Einstellungen (pro Session)
+
+- Zahnrad-Button oben links im Chat-Panel (nur bei aktiver Session sichtbar) oeffnet ein Modal im App-Stil mit: **System-Prompt** (Textarea, ueberschreibt den globalen Settings-Prompt fuer diese Session, leer = globaler Prompt), **Tool-Nutzung** (vorbereitet, vorerst leer/deaktiviert), sowie **Speichern** und **Abbrechen**
+- Speichern: `PUT /api/sessions/{id}/settings` (Tabelle `session_settings`, key/value; leerer String loescht den Session-Prompt); Laden: `GET /api/sessions/{id}/settings` beim Oeffnen des Modals sowie ueber das Session-Detail `GET /api/sessions/{id}` (Feld `settings`) beim Session-Wechsel; Abbrechen/Overlay-Klick/Esc: Modal schliessen ohne API-Aufruf (keine Aenderungen)
+- Der Session-System-Prompt wird beim naechsten `POST /api/chat` als effektiver System-Prompt an den LLM-Request gehaengt (Override-Regel siehe Abschnitt 4) und als System-Bubble oben im Chat gerendert (bei `show_system_prompt` an)
 
 ## 6. Design
 

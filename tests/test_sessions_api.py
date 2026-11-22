@@ -235,6 +235,68 @@ def test_attachment_storage_quota_413(client, auth_headers, app):
     assert "Kontingent" in res.json()["detail"]
 
 
+def test_session_settings_default_roundtrip_and_clear(client, auth_headers):
+    s = _create_session(client, auth_headers)
+    res = client.get(f"/api/sessions/{s['id']}/settings", headers=auth_headers)
+    assert res.status_code == 200
+    assert res.json() == {"session_id": s["id"], "system_prompt": ""}
+    # Session-Detail traegt die Settings mit (ein DB-Oeffnen, kein Extra-Request)
+    detail = client.get(f"/api/sessions/{s['id']}", headers=auth_headers).json()
+    assert detail["settings"] == {"session_id": s["id"], "system_prompt": ""}
+
+    res = client.put(f"/api/sessions/{s['id']}/settings", json={"system_prompt": "Sei knapp."}, headers=auth_headers)
+    assert res.status_code == 200, res.text
+    assert res.json() == {"session_id": s["id"], "system_prompt": "Sei knapp."}
+    got = client.get(f"/api/sessions/{s['id']}/settings", headers=auth_headers).json()
+    assert got["system_prompt"] == "Sei knapp."
+    detail = client.get(f"/api/sessions/{s['id']}", headers=auth_headers).json()
+    assert detail["settings"]["system_prompt"] == "Sei knapp."
+
+    # Leerer String loescht den Session-Prompt wieder
+    client.put(f"/api/sessions/{s['id']}/settings", json={"system_prompt": ""}, headers=auth_headers)
+    assert client.get(f"/api/sessions/{s['id']}/settings", headers=auth_headers).json()["system_prompt"] == ""
+
+
+def test_session_settings_404_and_require_auth(client, app, auth_headers):
+    from fastapi.testclient import TestClient
+
+    assert client.get("/api/sessions/unknown/settings", headers=auth_headers).status_code == 404
+    assert client.put("/api/sessions/unknown/settings", json={"system_prompt": "x"}, headers=auth_headers).status_code == 404
+    anon = TestClient(app)  # kein Session-Cookie -> 401
+    assert anon.get("/api/sessions/unknown/settings").status_code == 401
+    assert anon.put("/api/sessions/unknown/settings", json={}).status_code == 401
+
+
+def test_session_settings_isolated_per_session_and_user(client, auth_headers, app):
+    from tests.conftest import login_client
+
+    s1 = _create_session(client, auth_headers, "Eins")
+    s2 = _create_session(client, auth_headers, "Zwei")
+    client.put(f"/api/sessions/{s1['id']}/settings", json={"system_prompt": "Nur Eins"}, headers=auth_headers)
+    assert client.get(f"/api/sessions/{s2['id']}/settings", headers=auth_headers).json()["system_prompt"] == ""
+
+    bob = login_client(app, "bob@example.com")
+    assert bob.get(f"/api/sessions/{s1['id']}/settings").status_code == 404
+    assert bob.put(f"/api/sessions/{s1['id']}/settings", json={"system_prompt": "gehackt"}).status_code == 404
+    assert client.get(f"/api/sessions/{s1['id']}/settings", headers=auth_headers).json()["system_prompt"] == "Nur Eins"
+
+
+def test_session_settings_cascade_on_session_delete(client, auth_headers, app, config):
+    s = _create_session(client, auth_headers)
+    client.put(f"/api/sessions/{s['id']}/settings", json={"system_prompt": "weg damit"}, headers=auth_headers)
+    assert client.delete(f"/api/sessions/{s['id']}", headers=auth_headers).status_code == 204
+    user = user_identity(config.secret, "alice@example.com")
+    with app.state.db.user_db(user) as con:
+        assert con.execute("SELECT COUNT(*) FROM session_settings").fetchone()[0] == 0
+
+
+def test_session_settings_prompt_max_length_422(client, auth_headers):
+    s = _create_session(client, auth_headers)
+    res = client.put(f"/api/sessions/{s['id']}/settings", json={"system_prompt": "x" * 20001}, headers=auth_headers)
+    assert res.status_code == 422
+    assert client.get(f"/api/sessions/{s['id']}/settings", headers=auth_headers).json()["system_prompt"] == ""
+
+
 def test_messages_are_isolated_per_user(client, auth_headers, app):
     from tests.conftest import login_client
 

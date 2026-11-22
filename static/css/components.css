@@ -37,13 +37,12 @@
 #sendBtn.abort{color:var(--danger)}
 #micBtn.on{color:var(--accent)}
 
-/* Modal */
-#overlay{position:fixed;inset:0;background:var(--overlay-bg);display:none;align-items:center;justify-content:center;z-index:100;overflow-y:auto;padding:16px 0}
-#overlay.open{display:flex}
-#confirmOverlay{position:fixed;inset:0;background:var(--overlay-bg);display:none;align-items:center;justify-content:center;z-index:150}
-#confirmOverlay.open{display:flex}
-#errorOverlay{position:fixed;inset:0;background:var(--overlay-bg);display:none;align-items:center;justify-content:center;z-index:150}
-#errorOverlay.open{display:flex}
+/* Modal-Overlays (gemeinsame Klasse; z-index pro Overlay-ID) */
+.overlay{position:fixed;inset:0;background:var(--overlay-bg);display:none;align-items:center;justify-content:center;overflow-y:auto;padding:16px 0}
+.overlay.open{display:flex}
+#overlay{z-index:100}
+#sessionOverlay{z-index:120}
+#confirmOverlay,#errorOverlay{z-index:150}
 #errorOverlay .modal{width:min(640px,94vw);padding:26px}
 .confirmText{font-size:14px;margin-bottom:4px}
 .errorText{font-size:15px;margin-bottom:16px;color:var(--danger);white-space:pre-wrap;word-break:break-word;max-height:50vh;overflow-y:auto}

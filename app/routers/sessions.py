@@ -4,8 +4,9 @@ from fastapi import APIRouter, Depends, File, UploadFile
 
 from ..config import AppConfig
 from ..deps import get_config, get_current_user, get_message_service, get_store
-from ..models import AttachmentOut, MessageIn, MessageOut, MessagePatch, SessionDetail, SessionIn, SessionOut, SessionRename
+from ..models import AttachmentOut, MessageIn, MessageOut, MessagePatch, SessionDetail, SessionIn, SessionOut, SessionRename, SessionSettingsIn, SessionSettingsOut
 from ..services.files import process_upload, read_upload_capped
+from ..services.settings import SESSION_CLEARABLE_WITH_EMPTY, SESSION_SETTING_KEYS
 from ..services.chat import MessageService
 from ..services.store import DEFAULT_SESSION_NAME, SessionNotFound, UserStoreProtocol
 from ..types import UserIdentity
@@ -18,6 +19,10 @@ async def list_sessions(user: UserIdentity = Depends(get_current_user), store: U
     return [SessionOut.model_validate(s.model_dump()) for s in await store.list_sessions(user)]
 
 
+def _session_settings_out(sid: str, stored: dict[str, str]) -> SessionSettingsOut:
+    return SessionSettingsOut.model_validate({"session_id": sid, **{key: stored.get(key) or "" for key in SESSION_SETTING_KEYS}})
+
+
 @router.post("", response_model=SessionDetail, status_code=201)
 async def create_session(
     body: SessionIn,
@@ -25,7 +30,7 @@ async def create_session(
     store: UserStoreProtocol = Depends(get_store),
 ) -> SessionDetail:
     session = await store.create_session(user, body.name.strip() or DEFAULT_SESSION_NAME)
-    return SessionDetail(**session.model_dump(), messages=[])
+    return SessionDetail(**session.model_dump(), messages=[], settings=_session_settings_out(session.id, {}))
 
 
 @router.get("/{sid}", response_model=SessionDetail)
@@ -33,8 +38,34 @@ async def get_session(sid: str, user: UserIdentity = Depends(get_current_user), 
     detail = await store.get_session_detail(user, sid)
     if detail is None:
         raise SessionNotFound(sid)
-    session, messages = detail
-    return SessionDetail(**session.model_dump(), messages=[MessageOut.model_validate(m.model_dump()) for m in messages])
+    session, messages, session_settings = detail
+    return SessionDetail(
+        **session.model_dump(),
+        messages=[MessageOut.model_validate(m.model_dump()) for m in messages],
+        settings=_session_settings_out(sid, session_settings),
+    )
+
+
+@router.get("/{sid}/settings", response_model=SessionSettingsOut)
+async def get_session_settings(sid: str, user: UserIdentity = Depends(get_current_user), store: UserStoreProtocol = Depends(get_store)) -> SessionSettingsOut:
+    stored = await store.get_session_settings(user, sid)
+    return _session_settings_out(sid, stored)
+
+
+@router.put("/{sid}/settings", response_model=SessionSettingsOut)
+async def put_session_settings(
+    sid: str,
+    body: SessionSettingsIn,
+    user: UserIdentity = Depends(get_current_user),
+    store: UserStoreProtocol = Depends(get_store),
+) -> SessionSettingsOut:
+    values: dict[str, str] = {}
+    for key in SESSION_SETTING_KEYS:
+        value = getattr(body, key)
+        if value is not None and (value != "" or key in SESSION_CLEARABLE_WITH_EMPTY):
+            values[key] = value
+    stored = await store.update_session_settings(user, sid, values)
+    return _session_settings_out(sid, stored)
 
 
 @router.patch("/{sid}", response_model=SessionOut)

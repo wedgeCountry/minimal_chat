@@ -11,7 +11,7 @@ from ..deps import get_config, get_current_user, get_message_service, get_store
 from ..models import ChatAbortRequest, ChatRequest
 from ..services.chat import MessageService
 from ..services.context import build_llm_context
-from ..services.settings import BOOL_SETTINGS, resolve_base_url, stored_bool
+from ..services.settings import BOOL_SETTINGS, resolve_base_url, resolve_system_prompt, stored_bool
 from ..services.sse import sse_event
 from ..services.ssrf import validate_llm_base_url
 from ..services.store import SessionNotFound, UserStoreProtocol
@@ -37,18 +37,19 @@ async def chat(
     ctx = await store.load_chat_context(user, req.session_id)
     if ctx is None:
         raise SessionNotFound(req.session_id)
-    _session, stored, attachments, session_messages = ctx
-    base_url = resolve_base_url(stored, config)
+    base_url = resolve_base_url(ctx.user_settings, config)
     try:
         # DNS-Lookup in validate_llm_base_url ist blockierend -> nicht auf dem Event-Loop
         await asyncio.to_thread(validate_llm_base_url, base_url, config.allow_private_llm)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
-    api_key = stored.get("api_key") or config.default_api_key
-    flags = {key: stored_bool(stored, key) for key in BOOL_SETTINGS}
+    api_key = ctx.user_settings.get("api_key") or config.default_api_key
+    flags = {key: stored_bool(ctx.user_settings, key) for key in BOOL_SETTINGS}
+    # Effektiver System-Prompt: nicht-leerer Session-Prompt gewinnt, sonst der globale Settings-Prompt
+    system_prompt = resolve_system_prompt(ctx.session_settings, ctx.user_settings)
     # Chat-History serverseitig aus der DB bauen (gueltiges Format inkl. Tool-Calls),
     # nicht aus dem Client-Request uebernehmen
-    llm_ctx = build_llm_context([m.model_dump() for m in session_messages], system_prompt=stored.get("system_prompt") or "", attachments_by_id=attachments)
+    llm_ctx = build_llm_context([m.model_dump() for m in ctx.messages], system_prompt=system_prompt, attachments_by_id=ctx.attachments)
     payload = {
         "model": req.model,
         "stream": True,

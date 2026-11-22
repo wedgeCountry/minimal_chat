@@ -17,7 +17,7 @@ app/                  FastAPI backend (uvicorn)
   models.py           Pydantic-API-Models (Request/Response), abgeleitet von domain.py
   deps.py             FastAPI-Dependencies (Auth via signiertem Session-Cookie)
   db/
-    schema.sql        SQL-Schema der pro-User-DB (eigene Datei, inkl. user_settings)
+    schema.sql        SQL-Schema der pro-User-DB (eigene Datei, inkl. user_settings und session_settings)
     crypto.py         Fernet-Ver-/Entschluesselung
     database.py       Low-Level-Persistenz: verschluesselte per-user SQLite-Dateien (einzige Stelle mit SQLite/Crypto)
   routers/            auth.py, sessions.py, settings.py, chat.py (serverseitige Generierung)
@@ -35,12 +35,12 @@ app/                  FastAPI backend (uvicorn)
 static/               Frontend (statisch, ohne Build-Schritt)
   index.html          schlanke Shell mit Partial-Platzhaltern
   partials/           eigene HTML-Dateien: side-panel, chat-window,
-                      settings-overlay (werden per js/html.js geladen)
+                      settings-overlay, session-settings-overlay (werden per js/html.js geladen)
   css/                base.css, components.css, bubbles.css (variables-gesteuertes
                       Bubble-Styling: Rolle + collapsed/expanded/compact/selected),
                       responsive.css
   js/                 ES-Module: main, html, api, auth, state, sessions, chat,
-                      bubbles, attachments, settings, theme, payload, util, icons
+                      bubbles, attachments, settings, sessionSettings, theme, payload, util, icons
 tests/
   test_*.py           Python-Unit-Tests (pytest + httpx TestClient)
   js/*.test.js        JS-Unit-Tests (node:test, ohne npm-Abhaengigkeiten)
@@ -49,7 +49,7 @@ tests/
 
 ## Data storage
 
-- Pro User genau eine **verschluesselte SQLite-Datei** (`data/users/<uid>.db.enc`, Fernet) mit Sessions, Messages und der Tabelle **`user_settings`** (serverseitige Einstellungen).
+- Pro User genau eine **verschluesselte SQLite-Datei** (`data/users/<uid>.db.enc`, Fernet) mit Sessions, Messages, der Tabelle **`user_settings`** (globale serverseitige Einstellungen) und der Tabelle **`session_settings`** (Einstellungen pro Session).
 - uid und Verschluesselungsschluessel der per-user DB werden aus dem **Server-Secret und der E-Mail** abgeleitet (`user_identity` in `app/auth.py`) — es gibt keine lokale User-Tabelle.
 - **Login/Registrierung** laufen ueber die Bibliothek [`user_registry`](docs/user_registry_implementation_guidelines.md) (vendored Wheel in `vendors/`, Argon2id-Passwort-Hashing, Passwort-Policy, AGB-Akzeptanz): Credentials liegen in der eigenen Registry-DB (`data/user_registry.db`), Sessions sind itsdangerous-signierte `auth_session`-Cookies, und unter `/auth` stehen professionelle Seiten (Login, Registrieren, Passwort aendern/loeschen, AGB, Impressum). Die Zuordnung zu den per-user App-Daten erfolgt credential-frei per E-Mail.
 - Das SQL-Schema der pro-User-DB liegt in [`app/db/schema.sql`](app/db/schema.sql); Low-Level-Zugriff (SQLite/Crypto) nur in [`app/db/database.py`](app/db/database.py), alle Aufrufe darueber laufen ueber das Repository [`app/services/store.py`](app/services/store.py).
@@ -58,6 +58,7 @@ tests/
 
 - **Auth** – Registrieren/Anmelden per user_registry (signiertes Session-Cookie), Logout; Daten sind pro User getrennt
 - **Sessions** – Side-Panel mit chronologisch sortierten Tiles; anlegen, inline umbenennen, löschen
+- **Session-Einstellungen** – Zahnrad-Button oben links im Chat-Panel öffnet ein Modal pro Session (z. B. System-Prompt, der den globalen Prompt überschreibt; Tool-Nutzung ist vorbereitet, aber noch leer/deaktiviert); Speichern per `PUT /api/sessions/{id}/settings`, Laden per `GET /api/sessions/{id}/settings` (im Session-Detail `GET /api/sessions/{id}` enthalten); Abbrechen verwirft ohne API-Aufruf
 - **Streaming** – die Generierung laeuft serverseitig als Hintergrund-Task (`POST /api/chat` -> `202`); der LLM-SSE-Stream wird chunk-weise in der per-user DB persistiert, der Client pollt `GET /api/sessions/{id}`
 - **Cancel** – laufende Generierung per X abbrechen, Teilausgabe bleibt erhalten
 - **Message bubbles** – Rolle/Typ (message, tool-call, reasoning), kollabierbar, kopieren, vorlesen, Kontext-Checkbox (auch auf Tool-Call-/Tool-Result-Bubbles), löschen; die letzte Nutzernachricht hat zusätzlich **Bearbeiten** (Stift, Inline-Edit direkt in der Bubble: Textarea in den Bubble-Farben mit X-Button rechts daneben, Enter sendet, Esc bricht ab) und **Erneut senden** (Refresh) – beide nutzen denselben Pfad: die Nachricht wird per `PATCH` übernommen, alle Nachrichten danach (Assistenten-Antworten) gelöscht (`DELETE /api/sessions/{id}/messages/after/{mid}`) und die Antwort neu generiert

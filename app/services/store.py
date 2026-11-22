@@ -21,7 +21,7 @@ from typing import Any, Protocol, TypeVar, runtime_checkable
 
 from ..db import database as dbq
 from ..db.database import Database
-from ..domain import Attachment, AttachmentRef, Message, Session
+from ..domain import Attachment, AttachmentRef, ChatContext, Message, Session
 from ..types import AttachmentRow, MessageInput, MessageRow, SessionRow, UserIdentity
 
 T = TypeVar("T")
@@ -97,7 +97,7 @@ class UserStoreProtocol(Protocol):
     async def create_session(self, user: UserIdentity, name: str) -> Session: ...
     async def get_session(self, user: UserIdentity, sid: str) -> Session | None: ...
     async def session_exists(self, user: UserIdentity, sid: str) -> bool: ...
-    async def get_session_detail(self, user: UserIdentity, sid: str) -> tuple[Session, list[Message]] | None: ...
+    async def get_session_detail(self, user: UserIdentity, sid: str) -> tuple[Session, list[Message], dict[str, str]] | None: ...
     async def rename_session(self, user: UserIdentity, sid: str, name: str) -> Session: ...
     async def delete_session(self, user: UserIdentity, sid: str) -> None: ...
     async def add_message(self, user: UserIdentity, sid: str, msg: Mapping[str, Any]) -> Message: ...
@@ -109,12 +109,12 @@ class UserStoreProtocol(Protocol):
     async def add_attachment(self, user: UserIdentity, sid: str, att: Attachment, raw_size: int, max_total_bytes: int) -> Attachment: ...
     async def get_user_settings(self, user: UserIdentity) -> dict[str, str]: ...
     async def update_user_settings(self, user: UserIdentity, values: Mapping[str, str]) -> dict[str, str]: ...
+    async def get_session_settings(self, user: UserIdentity, sid: str) -> dict[str, str]: ...
+    async def update_session_settings(self, user: UserIdentity, sid: str, values: Mapping[str, str]) -> dict[str, str]: ...
     async def try_start_generating(self, user: UserIdentity, sid: str) -> str: ...
     async def set_generating(self, user: UserIdentity, sid: str, on: bool) -> None: ...
     async def clear_generating_if_idle(self, user: UserIdentity, sid: str, running: bool) -> None: ...
-    async def load_chat_context(
-        self, user: UserIdentity, sid: str
-    ) -> tuple[Session, dict[str, str], dict[int, Attachment], list[Message]] | None: ...
+    async def load_chat_context(self, user: UserIdentity, sid: str) -> ChatContext | None: ...
     async def finalize_generation(self, user: UserIdentity, sid: str, messages: list[MessageInput], error: str | None) -> list[Message]: ...
 
     @staticmethod
@@ -152,12 +152,16 @@ class SqliteUserStore(UserStoreProtocol):
     async def session_exists(self, user: UserIdentity, sid: str) -> bool:
         return await self._run(user, lambda con: dbq.q_get_session(con, sid) is not None)
 
-    async def get_session_detail(self, user: UserIdentity, sid: str) -> tuple[Session, list[Message]] | None:
-        def _do(con: sqlite3.Connection) -> tuple[Session, list[Message]] | None:
+    async def get_session_detail(self, user: UserIdentity, sid: str) -> tuple[Session, list[Message], dict[str, str]] | None:
+        def _do(con: sqlite3.Connection) -> tuple[Session, list[Message], dict[str, str]] | None:
             row = dbq.q_get_session(con, sid)
             if not row:
                 return None
-            return _to_session(row), [_to_message(r) for r in dbq.q_get_messages(con, sid)]
+            return (
+                _to_session(row),
+                [_to_message(r) for r in dbq.q_get_messages(con, sid)],
+                dbq.q_get_session_settings(con, sid),
+            )
 
         return await self._run(user, _do)
 
@@ -277,6 +281,26 @@ class SqliteUserStore(UserStoreProtocol):
 
         return await self._run(user, _do)
 
+    # --- Session Settings ---
+
+    async def get_session_settings(self, user: UserIdentity, sid: str) -> dict[str, str]:
+        def _do(con: sqlite3.Connection) -> dict[str, str]:
+            if not dbq.q_get_session(con, sid):
+                raise SessionNotFound(sid)
+            return dbq.q_get_session_settings(con, sid)
+
+        return await self._run(user, _do)
+
+    async def update_session_settings(self, user: UserIdentity, sid: str, values: Mapping[str, str]) -> dict[str, str]:
+        def _do(con: sqlite3.Connection) -> dict[str, str]:
+            if not dbq.q_get_session(con, sid):
+                raise SessionNotFound(sid)
+            for key, value in values.items():
+                dbq.q_set_session_setting(con, sid, key, value)
+            return dbq.q_get_session_settings(con, sid)
+
+        return await self._run(user, _do)
+
     # --- Generierungs-Status ---
 
     async def try_start_generating(self, user: UserIdentity, sid: str) -> str:
@@ -295,21 +319,20 @@ class SqliteUserStore(UserStoreProtocol):
 
         await self._run(user, _do)
 
-    async def load_chat_context(
-        self, user: UserIdentity, sid: str
-    ) -> tuple[Session, dict[str, str], dict[int, Attachment], list[Message]] | None:
-        """Session + Settings + Attachments + Messages in einem DB-Oeffnen laden."""
+    async def load_chat_context(self, user: UserIdentity, sid: str) -> ChatContext | None:
+        """Session + User-Settings + Session-Settings + Attachments + Messages in einem DB-Oeffnen laden."""
 
-        def _do(
-            con: sqlite3.Connection,
-        ) -> tuple[Session, dict[str, str], dict[int, Attachment], list[Message]] | None:
+        def _do(con: sqlite3.Connection) -> ChatContext | None:
             row = dbq.q_get_session(con, sid)
             if not row:
                 return None
-            stored = dbq.q_get_user_settings(con)
-            attachments = {a["id"]: _to_attachment(a) for a in dbq.q_get_session_attachments(con, sid)}
-            messages = [_to_message(r) for r in dbq.q_get_messages(con, sid)]
-            return _to_session(row), stored, attachments, messages
+            return ChatContext(
+                session=_to_session(row),
+                user_settings=dbq.q_get_user_settings(con),
+                session_settings=dbq.q_get_session_settings(con, sid),
+                attachments={a["id"]: _to_attachment(a) for a in dbq.q_get_session_attachments(con, sid)},
+                messages=[_to_message(r) for r in dbq.q_get_messages(con, sid)],
+            )
 
         return await self._run(user, _do)
 

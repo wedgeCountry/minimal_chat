@@ -39,3 +39,12 @@ CREATE TABLE IF NOT EXISTS user_settings (
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL
 );
+
+-- Session-Settings (key/value wie user_settings, aber pro Session;
+-- Keys: SESSION_SETTING_KEYS in app/services/settings.py)
+CREATE TABLE IF NOT EXISTS session_settings (
+    session_id TEXT NOT NULL REFERENCES sessions (id) ON DELETE CASCADE,
+    key        TEXT NOT NULL,
+    value      TEXT NOT NULL,
+    PRIMARY KEY (session_id, key)
+);

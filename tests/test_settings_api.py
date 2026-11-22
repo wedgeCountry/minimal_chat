@@ -225,3 +225,13 @@ def test_frontend_bool_setting_keys_match_backend():
     assert keys == list(BOOL_SETTINGS)
     for key, default in BOOL_SETTINGS.items():
         assert re.search(rf"{re.escape(key)}:\s*{'true' if default else 'false'}\b", defaults_block), key
+
+
+def test_frontend_session_setting_keys_match_backend():
+    """static/js/settingsKeys.js: SESSION_SETTING_KEYS muss zu SESSION_SETTING_KEYS im Backend passen."""
+    from app.services.settings import SESSION_SETTING_KEYS
+
+    js = (REPO_ROOT / "static" / "js" / "settingsKeys.js").read_text(encoding="utf-8")
+    block = js.split("export const SESSION_SETTING_KEYS")[1].split("]")[0]
+    keys = re.findall(r'"([a-z_]+)"', block)
+    assert keys == list(SESSION_SETTING_KEYS)
