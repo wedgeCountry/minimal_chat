@@ -1,7 +1,7 @@
 import { api } from "./api.js";
 import { state, activeSession, normalizeMessages, setActiveId } from "./state.js";
 import { $ } from "./util.js";
-import { initViewHistory, pushView, replaceView, sessionIdFromHash } from "./visits.js";
+import { initViewHistory, pushView, replaceView, sessionIdFromPath } from "./visits.js";
 import { goToLogin } from "./auth.js";
 import { loadSessions, renderSessions, newSession } from "./sessions.js";
 import { abortStream, initBubbleMenu, pollOnce, renderChatView, renderHeader, send, setStreamingUI, syncAllBubbleTts } from "./chat.js";
@@ -104,10 +104,10 @@ async function bootstrap() {
   // serverseitig laufende Generierung (z. B. nach Reload) -> Abbrechen-Button statt Senden
   setStreamingUI(!!activeSession()?.generating);
   if (state.sessions.length === 0) await newSession(true);
-  // View aus dem URL-Fragment wiederherstellen (z. B. nach 303-Redirect vom
-  // Visit-Stack) und als aktuellen History-Eintrag setzen
-  const hashId = sessionIdFromHash(location.hash);
-  if (hashId && state.sessions.some((s) => s.id === hashId)) setActiveId(hashId);
+  // View aus dem URL-Pfad wiederherstellen (z. B. nach 303-Redirect vom
+  // Visit-Stack auf /s/<id>) und als aktuellen History-Eintrag setzen
+  const pathId = sessionIdFromPath(location.pathname);
+  if (pathId && state.sessions.some((s) => s.id === pathId)) setActiveId(pathId);
   replaceView();
   setSideHidden(true);
   renderAll();
