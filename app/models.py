@@ -89,7 +89,7 @@ class SettingsOut(BaseModel):
     bubbles_deletable: bool = False
     bubbles_checkable: bool = True
     bubbles_speaker: bool = False
-    bubbles_minimal: bool = False
+    bubbles_minimal: bool = True
     show_system_prompt: bool = True
     show_tool_output: bool = True
     show_reasoning: bool = True

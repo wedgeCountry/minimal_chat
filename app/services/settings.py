@@ -18,7 +18,7 @@ BOOL_SETTINGS: dict[str, bool] = {
     "bubbles_deletable": False,
     "bubbles_checkable": True,
     "bubbles_speaker": True,
-    "bubbles_minimal": False,
+    "bubbles_minimal": True,
     "show_system_prompt": True,
     "show_tool_output": True,
     "show_reasoning": True,
