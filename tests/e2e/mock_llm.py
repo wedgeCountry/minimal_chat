@@ -5,7 +5,9 @@ Antwortet auf ``POST /v1/chat/completions`` mit einem SSE-Stream. Standard-Antwo
 (in agentenueblicher Reihenfolge): reasoning_content, tool_call, tool_result, content.
 Trigger im Text der letzten User-Message: "doppelzyklus" (zwei volle
 Reasoning/Toolcall/Toolresult/Message-Zyklen in einem Stream), "langsam" (Abbruch-Test),
-"lang" (lange Antwort), "oneline" (eine lange Zeile), Dateiinhalt -> Datei-Antwort.
+"lang" (lange Antwort), "oneline" (eine lange Zeile), "vielechunks" (lange Antwort in
+mehreren Chunks mit Pause - Expand waehrend des Streams muss nach Stream-Ende erhalten
+bleiben), Dateiinhalt -> Datei-Antwort.
 
 Ausserdem zeichnet der Mock jeden Request-Body auf: ``GET /received`` liefert die Liste aller
 aufgezeichneten ``POST /chat/completions``-Bodies (JSON), ``POST /received/clear`` leert sie -
@@ -83,6 +85,14 @@ async def app(scope, receive, send):
             chunks = [
                 {"choices": [{"delta": {"content": "Die Datei enthält Lorem ipsum (20 Zeilen)."}}]},
             ]
+        elif "vielechunks" in str(content):
+            # Lange Antwort in mehreren Chunks mit Pause: zum Testen, dass ein waehrend
+            # des Streams gewaehlter Expand-Modus den Refresh nach Stream-Ende ueberlebt
+            chunks = [
+                {"choices": [{"delta": {"content": "\n".join(f"Zeile {i}" for i in range(1, 6))}}]},
+                {"choices": [{"delta": {"content": "\n" + "\n".join(f"Zeile {i}" for i in range(6, 11))}}]},
+                {"choices": [{"delta": {"content": "\n" + "\n".join(f"Zeile {i}" for i in range(11, 16))}}]},
+            ]
         elif "chunky" in str(content):
             # Mehrere Content-Chunks mit Pause dazwischen: zum Testen, dass der Client
             # den Stream stufenweise (bit by bit) sieht
@@ -131,7 +141,7 @@ async def app(scope, receive, send):
             ]
         text = str(content)
         slow = "langsam" in text
-        chunky = "chunky" in text
+        chunky = "chunky" in text or "vielechunks" in text
         delay = 10.0 if slow else (0.4 if chunky else 0.02)
         for chunk in chunks:
             await send(
