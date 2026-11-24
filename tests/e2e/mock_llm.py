@@ -7,7 +7,8 @@ Trigger im Text der letzten User-Message: "doppelzyklus" (zwei volle
 Reasoning/Toolcall/Toolresult/Message-Zyklen in einem Stream), "langsam" (Abbruch-Test),
 "lang" (lange Antwort), "oneline" (eine lange Zeile), "vielechunks" (lange Antwort in
 mehreren Chunks mit Pause - Expand waehrend des Streams muss nach Stream-Ende erhalten
-bleiben), Dateiinhalt -> Datei-Antwort.
+bleiben), "denkslow" (Reasoning in mehreren Chunks mit Pause - Live-Streaming des
+Thinking-Bubbles), Dateiinhalt -> Datei-Antwort.
 
 Ausserdem zeichnet der Mock jeden Request-Body auf: ``GET /received`` liefert die Liste aller
 aufgezeichneten ``POST /chat/completions``-Bodies (JSON), ``POST /received/clear`` leert sie -
@@ -85,6 +86,15 @@ async def app(scope, receive, send):
             chunks = [
                 {"choices": [{"delta": {"content": "Die Datei enthält Lorem ipsum (20 Zeilen)."}}]},
             ]
+        elif "denkslow" in str(content):
+            # Reasoning in mehreren Chunks mit Pause, dann kurze Antwort: zum Testen,
+            # dass das Reasoning-Bubble live (waehrend des Streams) erscheint und waechst
+            chunks = [
+                {"choices": [{"delta": {"reasoning_content": "Denke Teil 1... "}}]},
+                {"choices": [{"delta": {"reasoning_content": "Denke Teil 2... "}}]},
+                {"choices": [{"delta": {"reasoning_content": "Denke Teil 3... "}}]},
+                {"choices": [{"delta": {"content": "Fertig"}}]},
+            ]
         elif "vielechunks" in str(content):
             # Lange Antwort in mehreren Chunks mit Pause: zum Testen, dass ein waehrend
             # des Streams gewaehlter Expand-Modus den Refresh nach Stream-Ende ueberlebt
@@ -142,7 +152,8 @@ async def app(scope, receive, send):
         text = str(content)
         slow = "langsam" in text
         chunky = "chunky" in text or "vielechunks" in text
-        delay = 10.0 if slow else (0.4 if chunky else 0.02)
+        denkslow = "denkslow" in text
+        delay = 10.0 if slow else (0.8 if denkslow else (0.4 if chunky else 0.02))
         for chunk in chunks:
             await send(
                 {
