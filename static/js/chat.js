@@ -5,6 +5,7 @@ import { ICONS } from "./icons.js";
 import { bubbleEl, setBubbleMode, setBubbleText, enterBubbleEdit, exitBubbleEdit, syncBubbleTts, syncBubbleDelete, copyBubbleText } from "./bubbles.js";
 import { nextBubbleMode } from "./bubbleMode.js";
 import { loadSessions, newSession, changed } from "./sessions.js";
+import { clearDraft } from "./drafts.js";
 import { uploadPendingAttachments, renderAttachments } from "./attachments.js";
 import { confirmModal } from "./confirm.js";
 import { resolveSystemPrompt } from "./sessionSettings.js";
@@ -768,6 +769,7 @@ export async function send() {
         in_context: true,
         attachments,
       });
+      clearDraft(s.id); // erst nach erfolgreichem Persistieren loeschen; Rollback stellt den Entwurf via input-Event wieder her
       dropLocalMessage(optimistic);
       applyLocalMessage(created);
       // Session-Liste (Name/Ts nach dem ersten User-Text) parallel zur Generierung laden

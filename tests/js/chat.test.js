@@ -5,6 +5,13 @@ import { state } from "../../static/js/state.js";
 import { speak, isSpeaking, stopSpeech } from "../../static/js/ttsDetectionService.js";
 import { setBubbleText } from "../../static/js/bubbles.js";
 
+const lsStore = new Map();
+globalThis.localStorage = {
+  getItem: (k) => (lsStore.has(k) ? lsStore.get(k) : null),
+  setItem: (k, v) => lsStore.set(k, String(v)),
+  removeItem: (k) => lsStore.delete(k),
+};
+
 const LONG_TEXT = Array.from({ length: 15 }, (_, i) => `Zeile ${i + 1}`).join("\n");
 
 test("sortMessagesForRender: chronological by ts", () => {
@@ -693,6 +700,7 @@ test("send(): zweiter Aufruf waehrend des ersten (Doppel-Tap / Enter nach Browse
   state.streaming = false;
   state.messages = [];
   state.pendingAttachments = [];
+  lsStore.set("leanchat.drafts", JSON.stringify({ s1: "Hallo Welt" })); // Entwurf der Session liegt vor dem Senden
 
   try {
     const p1 = send();
@@ -706,6 +714,7 @@ test("send(): zweiter Aufruf waehrend des ersten (Doppel-Tap / Enter nach Browse
     assert.equal(messagePosts.length, 1, "nach Abschluss des ersten send() weiterhin nur ein POST");
     assert.equal(messagePosts[0].text, "Hallo Welt");
     assert.equal(input.value, "", "Chat-Zeile wurde nach dem Senden geleert");
+    assert.deepEqual(JSON.parse(lsStore.get("leanchat.drafts") || "{}"), {}, "Entwurf wurde beim Senden geloescht");
   } finally {
     stopPolling();
     if (savedDoc === undefined) delete globalThis.document;
@@ -841,6 +850,7 @@ test("send(): Rollback bei Server-Fehler - Text und Anhaenge landen zurueck im C
   });
   h.input.value = "Hallo Welt";
   state.pendingAttachments = [{ name: "a.txt", type: "text/plain", file: new File(["hi"], "a.txt", { type: "text/plain" }) }];
+  lsStore.set("leanchat.drafts", JSON.stringify({ s1: "Hallo Welt" })); // Entwurf liegt vor dem Senden
   try {
     await assert.rejects(send(), /boom/);
     assert.equal(h.input.value, "Hallo Welt", "Text landet zurueck in der Chat-Zeile");
@@ -848,6 +858,7 @@ test("send(): Rollback bei Server-Fehler - Text und Anhaenge landen zurueck im C
     assert.equal(state.pendingAttachments.length, 1, "Anhang landet zurueck in der Pending-Liste");
     assert.equal(state.pendingAttachments[0].name, "a.txt");
     assert.equal(h.elements.attachments.children.length, 1, "Anhang-Chip wird wieder gerendert");
+    assert.deepEqual(JSON.parse(lsStore.get("leanchat.drafts") || "{}"), { s1: "Hallo Welt" }, "nicht gesendet -> Entwurf bleibt erhalten");
   } finally {
     h.restore();
   }

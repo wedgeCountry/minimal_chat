@@ -1249,6 +1249,56 @@ def test_switch_between_sessions(page, base_url, llm_expect):
     assert "Session Zwei Nachricht" in page.locator(_bubble("user")).first.locator('[data-testid="bubble-body"]').inner_text()
 
 
+def _input_value_is(page, value):
+    page.wait_for_function(
+        "([sel, val]) => document.querySelector(sel).value === val",
+        arg=[T["chat_input"], value],
+    )
+
+
+def test_drafts_are_per_session(page, base_url, llm_expect):
+    """Composer-Entwurf ist pro Session: Wechsel laedt den Entwurf der Ziel-Session (kein
+    Uebertrag in die andere Session), Rueckkehr stellt den eigenen Entwurf wieder her,
+    Senden loescht ihn; der Entwurf ueberlebt einen Reload (localStorage)."""
+    email = "draft-user@example.com"
+    api_client = _register_client(base_url, email, "Geheim-123")
+    _login(page, base_url, email, "Geheim-123")
+    sid_a = api_client.get("/api/sessions").json()[0]["id"]  # automatisch angelegte Session
+    sid_b = _new_named_session(page, api_client)  # zweite Session, danach aktiv
+
+    def open_tile(sid):
+        page.locator(f'[data-testid="session-tile-{sid}"] [data-testid="session-name-{sid}"]').click()
+        page.wait_for_selector(f'[data-testid="session-tile-{sid}"].active')
+
+    # Entwurf in Session B tippen, zu Session A wechseln: Composer leer (kein Uebertrag)
+    page.fill(T["chat_input"], "Entwurf B")
+    open_tile(sid_a)
+    _input_value_is(page, "")
+
+    # Entwurf in Session A tippen, zurueck zu B: Entwurf B ist wieder da
+    page.fill(T["chat_input"], "Entwurf A")
+    open_tile(sid_b)
+    _input_value_is(page, "Entwurf B")
+
+    # Reload: aktiver Session-Entwurf bleibt erhalten (localStorage + sessionStorage)
+    page.reload()
+    page.wait_for_selector(T["chat_input"])
+    _input_value_is(page, "Entwurf B")
+    _open_panel(page)
+
+    # Zurueck zu A, Entwurf senden -> Entwurf dieser Session wird geloescht
+    open_tile(sid_a)
+    _input_value_is(page, "Entwurf A")
+    _chat_once(page, "Entwurf A", 1, llm_expect["default"], llm_expect["timeout_ms"])
+    _input_value_is(page, "")
+
+    # Wechsel zu B: Entwurf B unberuehrt; zurueck zu A: gesendeter Entwurf bleibt weg
+    open_tile(sid_b)
+    _input_value_is(page, "Entwurf B")
+    open_tile(sid_a)
+    _input_value_is(page, "")
+
+
 def test_resend_last_user_message(page, base_url, llm_expect):
     """Erneut-senden-Button nur auf der letzten User-Bubble: wie Bearbeiten ohne
     Text-Aenderung - die Nachricht wird gepatcht, alle Nachrichten danach (alte
