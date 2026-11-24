@@ -409,6 +409,40 @@ def test_reasoning_bubbles_can_be_expanded(page, base_url, llm_expect):
     assert reasoning_bubble.get_attribute("data-mode") == "collapsed", "Nach dem zweiten Klick sollte der Mode wieder 'collapsed' sein"
 
 
+def test_reasoning_bubble_streams_live_during_generation(page, base_url, llm_expect):
+    """Regression: Reasoning wird live gestreamt - das Thinking-Bubble erscheint, waehrend der
+    Stream laeuft (Abort-Button aktiv, noch keine DB-id = Live-Message id=null) und waechst
+    chunkweise; erst nach Stream-Ende bekommt es seine persistierte id (data-msg-id).
+    Mock-Keyword 'denkslow': 3 Reasoning-Chunks mit je 0.8s Pause, dann kurze Antwort."""
+    if llm_expect["default"] is None:
+        pytest.skip("braucht den Mock-LLM (langsamer Reasoning-Stream)")
+    email = "reasoning-live-user@example.com"
+    api_client = _register_client(base_url, email, "Geheim-123")
+    _login(page, base_url, email, "Geheim-123")
+    _new_named_session(page, api_client)
+
+    page.fill(T["chat_input"], "denkslow")
+    page.click(T["send_btn"])
+    r = _reasoning_bubble()
+    abort = "document.querySelector('[data-testid=\"send-btn\"]').classList.contains('abort')"
+    body_text = "(b.querySelector('[data-testid=\"bubble-body\"]')||{}).textContent"
+    # live: Bubble da, Stream laeuft, noch keine DB-id, erster Chunk sichtbar
+    page.wait_for_function(
+        f"() => {{ const b = document.querySelector('{r}'); return !!b && !b.dataset.msgId && {abort} && {body_text}.includes('Denke Teil 1'); }}",
+        timeout=llm_expect["timeout_ms"],
+    )
+    # waechst live weiter (Teil 3), solange der Stream noch laeuft
+    page.wait_for_function(
+        f"() => {{ const b = document.querySelector('{r}'); return !!b && !b.dataset.msgId && {abort} && {body_text}.includes('Denke Teil 3'); }}",
+        timeout=llm_expect["timeout_ms"],
+    )
+    # nach Stream-Ende: persistiert (data-msg-id) mit komplettem Text
+    page.wait_for_function(
+        f"() => {{ const b = document.querySelector('{r}'); return !!b && !!b.dataset.msgId && !{abort} && {body_text}.includes('Denke Teil 3'); }}",
+        timeout=llm_expect["timeout_ms"],
+    )
+
+
 def test_toolcall_and_toolresult_bubbles_are_collapsed_by_default(page, base_url, llm_expect):
     """Toolcall- und Toolresult-Bubbles starten eingeklappt (collapsed), auch nach Reload;
     Reihenfolge laut Stream (jeder Block mit eigenem Abschluss-Ts): Reasoning, Toolcall,
