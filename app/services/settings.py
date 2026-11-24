@@ -16,7 +16,7 @@ from ..domain import LlmConnection, LlmModel
 
 BOOL_SETTINGS: dict[str, bool] = {
     "bubbles_deletable": False,
-    "bubbles_checkable": False,
+    "bubbles_checkable": True,
     "bubbles_speaker": True,
     "bubbles_minimal": True,
     "show_system_prompt": True,
