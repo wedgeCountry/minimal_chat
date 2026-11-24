@@ -417,3 +417,43 @@ def test_minimalism_dbltap_or_escape_stops_playback(mobile_speech_page, base_url
     page.wait_for_timeout(300)
     assert page.evaluate(speaking) is False, "Escape muss die Wiedergabe stoppen"
     assert menu.count() == 0
+
+
+def test_send_tap_keeps_input_focus_when_keep_keyboard_open(mobile_page, base_url, llm_expect):
+    """Setting keep_keyboard_open (Default an): Tap auf Senden darf auf dem Smartphone die
+    Tastatur nicht schliessen - der Focus-Wechsel auf den Button (mousedown-Default) wird
+    unterdrueckt, der Input bleibt fokussiert; der click feuert trotzdem (Nachricht geht raus).
+    Mit keep_keyboard_open=false wechselt der Focus auf den Button (Tastatur klappt zu)."""
+    if llm_expect["default"] is None:
+        pytest.skip("braucht den Mock-LLM")
+    email = "kb-send-user@example.com"
+    api_client = _register_client(base_url, email, "Geheim-123")
+    _login(mobile_page, base_url, email, "Geheim-123")
+    assert mobile_page.evaluate("() => 'ontouchstart' in window || matchMedia('(hover: none) and (pointer: coarse)').matches"), (
+        "Test braucht Touch-Emulation"
+    )
+
+    active = "() => document.activeElement?.dataset.testid"
+
+    # Default an: Input fokussieren, dann Senden tappen -> Focus bleibt im Input
+    mobile_page.locator(T["chat_input"]).click()
+    assert mobile_page.evaluate(active) == "chat-input"
+    mobile_page.fill(T["chat_input"], "Hallo")
+    mobile_page.click(T["send_btn"])
+    assert mobile_page.evaluate(active) == "chat-input", "Send-Tap darf den Input nicht blur-en (Tastatur bleibt offen)"
+    # click hat trotz preventDefault des mousedown gefeuert: User-Bubble ist unterwegs
+    mobile_page.wait_for_function(
+        "() => document.querySelectorAll('[data-testid=\"chat\"] .bubble[data-role=\"user\"]').length === 1",
+        timeout=llm_expect["timeout_ms"],
+    )
+
+    # Setting aus: nach Reload wechselt der Focus auf den Send-Button (Tastatur klappt zu)
+    res = api_client.put("/api/settings", json={"keep_keyboard_open": False})
+    assert res.status_code == 200, res.text
+    mobile_page.reload()
+    mobile_page.wait_for_selector(T["chat_input"], timeout=llm_expect["timeout_ms"])
+    mobile_page.locator(T["chat_input"]).click()
+    assert mobile_page.evaluate(active) == "chat-input"
+    mobile_page.fill(T["chat_input"], "Zweite Nachricht")
+    mobile_page.click(T["send_btn"])
+    assert mobile_page.evaluate(active) == "send-btn", "mit keep_keyboard_open=false darf der Send-Tap den Button fokussieren"
