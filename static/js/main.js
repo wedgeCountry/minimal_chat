@@ -17,6 +17,7 @@ import { initPartials } from "./html.js";
 import { initGlobalErrorHandling } from "./errors.js";
 import { initViewportSync } from "./viewport.js";
 import { setSideHidden, initSidePanelHistory } from "./sidePanel.js";
+import { applyEmbedMode } from "./embed.js";
 
 let autoLoginEnabled = false;
 
@@ -236,6 +237,7 @@ function initEvents() {
 }
 
 initGlobalErrorHandling();
+applyEmbedMode();
 await initPartials();
 initEvents();
 bootstrap();

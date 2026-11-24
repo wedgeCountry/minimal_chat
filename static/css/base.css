@@ -25,5 +25,11 @@ html.auto-login #logoutBtn,html.auto-login #changePwBtn{display:none}
 #side{width:230px;flex:none;background:var(--panel);border-right:1px solid var(--border);display:flex;flex-direction:column;transition:margin-left .2s ease}
 #side.hidden{margin-left:-230px}
 
+/* ?embed=1: Einbettung in andere Apps - nur Chat-Panel und Composer sichtbar;
+   #main braucht die volle Hoehe, weil der 46px-Header fehlt */
+html.embed #header{display:none}
+html.embed #side{display:none}
+html.embed #main{height:100%}
+
 ::-webkit-scrollbar{width:8px}
 ::-webkit-scrollbar-thumb{background:var(--scrollbar-thumb);border-radius:4px}
