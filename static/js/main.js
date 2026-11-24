@@ -18,6 +18,7 @@ import { initGlobalErrorHandling } from "./errors.js";
 import { initViewportSync } from "./viewport.js";
 import { setSideHidden, initSidePanelHistory } from "./sidePanel.js";
 import { saveDraft, syncDraftInput } from "./drafts.js";
+import { applyEmbedMode } from "./embed.js";
 
 let autoLoginEnabled = false;
 
@@ -164,6 +165,13 @@ function initEvents() {
   };
   $("abortBtnSide").onclick = abortStream;
   $("sendBtn").onclick = () => send();
+  // Send-Tap auf dem Smartphone darf die Tastatur nicht schliessen: der Focus-Wechsel auf
+  // den Button (Default-Aktion des mousedown) wird unterdrueckt, der Input bleibt fokussiert
+  // und die Tastatur offen - click feuert trotzdem. Nur auf Touch-Geraeten, per Setting
+  // (keep_keyboard_open) abschaltbar.
+  $("sendBtn").addEventListener("mousedown", (e) => {
+    if (isMobileInput() && state.settings.keep_keyboard_open !== false) e.preventDefault();
+  });
   $("attachBtn").onclick = () => $("fileInput").click();
   $("camBtn").onclick = () => $("camInput").click();
   $("fileInput").onchange = (e) => {
@@ -241,6 +249,7 @@ function initEvents() {
 }
 
 initGlobalErrorHandling();
+applyEmbedMode();
 await initPartials();
 initEvents();
 bootstrap();

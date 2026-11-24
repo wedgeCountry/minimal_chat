@@ -16,6 +16,7 @@ const CHECK_IDS = {
   show_reasoning: "setShowReasoning",
   show_file_button: "setShowFile",
   show_image_button: "setShowImage",
+  keep_keyboard_open: "setKeepKeyboard",
 };
 
 export async function loadSettings() {

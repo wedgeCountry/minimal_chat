@@ -93,6 +93,13 @@ def _register_client(base_url, email, password):
     return client
 
 
+def _non_minimal(api_client):
+    """Minimalismus fuer die Test-Session deaktivieren (Default ist an): Bubble-Toolbar
+    (Kopfzeile mit Buttons) ist dann direkt sichtbar und klickbar, ohne Kontextmenue."""
+    res = api_client.put("/api/settings", json={"bubbles_minimal": False})
+    assert res.status_code == 200, res.text
+
+
 def _login(page, base_url, email, password):
     # Unauthentifizierte Besucher werden auf die user_registry-Login-Seite umgeleitet
     page.goto(base_url)
@@ -156,7 +163,7 @@ def test_full_user_journey(page, base_url, tmp_path, llm_expect):
     # Setup: User per API anlegen, System-Prompt-Anzeige serverseitig deaktivieren
     # (damit er in der Journey "am Anfang versteckt" ist).
     api_client = _register_client(base_url, USER["email"], USER["password"])
-    res = api_client.put("/api/settings", json={"show_system_prompt": False, "bubbles_deletable": True})
+    res = api_client.put("/api/settings", json={"show_system_prompt": False, "bubbles_deletable": True, "bubbles_minimal": False})
     assert res.status_code == 200, res.text
 
     # 1. Anmelden
@@ -343,7 +350,8 @@ def test_reasoning_bubbles_appear_before_response_and_are_collapsed(page, base_u
 def test_reasoning_bubbles_can_be_expanded(page, base_url, llm_expect):
     """Testet, dass eingeklappte Reasoning-Bubbles ausgeklappt werden können."""
     # Setup: User per API anlegen
-    _register_client(base_url, "expand-user@example.com", "Geheim-123")
+    api_client = _register_client(base_url, "expand-user@example.com", "Geheim-123")
+    _non_minimal(api_client)
 
     # 1. Anmelden
     _login(page, base_url, "expand-user@example.com", "Geheim-123")
@@ -391,21 +399,14 @@ def test_reasoning_bubbles_can_be_expanded(page, base_url, llm_expect):
     )
     assert reasoning_bubble.get_attribute("data-mode") == "normal", "Nach dem ersten Klick sollte der Mode 'normal' sein"
 
-    # 7. Zweiter Klick: normal -> full
-    toggle_btn.click()
-    page.wait_for_function(
-        f"() => document.querySelector('{_reasoning_bubble()}').classList.contains('full')",
-        timeout=llm_expect["timeout_ms"]
-    )
-    assert reasoning_bubble.get_attribute("data-mode") == "full", "Nach dem zweiten Klick sollte der Mode 'full' sein"
-
-    # 8. Dritter Klick: full -> collapsed
+    # 7. Zweiter Klick: normal -> collapsed (der kurze Reasoning-Text ist in normal nicht
+    # gekuerzt, also ist full == normal und wird uebersprungen)
     toggle_btn.click()
     page.wait_for_function(
         f"() => document.querySelector('{_reasoning_bubble()}').classList.contains('collapsed')",
         timeout=llm_expect["timeout_ms"]
     )
-    assert reasoning_bubble.get_attribute("data-mode") == "collapsed", "Nach dem dritten Klick sollte der Mode wieder 'collapsed' sein"
+    assert reasoning_bubble.get_attribute("data-mode") == "collapsed", "Nach dem zweiten Klick sollte der Mode wieder 'collapsed' sein"
 
 
 def test_toolcall_and_toolresult_bubbles_are_collapsed_by_default(page, base_url, llm_expect):
@@ -710,7 +711,8 @@ def test_bubble_collapse_button_only_in_full_mode(page, base_url, llm_expect):
     if llm_expect["default"] is None:
         pytest.skip("braucht den Mock-LLM (lange 'lang'-Antwort)")
     email = "collapse-user@example.com"
-    _register_client(base_url, email, "Geheim-123")
+    api_client = _register_client(base_url, email, "Geheim-123")
+    _non_minimal(api_client)
     _login(page, base_url, email, "Geheim-123")
     _open_panel(page)
     page.click(T["new_session"])
@@ -982,6 +984,7 @@ def test_context_checkbox_persisted_across_reload(page, base_url, llm_expect):
     """Kontext-Checkbox abwaehlen -> in_context=false serverseitig persistiert, auch nach Reload."""
     email = "ctx-user@example.com"
     api_client = _register_client(base_url, email, "Geheim-123")
+    _non_minimal(api_client)
     _login(page, base_url, email, "Geheim-123")
     sid = _new_named_session(page, api_client)
 
@@ -1009,6 +1012,7 @@ def test_context_checkbox_excludes_unselected_from_llm_request(page, base_url, l
         pytest.skip("Request-Aufzeichnung nur beim Mock-LLM (Real-LLM-Lauf aktiv)")
     email = "ctx-llm-user@example.com"
     api_client = _register_client(base_url, email, "Geheim-123")
+    _non_minimal(api_client)
     _login(page, base_url, email, "Geheim-123")
     sid = _new_named_session(page, api_client)
 
@@ -1046,7 +1050,7 @@ def test_delete_message_via_ui_persists_server_side_and_across_reload(page, base
     die API sichtbar) und nach Reload weiterhin weg."""
     email = "del-user@example.com"
     api_client = _register_client(base_url, email, "Geheim-123")
-    res = api_client.put("/api/settings", json={"bubbles_deletable": True})  # Default ist jetzt False
+    res = api_client.put("/api/settings", json={"bubbles_deletable": True, "bubbles_minimal": False})  # Default ist jetzt False
     assert res.status_code == 200, res.text
     _login(page, base_url, email, "Geheim-123")
     sid = _new_named_session(page, api_client)
@@ -1087,7 +1091,7 @@ def test_delete_last_user_message_shows_resend_on_new_last_without_reload(page, 
         pytest.skip("Test braucht den Mock-LLM")
     email = "resend-after-delete-user@example.com"
     api_client = _register_client(base_url, email, "Geheim-123")
-    res = api_client.put("/api/settings", json={"bubbles_deletable": True})  # Default ist jetzt False
+    res = api_client.put("/api/settings", json={"bubbles_deletable": True, "bubbles_minimal": False})  # Default ist jetzt False
     assert res.status_code == 200, res.text
     _login(page, base_url, email, "Geheim-123")
     _new_named_session(page, api_client)
@@ -1120,7 +1124,7 @@ def test_deleted_messages_excluded_from_llm_request(page, base_url, llm_expect, 
         pytest.skip("Request-Aufzeichnung nur beim Mock-LLM (Real-LLM-Lauf aktiv)")
     email = "del-llm-user@example.com"
     api_client = _register_client(base_url, email, "Geheim-123")
-    res = api_client.put("/api/settings", json={"bubbles_deletable": True})  # Default ist jetzt False
+    res = api_client.put("/api/settings", json={"bubbles_deletable": True, "bubbles_minimal": False})  # Default ist jetzt False
     assert res.status_code == 200, res.text
     _login(page, base_url, email, "Geheim-123")
     sid = _new_named_session(page, api_client)
@@ -1301,6 +1305,7 @@ def test_resend_last_user_message(page, base_url, llm_expect):
     Assistenten-Antworten) werden geloescht und die Antwort neu generiert."""
     email = "resend-user@example.com"
     api_client = _register_client(base_url, email, "Geheim-123")
+    _non_minimal(api_client)
     _login(page, base_url, email, "Geheim-123")
     sid = _new_named_session(page, api_client)
 
@@ -1349,6 +1354,7 @@ def test_edit_last_user_message(page, base_url, llm_expect):
     gepatcht, alle Nachrichten danach (Assistenten-Antworten) gelöscht und neu generiert."""
     email = "edit-user@example.com"
     api_client = _register_client(base_url, email, "Geheim-123")
+    _non_minimal(api_client)
     _login(page, base_url, email, "Geheim-123")
     sid = _new_named_session(page, api_client)
 
@@ -1449,6 +1455,7 @@ def test_long_message_bubble_clamp_cycle(page, base_url, llm_expect):
         pytest.skip("Clamp-Test braucht den Mock-LLM (lange Antwort)")
     email = "clamp-user@example.com"
     api_client = _register_client(base_url, email, "Geheim-123")
+    _non_minimal(api_client)
     _login(page, base_url, email, "Geheim-123")
     _new_named_session(page, api_client)
 
@@ -1489,12 +1496,62 @@ def test_long_message_bubble_clamp_cycle(page, base_url, llm_expect):
     )
 
 
+def test_expand_mode_survives_stream_completion(page, base_url, llm_expect):
+    """Regression: lange Antwort streamt in Chunks (Mock 'vielechunks'); klappt der Nutzer
+    die Live-Bubble waehrend des Streams auf 'full', darf der Modus nicht auf 'normal'
+    zurueckfallen, sobald der Stream endet und der Poll den persistierten Stand laedt
+    (Key-Wechsel live-<idx> -> msg-<id> baut die Bubble neu)."""
+    if llm_expect["default"] is None:
+        pytest.skip("braucht den Mock-LLM (lange Antwort in Chunks)")
+    email = "expand-stream-user@example.com"
+    api_client = _register_client(base_url, email, "Geheim-123")
+    # Minimalismus aus: der Expand-Button (Chevron im Bubble-Head) ist sonst display:none
+    res = api_client.put("/api/settings", json={"bubbles_minimal": False})
+    assert res.status_code == 200, res.text
+    _login(page, base_url, email, "Geheim-123")
+    _new_named_session(page, api_client)
+    page.wait_for_function("() => !document.documentElement.classList.contains('bubbles-minimal')")
+
+    page.fill(T["chat_input"], "vielechunks")
+    page.click(T["send_btn"])
+    bubble = _bubble("assistant", "message")
+    send_btn = '[data-testid="send-btn"]'
+    # Live-Bubble waehrend des Streams, deren Text in 'normal' gekuerzt ist (>10 Zeilen)
+    page.wait_for_function(
+        f"() => {{ const b = document.querySelector('{bubble}');"
+        f" const body = b && b.querySelector('[data-testid=\"bubble-body\"]');"
+        f" return !!body && body.classList.contains('clamped') && b.getAttribute('data-mode') === 'normal'"
+        f" && document.querySelector('{send_btn}').classList.contains('abort'); }}",
+        timeout=llm_expect["timeout_ms"],
+    )
+    page.locator(f'{bubble} [data-testid="bubble-toggle-btn"]').click()  # normal -> full
+    page.wait_for_function(
+        f"() => document.querySelector('{bubble}').getAttribute('data-mode') === 'full'",
+        timeout=llm_expect["timeout_ms"],
+    )
+
+    # Stream-Ende abwarten (Abort-Button wechselt zurueck auf Senden)
+    page.wait_for_function(
+        f"() => document.querySelectorAll('{bubble}').length === 1"
+        f" && !document.querySelector('{send_btn}').classList.contains('abort')",
+        timeout=llm_expect["timeout_ms"],
+    )
+    # persistierte Bubble (data-msg-id gesetzt = Key msg-<id>, nicht mehr live) behaelt 'full'
+    page.wait_for_function(
+        f"() => {{ const b = document.querySelector('{bubble}');"
+        f" return b && !!b.dataset.msgId && b.getAttribute('data-mode') === 'full'; }}",
+        timeout=llm_expect["timeout_ms"],
+    )
+    assert "Zeile 15" in page.locator(f'{bubble} [data-testid="bubble-body"]').inner_text()
+
+
 def test_collapsed_bubble_caps_single_long_line_at_one_rendered_row(page, base_url, llm_expect):
     """Eine einzige sehr lange (umbrechende) Zeile: im collapsed-Modus genau eine gerenderte GUI-Zeile."""
     if llm_expect["default"] is None:
         pytest.skip("braucht den Mock-LLM (lange Einzeiler-Antwort)")
     email = "oneline-user@example.com"
     api_client = _register_client(base_url, email, "Geheim-123")
+    _non_minimal(api_client)
     _login(page, base_url, email, "Geheim-123")
     _new_named_session(page, api_client)
 
@@ -1508,8 +1565,9 @@ def test_collapsed_bubble_caps_single_long_line_at_one_rendered_row(page, base_u
 
     bubble = page.locator(_bubble("assistant", "message")).first
     toggle = bubble.locator('[data-testid="bubble-toggle-btn"]')
-    toggle.click()  # normal -> full
-    toggle.click()  # full -> collapsed
+    toggle.click()  # normal -> full (bzw. bei ungekuerztem Text direkt -> collapsed, full == normal)
+    if bubble.get_attribute("data-mode") != "collapsed":
+        toggle.click()  # -> collapsed
     page.wait_for_function(
         f"() => document.querySelector('{_bubble('assistant', 'message')}').getAttribute('data-mode') === 'collapsed'",
         timeout=llm_expect["timeout_ms"],
@@ -1533,6 +1591,7 @@ def test_collapse_keeps_scroll_position_when_scrolled_up(page, base_url, llm_exp
         pytest.skip("braucht den Mock-LLM (lange Antworten)")
     email = "scroll-collapse-user@example.com"
     api_client = _register_client(base_url, email, "Geheim-123")
+    _non_minimal(api_client)
     _login(page, base_url, email, "Geheim-123")
     _new_named_session(page, api_client)
 
@@ -1804,7 +1863,7 @@ def test_minimalism_desktop_hides_head_and_overrides_context_menu(page, base_url
     assert menu.count() == 0, "einfacher Tap darf auch bei gekuerzter Bubble kein Menue oeffnen"
 
     # Ziehen/Scrollen (Pointer bewegt sich) darf kein Menue oeffnen
-    box = page.locator(bubble_sel).bounding_box()
+    box = page.locator(bubble_sel).first.bounding_box()
     page.mouse.move(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
     page.mouse.down()
     page.mouse.move(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2 + 80, steps=8)
@@ -1819,8 +1878,8 @@ def test_minimalism_desktop_hides_head_and_overrides_context_menu(page, base_url
     page.wait_for_selector(_bubble("assistant", "message"), timeout=llm_expect["timeout_ms"])
     page.wait_for_function("() => !document.documentElement.classList.contains('bubbles-minimal')")
     assert page.locator(toolbar_btn).first.evaluate("el => getComputedStyle(el).display") != "none"
-    assert page.locator(f'{_bubble("assistant", "message")} .bubbleHead .role').evaluate("el => getComputedStyle(el).display") != "none"
-    page.dispatch_event(_bubble("assistant", "message"), "contextmenu")
+    assert page.locator(f'{_bubble("assistant", "message")} .bubbleHead .role').first.evaluate("el => getComputedStyle(el).display") != "none"
+    page.locator(_bubble("assistant", "message")).first.dispatch_event("contextmenu")
     page.wait_for_timeout(300)
     assert page.locator('[data-testid="bubble-context-menu"]').count() == 0, "ohne Minimalismus darf kein Kontextmenue erscheinen"
 
@@ -1864,3 +1923,122 @@ def test_minimalism_desktop_dblclick_stops_playback(page, base_url, llm_expect):
     assert page.evaluate("() => window.__tts.cancelCalls") >= 1, "speechSynthesis.cancel() wurde gerufen"
     assert lang_bubble.evaluate("el => el.dataset.mode") == "full", "Doppelklick aendert nicht den Modus"
     assert page.locator('[data-testid="bubble-context-menu"]').count() == 0, "Doppelklick darf kein Kontextmenue oeffnen"
+
+
+def _open_bubble_menu(page, bubble_sel):
+    """Desktop: Rechtsklick (contextmenu) auf der Bubble oeffnet das App-Kontextmenue
+    (bei mehreren Treffern auf der letzten Bubble)."""
+    prevented = page.evaluate(
+        """(sel) => {
+          const els = document.querySelectorAll(sel);
+          const el = els[els.length - 1];
+          const ev = new MouseEvent('contextmenu', { bubbles: true, cancelable: true });
+          el.dispatchEvent(ev);
+          return ev.defaultPrevented;
+        }""",
+        bubble_sel,
+    )
+    assert prevented, "contextmenu auf Bubble muss preventDefault sein (App-Menue ueberschreibt Systemmenue)"
+    menu = page.locator('[data-testid="bubble-context-menu"]')
+    menu.wait_for(state="visible")
+    return menu
+
+
+def test_minimalism_desktop_ctx_menu_delete_and_context_toggle(page, base_url, llm_expect):
+    """Minimalismus (Default an), Desktop: Aktionen laufen ueber das Kontextmenue (Rechtsklick),
+    nicht ueber die ausgeblendete Toolbar - hier: Kontext-Toggle und Loeschen.
+    Loeschen ueber das Menue persistiert serverseitig (API) und ueberlebt einen Reload."""
+    if llm_expect["default"] is None:
+        pytest.skip("braucht den Mock-LLM")
+    email = "minimal-ctx-del-user@example.com"
+    api_client = _register_client(base_url, email, "Geheim-123")
+    res = api_client.put("/api/settings", json={"bubbles_minimal": True, "bubbles_deletable": True})
+    assert res.status_code == 200, res.text
+    _login(page, base_url, email, "Geheim-123")
+    sid = _new_named_session(page, api_client)
+    page.wait_for_function("() => document.documentElement.classList.contains('bubbles-minimal')")
+
+    _chat_once(page, "Menue-Test", 1, llm_expect["default"], llm_expect["timeout_ms"])
+    user_sel = _bubble("user")
+    assert page.locator(user_sel).count() == 1
+
+    # 1. Kontext-Toggle ueber das Menue: Bubble wird aus dem Kontext genommen (deselected + API)
+    menu = _open_bubble_menu(page, user_sel)
+    toggle = menu.locator('[data-testid="ctx-toggle-context"]')
+    assert toggle.count() == 1
+    assert "ausschlie" in toggle.inner_text().lower()
+    toggle.click()
+    page.wait_for_selector('[data-testid="bubble-context-menu"]', state="detached")
+    assert page.locator(user_sel).evaluate("el => el.classList.contains('deselected')")
+    deadline = time.time() + 10
+    while time.time() < deadline:
+        msgs = _api_detail(api_client, sid)["messages"]
+        if msgs and msgs[0]["in_context"] is False:
+            break
+        time.sleep(0.2)
+    assert _api_detail(api_client, sid)["messages"][0]["in_context"] is False, "in_context=false muss serverseitig persistiert sein"
+
+    # 2. Loeschen ueber das Menue (Menue-Eintrag des versteckten Muellimer-Buttons)
+    menu = _open_bubble_menu(page, user_sel)
+    del_item = menu.locator('[data-testid="ctx-bubble-delete-btn"]')
+    assert del_item.count() == 1, "Menue muss den Loeschen-Eintrag der Toolbar enthalten"
+    del_item.click()
+    _confirm_delete(page)
+    page.wait_for_function(
+        f"() => document.querySelectorAll('{T['chat']} .bubble[data-role=\"user\"]').length === 0",
+        timeout=llm_expect["timeout_ms"],
+    )
+    deadline = time.time() + 10
+    while time.time() < deadline and any(m["role"] == "user" for m in _api_detail(api_client, sid)["messages"]):
+        time.sleep(0.2)
+    assert not any(m["role"] == "user" for m in _api_detail(api_client, sid)["messages"]), "DELETE muss serverseitig persistiert sein"
+
+    page.reload()
+    page.wait_for_selector(_bubble("assistant", "message"), timeout=llm_expect["timeout_ms"])
+    assert page.locator(user_sel).count() == 0
+    assert not any(m["role"] == "user" for m in _api_detail(api_client, sid)["messages"])
+
+
+def test_minimalism_desktop_ctx_menu_resend_regenerates(page, base_url, llm_expect):
+    """Minimalismus, Desktop: 'Erneut senden' ueber das Kontextmenue (Menue-Eintrag des
+    versteckten Resend-Buttons der letzten User-Bubble) startet die Neu-Generierung."""
+    if llm_expect["default"] is None:
+        pytest.skip("braucht den Mock-LLM")
+    email = "minimal-ctx-resend-user@example.com"
+    api_client = _register_client(base_url, email, "Geheim-123")
+    res = api_client.put("/api/settings", json={"bubbles_minimal": True})
+    assert res.status_code == 200, res.text
+    _login(page, base_url, email, "Geheim-123")
+    sid = _new_named_session(page, api_client)
+    page.wait_for_function("() => document.documentElement.classList.contains('bubbles-minimal')")
+
+    _chat_once(page, "Erste Frage", 1, llm_expect["default"], llm_expect["timeout_ms"])
+    _chat_once(page, "Zweite Frage", 2, llm_expect["default"], llm_expect["timeout_ms"])
+    assert page.locator(_bubble("user")).count() == 2
+
+    # Kontextmenue auf der letzten User-Bubble -> Erneut-senden-Eintrag
+    menu = _open_bubble_menu(page, _bubble("user"))
+    resend_item = menu.locator('[data-testid="ctx-bubble-resend-btn"]')
+    assert resend_item.count() == 1, "Menue muss den Resend-Eintrag der letzten User-Bubble enthalten"
+    resend_item.click()
+    page.wait_for_selector('[data-testid="bubble-context-menu"]', state="detached")
+
+    # Generierung startet und endet: weiterhin 2 User-Bubbles, 2 Assistant-Antworten
+    page.wait_for_function(
+        "() => document.querySelector('[data-testid=\\\"send-btn\\\"]').classList.contains('abort')",
+        timeout=llm_expect["timeout_ms"],
+    )
+    page.wait_for_function(
+        "() => document.querySelectorAll('[data-testid=\\\"chat\\\"] .bubble[data-role=\\\"user\\\"]').length === 2"
+        " && document.querySelectorAll('[data-testid=\\\"chat\\\"] .bubble[data-role=\\\"assistant\\\"][data-type=\\\"message\\\"]').length === 2"
+        " && !document.querySelector('[data-testid=\\\"send-btn\\\"]').classList.contains('abort')",
+        timeout=llm_expect["timeout_ms"],
+    )
+
+    msgs = _api_detail(api_client, sid)["messages"]
+    user_msgs = [m for m in msgs if m["role"] == "user"]
+    assert [m["text"] for m in user_msgs] == ["Erste Frage", "Zweite Frage"]
+    last_user_id = user_msgs[-1]["id"]
+    assistant_msgs = [m for m in msgs if m["role"] == "assistant" and m["type"] == "message"]
+    assert len(assistant_msgs) == 2
+    assert sum(1 for m in assistant_msgs if m["id"] > last_user_id) == 1, "genau eine neue Antwort nach der letzten User-Message"

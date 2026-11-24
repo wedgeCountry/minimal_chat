@@ -6,7 +6,7 @@ import { bubbleEl, setBubbleMode, setBubbleText, enterBubbleEdit, exitBubbleEdit
 import { nextBubbleMode } from "./bubbleMode.js";
 import { loadSessions, newSession, changed } from "./sessions.js";
 import { clearDraft } from "./drafts.js";
-import { uploadPendingAttachments } from "./attachments.js";
+import { uploadPendingAttachments, renderAttachments } from "./attachments.js";
 import { confirmModal } from "./confirm.js";
 import { resolveSystemPrompt } from "./sessionSettings.js";
 import { isBubbleVisible, isDuplicateSystemPrompt, isToolbarMinimal } from "./visibility.js";
@@ -178,6 +178,15 @@ export function applyLocalMessage(m) {
   };
   state.messages = upsert(state.messages);
   sseState = applyToLiveState(sseState, liveId(), upsert);
+  return n;
+}
+
+// Optimistische Live-Message (id=null) per Referenz entfernen - removeLocalMessage(null)
+// wuerde alle Live-Messages treffen
+function dropLocalMessage(m) {
+  const drop = (list) => list.filter((x) => x !== m);
+  state.messages = drop(state.messages);
+  sseState = applyToLiveState(sseState, liveId(), drop);
 }
 
 export function removeLocalMessage(mid) {
@@ -196,10 +205,25 @@ export function removeLocalMessagesAfter(mid) {
 // Keyed reconciliation: Bubbles werden pro Nachricht wiederverwendet und nur
 // bei Aenderung aktualisiert, statt das gesamte Chat-DOM bei jedem Poll neu zu bauen.
 const bubbleNodes = new Map();
+let bubbleNodesSid = null;
 
 function bubbleKey(m, idx) {
   if (m.id != null) return `msg-${m.id}`;
   return m.role === "system" ? "sys-prompt" : `live-${idx}`;
+}
+
+// Stream-Ende/Typwechsel: der offene Block (id=null, Key live-<idx>) wird persistiert
+// (Key msg-<id>) und seine Bubble dafuer neu gebaut. Ohne Uebernahme faellt der vom
+// Nutzer gewaehlte Expand-Modus auf defaultBubbleMode zurueck. Es gibt hoechstens einen
+// Live-Block, daher genuegt der Abgleich von Rolle+Typ (testbar, nodes als Parameter).
+export function inheritedBubbleMode(nodes, m) {
+  if (!m) return undefined;
+  for (const [key, el] of nodes) {
+    if (!key.startsWith("live-")) continue;
+    const lm = el._msg;
+    if (lm && lm.id == null && lm.role === m.role && lm.type === m.type) return el.dataset.mode;
+  }
+  return undefined;
 }
 
 function updateBubble(b, m, showResend, showEdit) {
@@ -235,6 +259,14 @@ export function scrollChatToBottom() {
 export function renderChat(messages) {
   const chat = $("chat");
   const s = activeSession();
+  // Keys sind pro Session vergeben (msg-<id> startet pro Session bei 1): Bubbles der
+  // alten Session duerfen nach einem Wechsel nicht wiederverwendet werden - auch nicht
+  // deren Expand-Modus. Aus dem Map-Clear allein verschwinden die DOM-Knoten nicht.
+  if (bubbleNodesSid !== (s?.id ?? null)) {
+    for (const el of bubbleNodes.values()) el.remove();
+    bubbleNodes.clear();
+    bubbleNodesSid = s?.id ?? null;
+  }
   if (!s || !messages?.length) {
     lastMessages = [];
     cancelEdit();
@@ -276,7 +308,11 @@ export function renderChat(messages) {
     seen.add(key);
     let b = bubbleNodes.get(key);
     if (!b) {
-      b = bubbleEl(item.m, handlers, { showResend: item.showResend, showEdit: item.showEdit });
+      b = bubbleEl(item.m, handlers, {
+        showResend: item.showResend,
+        showEdit: item.showEdit,
+        mode: inheritedBubbleMode(bubbleNodes, item.m),
+      });
       bubbleNodes.set(key, b);
     } else {
       updateBubble(b, item.m, item.showResend, item.showEdit);
@@ -698,27 +734,56 @@ export async function send() {
     const input = $("input");
     const text = input.value.trim();
     if (!text && !state.pendingAttachments.length) return;
-    let s = activeSession();
-    if (!s) {
-      await newSession(true);
-      s = activeSession();
-    }
-    const attachments = await uploadPendingAttachments(s.id);
-    const created = await api.post(`/sessions/${s.id}/messages`, {
-      role: "user",
-      type: "message",
-      text,
-      in_context: true,
-      attachments,
-    });
-    applyLocalMessage(created);
-    await loadSessions();
+    // Optimistisch: Composer sofort leeren und die eigene Nachricht als Live-Message
+    // (id=null) rendern, statt auf Upload/Persist/POST /chat zu warten; bei Fehler
+    // Rollback (siehe catch unten)
+    const pending = state.pendingAttachments.splice(0);
     input.value = "";
     clearDraft(s.id); // gesendet -> Entwurf der Session loeschen
     input.style.height = "auto";
     input.style.overflowY = "hidden";
-    changed();
-    await triggerGeneration(s);
+    renderAttachments();
+    let optimistic = null;
+    try {
+      let s = activeSession();
+      if (!s) {
+        await newSession(true);
+        s = activeSession();
+      }
+      optimistic = applyLocalMessage({
+        id: null,
+        role: "user",
+        type: "message",
+        text,
+        in_context: true,
+        attachments: pending.map((a) => ({ name: a.name, type: a.type })),
+        ts: Date.now(),
+      });
+      renderChatView();
+      scrollChatToBottom();
+      changed();
+      const attachments = await uploadPendingAttachments(s.id, pending);
+      const created = await api.post(`/sessions/${s.id}/messages`, {
+        role: "user",
+        type: "message",
+        text,
+        in_context: true,
+        attachments,
+      });
+      dropLocalMessage(optimistic);
+      applyLocalMessage(created);
+      // Session-Liste (Name/Ts nach dem ersten User-Text) parallel zur Generierung laden
+      loadSessions().then(() => changed()).catch(() => {});
+      await triggerGeneration(s);
+    } catch (err) {
+      if (optimistic) dropLocalMessage(optimistic);
+      state.pendingAttachments.unshift(...pending);
+      renderAttachments();
+      input.value = text;
+      input.dispatchEvent(new Event("input")); // Auto-Grow des Composer neu ausloesen
+      renderChatView();
+      throw err;
+    }
   } finally {
     sending = false;
   }
