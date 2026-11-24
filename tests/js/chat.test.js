@@ -850,6 +850,7 @@ test("send(): Rollback bei Server-Fehler - Text und Anhaenge landen zurueck im C
   });
   h.input.value = "Hallo Welt";
   state.pendingAttachments = [{ name: "a.txt", type: "text/plain", file: new File(["hi"], "a.txt", { type: "text/plain" }) }];
+  lsStore.set("leanchat.drafts", JSON.stringify({ s1: "Hallo Welt" })); // Entwurf liegt vor dem Senden
   try {
     await assert.rejects(send(), /boom/);
     assert.equal(h.input.value, "Hallo Welt", "Text landet zurueck in der Chat-Zeile");
@@ -857,6 +858,7 @@ test("send(): Rollback bei Server-Fehler - Text und Anhaenge landen zurueck im C
     assert.equal(state.pendingAttachments.length, 1, "Anhang landet zurueck in der Pending-Liste");
     assert.equal(state.pendingAttachments[0].name, "a.txt");
     assert.equal(h.elements.attachments.children.length, 1, "Anhang-Chip wird wieder gerendert");
+    assert.deepEqual(JSON.parse(lsStore.get("leanchat.drafts") || "{}"), { s1: "Hallo Welt" }, "nicht gesendet -> Entwurf bleibt erhalten");
   } finally {
     h.restore();
   }

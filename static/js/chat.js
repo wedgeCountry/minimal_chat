@@ -739,7 +739,6 @@ export async function send() {
     // Rollback (siehe catch unten)
     const pending = state.pendingAttachments.splice(0);
     input.value = "";
-    clearDraft(s.id); // gesendet -> Entwurf der Session loeschen
     input.style.height = "auto";
     input.style.overflowY = "hidden";
     renderAttachments();
@@ -770,6 +769,7 @@ export async function send() {
         in_context: true,
         attachments,
       });
+      clearDraft(s.id); // erst nach erfolgreichem Persistieren loeschen; Rollback stellt den Entwurf via input-Event wieder her
       dropLocalMessage(optimistic);
       applyLocalMessage(created);
       // Session-Liste (Name/Ts nach dem ersten User-Text) parallel zur Generierung laden
