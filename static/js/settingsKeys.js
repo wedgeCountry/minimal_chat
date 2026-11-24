@@ -9,7 +9,6 @@ export const BOOL_SETTING_KEYS = [
   "show_reasoning",
   "show_file_button",
   "show_image_button",
-  "keep_keyboard_open",
 ];
 
 export const BOOL_SETTING_DEFAULTS = {
@@ -22,7 +21,6 @@ export const BOOL_SETTING_DEFAULTS = {
   show_reasoning: true,
   show_file_button: false,
   show_image_button: false,
-  keep_keyboard_open: true,
 };
 
 export function defaultBoolSettings() {

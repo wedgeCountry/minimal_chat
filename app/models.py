@@ -79,7 +79,6 @@ class SettingsIn(BaseModel):
     show_reasoning: bool | None = None
     show_file_button: bool | None = None
     show_image_button: bool | None = None
-    keep_keyboard_open: bool | None = None
     speech_mode: Literal["system", "server", "none"] | None = None
 
 
@@ -96,7 +95,6 @@ class SettingsOut(BaseModel):
     show_reasoning: bool = True
     show_file_button: bool = False
     show_image_button: bool = False
-    keep_keyboard_open: bool = True
     speech_mode: str = "server"
 
 

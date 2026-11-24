@@ -97,9 +97,7 @@ export function bubbleEl(m, handlers = {}, opts = {}) {
   b.dataset.type = m.type;
   if (m.id != null) b.dataset.msgId = String(m.id);
   b.className = `bubble ${m.role} ${m.type}`;
-  // opts.mode: beim Stream-Ende wird die Live-Bubble (id=null) persistiert (msg-<id>)
-  // und dafuer neu gebaut - renderChat reicht den aktuell gewaehlten Expand-Modus durch
-  const mode = BUBBLE_MODES.includes(opts.mode) ? opts.mode : defaultBubbleMode(m.type);
+  const mode = defaultBubbleMode(m.type);
   b.classList.add(mode);
   b.dataset.mode = mode;
   if (m.type !== "reasoning") b.classList.add(m.inContext !== false ? "selected" : "deselected");

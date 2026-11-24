@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { sortMessagesForRender, findLastUserMessage, hasMessagesAfter, applyLocalMessage, removeLocalMessage, removeLocalMessagesAfter, inheritedBubbleMode, onBubbleTap, initBubbleMenu, closeBubbleCtxMenu, send, stopPolling } from "../../static/js/chat.js";
+import { sortMessagesForRender, findLastUserMessage, hasMessagesAfter, applyLocalMessage, removeLocalMessage, removeLocalMessagesAfter, onBubbleTap, initBubbleMenu, closeBubbleCtxMenu, send, stopPolling } from "../../static/js/chat.js";
 import { state } from "../../static/js/state.js";
 import { speak, isSpeaking, stopSpeech } from "../../static/js/ttsDetectionService.js";
 import { setBubbleText } from "../../static/js/bubbles.js";
@@ -199,30 +199,6 @@ test("removeLocalMessagesAfter: behaelt id <= mid (AUTOINCREMENT-monoton = serve
   state.messages = [{ id: 1 }, { id: 2 }, { id: 3 }, { id: 4 }];
   removeLocalMessagesAfter(2);
   assert.deepEqual(state.messages.map((m) => m.id), [1, 2]);
-});
-
-test("inheritedBubbleMode: persistierte Nachricht uebernimmt den Modus der ersetzten Live-Bubble (gleich Rolle+Typ)", () => {
-  // Stream-Ende: der offene Block (id=null, Key live-<idx>) bekommt seine DB-id (msg-<id>)
-  const nodes = new Map([
-    ["msg-1", { _msg: { id: 1, role: "user", type: "message" }, dataset: { mode: "normal" } }],
-    ["live-1", { _msg: { id: null, role: "assistant", type: "message" }, dataset: { mode: "full" } }],
-  ]);
-  assert.equal(inheritedBubbleMode(nodes, { id: 2, role: "assistant", type: "message" }), "full");
-  assert.equal(inheritedBubbleMode(nodes, { id: 2, role: "assistant", type: "reasoning" }), undefined, "anderer Typ -> keine Uebernahme");
-  assert.equal(inheritedBubbleMode(nodes, { id: 2, role: "user", type: "message" }), undefined, "andere Rolle -> keine Uebernahme");
-});
-
-test("inheritedBubbleMode: Live-Bubble selbst (id=null) und Nicht-live-Keys liefern nichts bzw. den eigenen Modus beim Re-Keying", () => {
-  const nodes = new Map([
-    ["sys-prompt", { _msg: { id: null, role: "system", type: "message" }, dataset: { mode: "full" } }],
-    ["live-2", { _msg: { id: null, role: "assistant", type: "message" }, dataset: { mode: "collapsed" } }],
-  ]);
-  // sys-prompt traegt zwar id=null, aber keinen live-Key -> wird ignoriert
-  assert.equal(inheritedBubbleMode(nodes, { id: 9, role: "system", type: "message" }), undefined);
-  // derselbe Live-Block mit verschobenem Index (live-2 -> live-3) uebernimmt seinen Modus
-  assert.equal(inheritedBubbleMode(nodes, { id: null, role: "assistant", type: "message" }), "collapsed");
-  assert.equal(inheritedBubbleMode(new Map(), { id: 3, role: "assistant", type: "message" }), undefined);
-  assert.equal(inheritedBubbleMode(nodes, null), undefined);
 });
 
 test("hasMessagesAfter: true only when messages follow the given id (edit-truncate check)", () => {

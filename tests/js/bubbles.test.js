@@ -26,7 +26,7 @@ function fakeBubble() {
   };
 }
 
-const { setBubbleMode, setBubbleText, syncBubbleTts, syncBubbleDelete, bubbleEl } = await import("../../static/js/bubbles.js");
+const { setBubbleMode, setBubbleText, syncBubbleTts, syncBubbleDelete } = await import("../../static/js/bubbles.js");
 const { state } = await import("../../static/js/state.js");
 
 const LONG = Array.from({ length: 12 }, (_, i) => `Zeile ${i + 1}`).join("\n");
@@ -236,60 +236,6 @@ function fakeDelBubble() {
     },
   };
 }
-
-function fakeBubbleEl() {
-  // minimales Element, das bubbleEl() braucht (innerHTML wird nicht geparst, die
-  // per querySelector abgefragten Kindknoten werden als Fakes geliefert)
-  const el = {
-    className: "",
-    dataset: {},
-    style: {},
-    innerHTML: "",
-    textContent: "",
-    title: "",
-    children: [],
-    classList: makeClassList(),
-    appendChild(c) {
-      this.children.push(c);
-    },
-    addEventListener() {},
-    remove() {},
-    querySelector(sel) {
-      if (sel === ".bubbleBody")
-        return (el._body ??= { textContent: "", classList: makeClassList(), scrollHeight: 0, clientHeight: 0, addEventListener() {} });
-      if (sel === ".chev") return (el._chev ??= { title: "", onclick: null });
-      if (sel === ".copyBtn") return (el._copy ??= { classList: makeClassList(), onclick: null });
-      return null;
-    },
-    querySelectorAll: () => [],
-  };
-  return el;
-}
-
-test("bubbleEl: opts.mode uebernimmt den Expand-Modus (Stream-Ende live -> persistiert), sonst defaultBubbleMode", () => {
-  const savedDoc = globalThis.document;
-  globalThis.document = { createElement: () => fakeBubbleEl() };
-  try {
-    const m = { id: 7, role: "assistant", type: "message", text: "Hallo", inContext: true };
-    const b1 = bubbleEl(m, {}, { mode: "full" });
-    assert.equal(b1.dataset.mode, "full");
-    assert.ok(b1.classList.contains("full"));
-    assert.ok(!b1.classList.contains("normal"));
-    assert.ok(b1.innerHTML.includes('title="Einklappen"'), "Chevron-Titel folgt dem uebernommenen Modus");
-
-    const b2 = bubbleEl(m, {});
-    assert.equal(b2.dataset.mode, "normal", "ohne opts.mode gilt defaultBubbleMode");
-
-    const b3 = bubbleEl({ id: 8, role: "assistant", type: "reasoning", text: "Denke" }, {}, { mode: "full" });
-    assert.equal(b3.dataset.mode, "full", "expliziter Modus schlaegt defaultBubbleMode (collapsed)");
-
-    const b4 = bubbleEl(m, {}, { mode: "kaputt" });
-    assert.equal(b4.dataset.mode, "normal", "ungueltiger Modus faellt auf defaultBubbleMode zurueck");
-  } finally {
-    if (savedDoc === undefined) delete globalThis.document;
-    else globalThis.document = savedDoc;
-  }
-});
 
 test("syncBubbleDelete: Muelleimer-Button folgt dem Setting auch bei wiederverwendeten Bubbles", () => {
   const savedDoc = globalThis.document;

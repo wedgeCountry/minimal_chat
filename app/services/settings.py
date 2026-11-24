@@ -24,7 +24,6 @@ BOOL_SETTINGS: dict[str, bool] = {
     "show_reasoning": True,
     "show_file_button": False,
     "show_image_button": False,
-    "keep_keyboard_open": True,
 }
 
 # LLM-Verbindungsdaten liegen nicht mehr als flache Keys hier, sondern in der
