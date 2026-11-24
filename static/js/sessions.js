@@ -1,5 +1,6 @@
 import { api } from "./api.js";
 import { activeSession, setActiveId, state } from "./state.js";
+import { clearDraft } from "./drafts.js";
 import { $, esc } from "./util.js";
 import { ICONS } from "./icons.js";
 import { confirmModal } from "./confirm.js";
@@ -100,6 +101,7 @@ export async function deleteSession(id) {
   const ok = await confirmModal({ title: "Session löschen", text: `Session „${s.name}“ wirklich löschen?` });
   if (!ok) return;
   await api.del(`/sessions/${id}`);
+  clearDraft(id); // Entwurf der geloeschten Session mit aufraeumen
   state.sessions = state.sessions.filter((x) => x.id !== id);
   if (state.activeId === id) setActiveId(state.sessions[0]?.id || null);
   changed();

@@ -5,6 +5,7 @@ import { ICONS } from "./icons.js";
 import { bubbleEl, setBubbleMode, setBubbleText, enterBubbleEdit, exitBubbleEdit, syncBubbleTts, syncBubbleDelete, copyBubbleText } from "./bubbles.js";
 import { nextBubbleMode } from "./bubbleMode.js";
 import { loadSessions, newSession, changed } from "./sessions.js";
+import { clearDraft } from "./drafts.js";
 import { uploadPendingAttachments } from "./attachments.js";
 import { confirmModal } from "./confirm.js";
 import { resolveSystemPrompt } from "./sessionSettings.js";
@@ -713,6 +714,7 @@ export async function send() {
     applyLocalMessage(created);
     await loadSessions();
     input.value = "";
+    clearDraft(s.id); // gesendet -> Entwurf der Session loeschen
     input.style.height = "auto";
     input.style.overflowY = "hidden";
     changed();

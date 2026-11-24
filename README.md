@@ -57,7 +57,7 @@ tests/
 ## Features
 
 - **Auth** – Registrieren/Anmelden per user_registry (signiertes Session-Cookie), Logout; Daten sind pro User getrennt
-- **Sessions** – Side-Panel mit chronologisch sortierten Tiles; anlegen, inline umbenennen, löschen
+- **Sessions** – Side-Panel mit chronologisch sortierten Tiles; anlegen, inline umbenennen, löschen. Der ungesendete Composer-Text (**Entwurf**) ist pro Session und wird im Browser persistiert: Session-Wechsel lädt den Entwurf der Ziel-Session, Rückkehr stellt den eigenen wieder her, Senden löscht ihn
 - **Session-Einstellungen** – Zahnrad-Button oben links im Chat-Panel öffnet ein Modal pro Session (System-Prompt, der den globalen Prompt überschreibt; Modell-Select, der das Standard-Modell dieser Session überschreibt; Tool-Nutzung ist vorbereitet, aber noch leer/deaktiviert); Speichern per `PUT /api/sessions/{id}/settings`, Laden per `GET /api/sessions/{id}/settings` (im Session-Detail `GET /api/sessions/{id}` enthalten); Abbrechen verwirft ohne API-Aufruf
 - **Streaming** – die Generierung laeuft serverseitig als Hintergrund-Task (`POST /api/chat` -> `202`); der LLM-SSE-Stream wird chunk-weise in der per-user DB persistiert, der Client pollt `GET /api/sessions/{id}`
 - **Cancel** – laufende Generierung per X abbrechen, Teilausgabe bleibt erhalten

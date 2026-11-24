@@ -17,6 +17,7 @@ import { initPartials } from "./html.js";
 import { initGlobalErrorHandling } from "./errors.js";
 import { initViewportSync } from "./viewport.js";
 import { setSideHidden, initSidePanelHistory } from "./sidePanel.js";
+import { saveDraft, syncDraftInput } from "./drafts.js";
 
 let autoLoginEnabled = false;
 
@@ -64,6 +65,7 @@ function renderAll() {
   $("sessionSettingsBtn").classList.toggle("u-hidden", !activeSession());
   renderSessions();
   renderHeader();
+  syncDraftInput(); // Session-Wechsel: Entwurf der aktiven Session in den Composer laden
   refreshChat();
   applyComposerButtons();
 }
@@ -195,7 +197,10 @@ function initEvents() {
     resizeInput();
     updateInputOverflow();
   };
-  input.addEventListener("input", syncInputSize);
+  input.addEventListener("input", () => {
+    saveDraft(state.activeId, input.value); // Entwurf pro Session persistieren
+    syncInputSize();
+  });
   window.addEventListener("resize", syncInputSize);
   syncInputSize();
   if (mobile) {

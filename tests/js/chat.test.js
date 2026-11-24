@@ -5,6 +5,13 @@ import { state } from "../../static/js/state.js";
 import { speak, isSpeaking, stopSpeech } from "../../static/js/ttsDetectionService.js";
 import { setBubbleText } from "../../static/js/bubbles.js";
 
+const lsStore = new Map();
+globalThis.localStorage = {
+  getItem: (k) => (lsStore.has(k) ? lsStore.get(k) : null),
+  setItem: (k, v) => lsStore.set(k, String(v)),
+  removeItem: (k) => lsStore.delete(k),
+};
+
 const LONG_TEXT = Array.from({ length: 15 }, (_, i) => `Zeile ${i + 1}`).join("\n");
 
 test("sortMessagesForRender: chronological by ts", () => {
@@ -669,6 +676,7 @@ test("send(): zweiter Aufruf waehrend des ersten (Doppel-Tap / Enter nach Browse
   state.streaming = false;
   state.messages = [];
   state.pendingAttachments = [];
+  lsStore.set("leanchat.drafts", JSON.stringify({ s1: "Hallo Welt" })); // Entwurf der Session liegt vor dem Senden
 
   try {
     const p1 = send();
@@ -682,6 +690,7 @@ test("send(): zweiter Aufruf waehrend des ersten (Doppel-Tap / Enter nach Browse
     assert.equal(messagePosts.length, 1, "nach Abschluss des ersten send() weiterhin nur ein POST");
     assert.equal(messagePosts[0].text, "Hallo Welt");
     assert.equal(input.value, "", "Chat-Zeile wurde nach dem Senden geleert");
+    assert.deepEqual(JSON.parse(lsStore.get("leanchat.drafts") || "{}"), {}, "Entwurf wurde beim Senden geloescht");
   } finally {
     stopPolling();
     if (savedDoc === undefined) delete globalThis.document;
