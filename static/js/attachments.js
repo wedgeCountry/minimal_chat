@@ -13,10 +13,11 @@ export function addAttachments(files) {
 
 // Laedt die angehaengten Rohdateien zur Session hoch (Multipart, ohne Base64-Overhead);
 // das Lesen/Dekodieren passiert serverseitig (POST /api/sessions/{sid}/attachments).
-// Liefert References.
-export async function uploadPendingAttachments(sid) {
+// Liefert References. ``pending`` default: die aktuelle Pending-Liste (send() splicet sie
+// frueher fuers optimistische UI und reicht sie hier durch).
+export async function uploadPendingAttachments(sid, pending = state.pendingAttachments.splice(0)) {
   const refs = [];
-  for (const a of state.pendingAttachments.splice(0)) {
+  for (const a of pending) {
     if (a.file) {
       const form = new FormData();
       form.append("file", a.file, a.name);

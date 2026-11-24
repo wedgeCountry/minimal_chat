@@ -4,6 +4,7 @@ import logging
 import os
 from collections.abc import Awaitable, Callable
 from pathlib import Path
+from urllib.parse import parse_qs
 
 from fastapi import FastAPI, Request, Response
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
@@ -36,6 +37,14 @@ CSP_AUTH = (
     "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; "
     "img-src 'self' data:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'"
 )
+
+
+def _framing_allowed(request: Request) -> bool:
+    # ?embed=1 erlaubt Framing der App-Seiten (Einbettung per WebView/iframe);
+    # /api/* und /auth/* bleiben immer DENY.
+    if request.url.path.startswith(("/api/", "/auth")):
+        return False
+    return "embed" in parse_qs(request.url.query, keep_blank_values=True)
 
 
 def create_app(
@@ -115,9 +124,16 @@ def create_app(
         response = await call_next(request)
         response.headers.setdefault("X-Content-Type-Options", "nosniff")
         response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
-        response.headers.setdefault("X-Frame-Options", "DENY")
-        # ueberschreibt die CSP der user_registry (frame-ancestors 'none') bewusst
-        response.headers["Content-Security-Policy"] = CSP_AUTH if request.url.path.startswith("/auth") else CSP_APP
+        if _framing_allowed(request):
+            # X-Frame-Options kennt kein Wildcard -> Header weglassen und statt-
+            # dessen per CSP alle Ancestors erlauben
+            if "X-Frame-Options" in response.headers:
+                del response.headers["X-Frame-Options"]
+            response.headers["Content-Security-Policy"] = CSP_APP.replace("frame-ancestors 'none'", "frame-ancestors *")
+        else:
+            response.headers.setdefault("X-Frame-Options", "DENY")
+            # ueberschreibt die CSP der user_registry (frame-ancestors 'none') bewusst
+            response.headers["Content-Security-Policy"] = CSP_AUTH if request.url.path.startswith("/auth") else CSP_APP
         if not request.url.path.startswith("/api/"):
             # Statische ES-Module und Auth-Seiten (CSRF-Token inline) duerfen nie aus
             # dem Heuristik-Cache bedient werden: nach einem Deploy muss der Browser

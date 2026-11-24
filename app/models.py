@@ -88,7 +88,7 @@ class SettingsOut(BaseModel):
     system_prompt: str = ""
     theme: str
     bubbles_deletable: bool = False
-    bubbles_checkable: bool = False
+    bubbles_checkable: bool = True
     bubbles_speaker: bool = False
     bubbles_minimal: bool = True
     show_system_prompt: bool = True

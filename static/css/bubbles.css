@@ -142,6 +142,9 @@
    Rechtsklick (ueberschreibt das Systemmenue), Touch per Doppel-Tap; Langdruck auf Touch bleibt
    nativ. */
 html.bubbles-minimal .bubbleHead,
+html.bubbles-minimal .bubbleHead .iconBtn,
+html.bubbles-minimal .bubbleHead .chk,
+html.bubbles-minimal .bubble.message .bubbleHead .role,
 html.bubbles-minimal .bubble .collapseBtn{display:none}
 /* Im Minimalismus weniger Hoehe, da keine Kopfzeile und kein Einklapp-Button Platz brauchen */
 html.bubbles-minimal .bubble{--bubble-min-height:0;padding:8px 12px;touch-action:manipulation}

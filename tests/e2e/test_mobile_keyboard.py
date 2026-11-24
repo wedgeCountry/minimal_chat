@@ -11,7 +11,7 @@ from __future__ import annotations
 import pytest
 
 from tests.e2e.conftest import SPEECH_STUB
-from tests.e2e.test_user_journey import T, _login, _register_client
+from tests.e2e.test_user_journey import T, _confirm_delete, _login, _register_client
 
 pytestmark = pytest.mark.e2e
 
@@ -178,7 +178,8 @@ def test_minimalism_hides_toolbar_on_touch_and_longpress_opens_menu(mobile_page,
     assert menu.locator("button").count() >= 2, "Kontextmenue muss Kopieren und die Bubble-Aktionen enthalten"
     assert menu.locator("button svg").count() == 0, "Kontextmenue darf keine Icons enthalten (nur Text)"
     assert menu.locator('[data-testid="ctx-copy"]').count() == 1, "Menue-Eintrag fehlt: ctx-copy"
-    mobile_page.touchscreen.tap(cx, cy)  # Tap bei offenem Menue -> alle Kontextmenues zu
+    # Tap auf die Bubble (ausserhalb des Menues, das am Doppel-Tap-Punkt oeffnet) schliesst es
+    mobile_page.touchscreen.tap(box["x"] + 20, box["y"] + 6)
     mobile_page.wait_for_selector('[data-testid="bubble-context-menu"]', state="detached")
 
     # System-Auswahlmenue offen (aktive Textauswahl): Tap darf kein App-Menue oeffnen
@@ -245,7 +246,7 @@ def test_minimalism_hides_toolbar_on_touch_and_longpress_opens_menu(mobile_page,
 def test_minimalism_single_tap_cycles_expansion_mode(mobile_page, base_url, llm_expect):
     """Minimalismus auf Touch: ein einfacher Tap auf eine Bubble schaltet den Expand-Modus
     zyklisch weiter (normal -> full -> collapsed -> normal), wie der Expand-Button im
-    Normalmodus — auch bei nicht gekuerztem Text. Der Doppel-Tap oeffnet als eigene Aktion
+    Normalmodus. Der Doppel-Tap oeffnet als eigene Aktion
     nur das Kontextmenue (kein Modus-Wechsel); Scroll-Gesten loesen weder Menue noch
     Modus-Wechsel aus."""
     if llm_expect["default"] is None:
@@ -256,7 +257,7 @@ def test_minimalism_single_tap_cycles_expansion_mode(mobile_page, base_url, llm_
 
     assert mobile_page.evaluate("() => matchMedia('(hover: none) and (pointer: coarse)').matches"), "Test braucht Touch-Emulation ohne Hover"
 
-    mobile_page.fill(T["chat_input"], "Hallo")
+    mobile_page.fill(T["chat_input"], "lang")
     mobile_page.click(T["send_btn"])
     mobile_page.wait_for_function(
         "() => document.querySelectorAll('[data-testid=\"chat\"] .bubble[data-role=\"assistant\"][data-type=\"message\"]').length === 1"
@@ -285,7 +286,7 @@ def test_minimalism_single_tap_cycles_expansion_mode(mobile_page, base_url, llm_
 
     assert mode() == "normal"
     tap()
-    assert mode() == "full", "erster Tap: normal -> full (auch bei nicht gekuerztem Text)"
+    assert mode() == "full", "erster Tap: normal -> full (Text ist in normal gekuerzt)"
     tap()
     assert mode() == "collapsed", "zweiter Tap: full -> collapsed"
     tap()
@@ -343,7 +344,7 @@ def test_minimalism_dbltap_or_escape_stops_playback(mobile_speech_page, base_url
 
     assert page.evaluate("() => matchMedia('(hover: none) and (pointer: coarse)').matches"), "Test braucht Touch-Emulation ohne Hover"
 
-    page.fill(T["chat_input"], "Hallo")
+    page.fill(T["chat_input"], "lang")
     page.click(T["send_btn"])
     page.wait_for_function(
         "() => document.querySelectorAll('[data-testid=\"chat\"] .bubble[data-role=\"assistant\"][data-type=\"message\"]').length === 1"
@@ -418,7 +419,6 @@ def test_minimalism_dbltap_or_escape_stops_playback(mobile_speech_page, base_url
     assert page.evaluate(speaking) is False, "Escape muss die Wiedergabe stoppen"
     assert menu.count() == 0
 
-
 def test_send_tap_keeps_input_focus_when_keep_keyboard_open(mobile_page, base_url, llm_expect):
     """Setting keep_keyboard_open (Default an): Tap auf Senden darf auf dem Smartphone die
     Tastatur nicht schliessen - der Focus-Wechsel auf den Button (mousedown-Default) wird
@@ -457,3 +457,58 @@ def test_send_tap_keeps_input_focus_when_keep_keyboard_open(mobile_page, base_ur
     mobile_page.fill(T["chat_input"], "Zweite Nachricht")
     mobile_page.click(T["send_btn"])
     assert mobile_page.evaluate(active) == "send-btn", "mit keep_keyboard_open=false darf der Send-Tap den Button fokussieren"
+
+def test_minimalism_touch_dbltap_menu_action_delete(mobile_page, base_url, llm_expect):
+    """Minimalismus auf Touch: der Doppel-Tap oeffnet das Kontextmenue; ein Menue-Eintrag
+    (hier Loeschen, der Menue-Abbildung des versteckten Muellimer-Buttons) fuehrt die Aktion
+    aus - die User-Bubble ist danach weg."""
+    if llm_expect["default"] is None:
+        pytest.skip("braucht den Mock-LLM")
+    email = "minimal-touch-del-user@example.com"
+    api_client = _register_client(base_url, email, "Geheim-123")
+    res = api_client.put("/api/settings", json={"bubbles_minimal": True, "bubbles_deletable": True})
+    assert res.status_code == 200, res.text
+    _login(mobile_page, base_url, email, "Geheim-123")
+
+    assert mobile_page.evaluate("() => matchMedia('(hover: none) and (pointer: coarse)').matches"), "Test braucht Touch-Emulation ohne Hover"
+
+    mobile_page.fill(T["chat_input"], "Hallo")
+    mobile_page.click(T["send_btn"])
+    mobile_page.wait_for_function(
+        "() => document.querySelectorAll('[data-testid=\"chat\"] .bubble[data-role=\"assistant\"][data-type=\"message\"]').length === 1"
+        " && !document.querySelector('[data-testid=\"send-btn\"]').classList.contains('abort')",
+        timeout=llm_expect["timeout_ms"],
+    )
+    user_sel = '[data-testid="chat"] .bubble[data-role="user"]'
+    assert mobile_page.locator(user_sel).count() == 1
+    mobile_page.wait_for_function("() => document.documentElement.classList.contains('bubbles-minimal')")
+
+    # Doppel-Tap (zwei pointerdown+click-Paare in einem Tick) oeffnet das App-Kontextmenue
+    opened = mobile_page.evaluate(
+        """(sel) => {
+          const el = document.querySelector(sel);
+          const r = el.getBoundingClientRect();
+          const x = r.x + r.width / 2, y = r.y + r.height / 2;
+          for (let i = 0; i < 2; i++) {
+            el.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, clientX: x, clientY: y }));
+            el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, clientX: x, clientY: y }));
+          }
+          return !!document.querySelector('[data-testid="bubble-context-menu"]');
+        }""",
+        user_sel,
+    )
+    assert opened is True, "Doppel-Tap muss das Kontextmenue oeffnen"
+    menu = mobile_page.locator('[data-testid="bubble-context-menu"]')
+    menu.wait_for(state="visible")
+
+    # Menue-Eintrag Loeschen fuehrt dieselbe Aktion wie der versteckte Toolbar-Button aus
+    del_item = menu.locator('[data-testid="ctx-bubble-delete-btn"]')
+    assert del_item.count() == 1, "Menue muss den Loeschen-Eintrag enthalten"
+    del_item.click()
+    _confirm_delete(mobile_page)
+    mobile_page.wait_for_function(
+        "() => document.querySelectorAll('[data-testid=\"chat\"] .bubble[data-role=\"user\"]').length === 0",
+        timeout=llm_expect["timeout_ms"],
+    )
+    assert mobile_page.locator(user_sel).count() == 0
+

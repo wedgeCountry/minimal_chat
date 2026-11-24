@@ -131,6 +131,24 @@ def test_security_headers_on_app_pages(app):
         assert "Strict-Transport-Security" not in res.headers  # ohne TLS kein HSTS
 
 
+def test_embed_param_allows_framing_on_app_pages(app):
+    with login_client(app) as client:
+        for path in ["/?embed=1", "/?embed", "/s/irgendeine-id?embed=1"]:
+            res = client.get(path)
+            assert res.status_code == 200
+            assert "X-Frame-Options" not in res.headers
+            assert "frame-ancestors *" in res.headers["Content-Security-Policy"]
+
+
+def test_embed_param_does_not_relax_api_or_auth(client):
+    res = client.get("/api/meta?embed=1")
+    assert res.headers["X-Frame-Options"] == "DENY"
+    assert "frame-ancestors 'none'" in res.headers["Content-Security-Policy"]
+    res = client.get("/auth/login?embed=1")
+    assert res.headers["X-Frame-Options"] == "DENY"
+    assert "frame-ancestors 'none'" in res.headers["Content-Security-Policy"]
+
+
 def test_auth_pages_get_relaxed_csp_for_inline_csrf_script(client):
     res = client.get("/auth/login")
     assert res.status_code == 200

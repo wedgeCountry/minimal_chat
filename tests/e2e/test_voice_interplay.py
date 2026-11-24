@@ -96,7 +96,10 @@ def _dismiss_error_if_open(page):
 
 def _setup_with_answer(page, base_url, llm_expect, email):
     """Registriert/Loggt ein und schickt eine Nachricht, damit eine Assistant-Bubble mit Speaker-Button existiert."""
-    _register_client(base_url, email, "Geheim-123")
+    api_client = _register_client(base_url, email, "Geheim-123")
+    # Minimalismus (Default an) deaktivieren: Speaker-Button im Bubble-Head direkt sichtbar
+    res = api_client.put("/api/settings", json={"bubbles_minimal": False})
+    assert res.status_code == 200, res.text
     _login(page, base_url, email, "Geheim-123")
     _chat_once(page, "Bitte vorlesen", 1, llm_expect["default"], llm_expect["timeout_ms"])
     page.locator(TTS_BTN).first.wait_for(state="visible")

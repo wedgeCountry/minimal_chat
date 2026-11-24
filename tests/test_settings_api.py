@@ -90,7 +90,7 @@ def test_boolean_display_settings_roundtrip(client, auth_headers):
 
 def test_legacy_user_setting_keys_fall_back_to_default(client, auth_headers, app):
     """Umbenannte alte Schluessel (bubbles_user_*) werden nicht mehr gelesen:
-    Default greift (bubbles_checkable/bubbles_deletable default False)."""
+    Default greift (bubbles_checkable default True, bubbles_deletable default False)."""
     from app.auth import user_identity
     from app.db import database as dbq
 
@@ -100,7 +100,7 @@ def test_legacy_user_setting_keys_fall_back_to_default(client, auth_headers, app
         dbq.q_set_user_setting(con, "bubbles_user_checkable", "0")
         dbq.q_set_user_setting(con, "bubbles_user_deletable", "0")
     got = client.get("/api/settings", headers=auth_headers).json()
-    assert got["bubbles_checkable"] is False
+    assert got["bubbles_checkable"] is True
     assert got["bubbles_deletable"] is False
 
 
