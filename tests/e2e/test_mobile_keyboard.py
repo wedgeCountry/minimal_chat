@@ -104,6 +104,45 @@ def test_composer_stays_at_bottom_of_visual_viewport_when_keyboard_open(mobile_p
     assert result["inputBottom"] <= 400 + 0.5, f"Eingabefeld muss vollstaendig sichtbar sein, bottom={result['inputBottom']}"
 
 
+def test_composer_flush_at_bottom_when_keyboard_collapsed(mobile_page, base_url):
+    """Tastatur wieder zu (nach dem Oeffnen): Root-Hoehe wird auf die volle Visual-Viewport-
+    Hoehe zurueckgesetzt, der Pan wird resettet und der Composer klebt am unteren sichtbaren
+    Rand - darunter nur das Composer-Padding (10px; in der Emulation ist die Safe-Area 0)."""
+    email = "kb-closed-user@example.com"
+    _register(base_url, email)
+    _login(mobile_page, base_url, email, "Geheim-123")
+    mobile_page.wait_for_selector(T["chat_input"])
+    mobile_page.locator(T["chat_input"]).click()
+
+    result = mobile_page.evaluate(
+        """async () => {
+          const mod = await import('/js/viewport.js');
+          const apply = (h) => {
+            window.scrollTo(0, 200); // Pan, wie ihn der Browser beim Fokussieren setzt
+            const fakeWin = { visualViewport: { height: h, scale: 1 }, scrollTo: (x, y) => window.scrollTo(x, y) };
+            mod.applyVisualViewport(document.documentElement, fakeWin);
+          };
+          apply(400); // Tastatur offen
+          apply(844); // Tastatur wieder eingeklappt
+          const wrapEl = document.querySelector('[data-testid="composer-wrap"]');
+          const wrap = wrapEl.getBoundingClientRect();
+          const composer = document.querySelector('[data-testid="composer"]').getBoundingClientRect();
+          return {
+            rootHeight: document.documentElement.style.height,
+            scrollY: window.scrollY,
+            wrapBottom: wrap.bottom,
+            composerBottom: composer.bottom,
+            padBottom: getComputedStyle(wrapEl).paddingBottom,
+          };
+        }"""
+    )
+    assert result["rootHeight"] == "844px", f"Root-Hoehe muss nach dem Zuklappen wieder voll sein, got {result['rootHeight']!r}"
+    assert result["scrollY"] == 0, "bestehender Fenster-Pan muss zurueckgesetzt werden"
+    assert abs(result["wrapBottom"] - 844) < 1, f"Composer-Wrap muss am unteren sichtbaren Rand kleben, bottom={result['wrapBottom']}"
+    assert result["padBottom"] == "10px", f"unten nur das Composer-Padding, keine zusaetzliche Safe-Area-Schicht, got {result['padBottom']!r}"
+    assert abs((result["wrapBottom"] - result["composerBottom"]) - 10) < 1, "Abstand Composer-Unterkante -> unterer Rand muss genau dem padding-bottom entsprechen"
+
+
 def test_minimalism_hides_toolbar_on_touch_and_longpress_opens_menu(mobile_page, base_url, llm_expect):
     """Minimalismus auf Touch-Geraet (kein Hover): Bubble-Toolbar ist dauerhaft ausgeblendet —
     auch ohne Hover-Event — und oeffnet sich per Langdruck (contextmenu) als Kontextmenue."""
@@ -139,10 +178,12 @@ def test_minimalism_hides_toolbar_on_touch_and_longpress_opens_menu(mobile_page,
         "Rollen-Label muss im Minimalismus ausgeblendet sein"
     )
 
-    # Touch + Minimalismus: Textauswahl bleibt aktiv (Langdruck = natives Systemmenue),
+    # Touch + Minimalismus: Textauswahl bleibt aktiv, ist aber auf die Bubble beschraenkt
+    # (user-select:all auf .bubbleBody - Langdruck/Select-All waehlt nur den Bubble-Text),
     # Doppel-Tap oeffnet das App-Menue, Tap bei offenem Menue schliesst, Scroll-Geste oeffnet nichts
     body_sel = f"{bubble} .bubbleBody"
-    assert mobile_page.locator(body_sel).evaluate("el => getComputedStyle(el).userSelect") in ("text", "auto"), "Textauswahl darf im Minimalismus nicht per CSS deaktiviert sein"
+    assert mobile_page.locator(body_sel).evaluate("el => getComputedStyle(el).userSelect") == "all", "Textauswahl muss auf die Bubble beschraenkt sein (user-select:all)"
+    assert mobile_page.locator("#header").evaluate("el => getComputedStyle(el).userSelect") != "all", "ausserhalb der Bubbles darf nicht user-select:all gesetzt sein"
     # systemeigenes Doppel-Tap-Zoom (Firefox Android) auf den Bubbles abgeschaltet — der
     # Doppel-Tap ist unserer (App-Kontextmenue); Scrollen/Pan bleibt via touch-action:manipulation
     assert mobile_page.locator(bubble).evaluate("el => getComputedStyle(el).touchAction") == "manipulation", "touch-action muss im Minimalismus 'manipulation' sein (kein systemeigenes Doppel-Tap-Zoom)"

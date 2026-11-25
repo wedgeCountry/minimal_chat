@@ -1383,9 +1383,10 @@ def test_resend_last_user_message(page, base_url, llm_expect):
 
 
 def test_edit_last_user_message(page, base_url, llm_expect):
-    """Edit-Button nur auf der letzten User-Bubble: Inline-Edit direkt in der Bubble
-    (Textarea, Enter sendet, Esc bricht ab) - beim Absenden wird die Nachricht
-    gepatcht, alle Nachrichten danach (Assistenten-Antworten) gelöscht und neu generiert."""
+    """Edit-Button nur auf der letzten User-Bubble: Overlay-Modal im Bubble-Stil
+    (Textarea + Senden/Abbrechen; Enter sendet, Esc bricht ab) - beim Absenden wird
+    die Nachricht gepatcht, alle Nachrichten danach (Assistenten-Antworten) gelöscht
+    und neu generiert; Abbrechen ändert nichts."""
     email = "edit-user@example.com"
     api_client = _register_client(base_url, email, "Geheim-123")
     _non_minimal(api_client)
@@ -1402,37 +1403,37 @@ def test_edit_last_user_message(page, base_url, llm_expect):
     assert page.locator(_bubble("user")).last.locator('[data-testid="bubble-edit-btn"]:visible').count() == 1
     assert page.locator(_bubble("user")).first.locator('[data-testid="bubble-edit-btn"]:visible').count() == 0
 
-    # Klick oeffnet den Inline-Edit direkt in der Bubble; der Composer bleibt leer
+    overlay = '[data-testid="edit-overlay"]'
+    edit_input = f'{overlay} [data-testid="bubble-edit-input"]'
+
+    # Klick oeffnet das Edit-Overlay (kein Inline-Edit mehr in der Bubble); Composer bleibt leer
     last_user = page.locator(_bubble("user")).last
     h_before = last_user.bounding_box()["height"]
     last_user.locator('[data-testid="bubble-edit-btn"]').click()
-    edit_input = last_user.locator('[data-testid="bubble-edit-input"]')
-    edit_input.wait_for()
-    h_edit = last_user.bounding_box()["height"]
-    assert abs(h_edit - h_before) <= 1, "Edit-Modus darf die Hoehe der Bubble nicht aendern"
-    assert edit_input.input_value() == "Zweite Frage"
+    page.wait_for_selector(f"{overlay}.open")
+    assert last_user.locator('[data-testid="bubble-edit-input"]').count() == 0, "kein Inline-Textarea mehr in der Bubble"
+    assert abs(last_user.bounding_box()["height"] - h_before) <= 1, "Bubble darf sich beim Oeffnen des Overlays nicht veraendern"
+    assert page.locator(edit_input).input_value() == "Zweite Frage"
     assert page.locator(T["chat_input"]).input_value() == ""
 
-    # Escape bricht ab: Textarea verschwindet, Bubble zeigt wieder den Originaltext
-    edit_input.press("Escape")
-    page.wait_for_selector('[data-testid="bubble-edit-input"]', state="detached")
+    # Escape bricht ab: Overlay schliesst, Bubble bleibt unveraendert
+    page.locator(edit_input).press("Escape")
+    page.wait_for_selector(f"{overlay}:not(.open)", state="attached")
     assert "Zweite Frage" in last_user.locator('[data-testid="bubble-body"]').inner_text()
     assert page.locator(T["chat_input"]).input_value() == ""
 
-    # Abbrechen ueber den X-Button oben rechts am Textfeld
+    # Abbrechen-Button im Overlay: dasselbe ohne Aenderung
     last_user.locator('[data-testid="bubble-edit-btn"]').click()
-    last_user.locator('[data-testid="bubble-edit-cancel-btn"]').wait_for()
-    last_user.locator('[data-testid="bubble-edit-cancel-btn"]').click()
-    page.wait_for_selector('[data-testid="bubble-edit-input"]', state="detached")
+    page.wait_for_selector(f"{overlay}.open")
+    page.locator(f'{overlay} [data-testid="bubble-edit-cancel-btn"]').click()
+    page.wait_for_selector(f"{overlay}:not(.open)", state="attached")
     assert "Zweite Frage" in last_user.locator('[data-testid="bubble-body"]').inner_text()
 
-    # Erneut oeffnen, Text aendern und mit Enter absenden (kein Speichern-Button)
+    # Erneut oeffnen, Text aendern und per Senden-Button absenden
     last_user.locator('[data-testid="bubble-edit-btn"]').click()
-    edit_input = last_user.locator('[data-testid="bubble-edit-input"]')
-    edit_input.wait_for()
-    edit_input.fill("Zweite Frage (bearbeitet)")
-    assert last_user.locator('[data-testid="bubble-edit-save-btn"]').count() == 0
-    edit_input.press("Enter")
+    page.wait_for_selector(f"{overlay}.open")
+    page.locator(edit_input).fill("Zweite Frage (bearbeitet)")
+    page.locator(f'{overlay} [data-testid="bubble-edit-send-btn"]').click()
 
     # Kein Bestaetigungsdialog beim Bearbeiten: Generierung startet direkt
     assert page.locator(f'{T["confirm_overlay"]}.open').count() == 0
@@ -1447,13 +1448,13 @@ def test_edit_last_user_message(page, base_url, llm_expect):
         " && !document.querySelector('[data-testid=\\\"send-btn\\\"]').classList.contains('abort')",
         timeout=llm_expect["timeout_ms"],
     )
-    # User-Bubbles bleiben 2, die letzte traegt den bearbeiteten Text (Inline-Edit beendet)
+    # User-Bubbles bleiben 2, die letzte traegt den bearbeiteten Text, Overlay ist wieder zu
     page.wait_for_function(
         f"() => [...document.querySelectorAll('{T['chat']} .bubble[data-role=\\\"user\\\"]')]"
         " .some(b => b.querySelector('[data-testid=\\\"bubble-body\\\"]').textContent.includes('Zweite Frage (bearbeitet)'))",
         timeout=llm_expect["timeout_ms"],
     )
-    page.wait_for_selector('[data-testid="bubble-edit-input"]', state="detached")
+    page.wait_for_selector(f"{overlay}:not(.open)", state="attached")
     assert page.locator(_bubble("user")).count() == 2
     assert "Erste Frage" in page.locator(_bubble("user")).first.locator('[data-testid="bubble-body"]').inner_text()
 
@@ -1467,20 +1468,6 @@ def test_edit_last_user_message(page, base_url, llm_expect):
     assistant_msgs = [m for m in msgs if m["role"] == "assistant" and m["type"] == "message"]
     assert sum(1 for m in assistant_msgs if m["id"] > edited_id) == 1, "genau eine neue Assistenten-Antwort nach der bearbeiteten Nachricht"
     assert len(assistant_msgs) == 2, "alte zweite Antwort wurde geloescht, erste Antwort bleibt"
-
-
-def test_compact_mode_toggle(page, base_url, llm_expect):
-    """Burger-Menue -> Kompaktmodus toggelt die .compact-Klasse am Chat."""
-    email = "compact-user@example.com"
-    _register_client(base_url, email, "Geheim-123")
-    _login(page, base_url, email, "Geheim-123")
-
-    page.click(T["burger_btn"])
-    page.click('[data-testid="compact-btn"]')
-    assert "compact" in (page.locator(T["chat"]).get_attribute("class") or "")
-    page.click(T["burger_btn"])
-    page.click('[data-testid="compact-btn"]')
-    assert "compact" not in (page.locator(T["chat"]).get_attribute("class") or "")
 
 
 def test_long_message_bubble_clamp_cycle(page, base_url, llm_expect):
@@ -1787,10 +1774,11 @@ def test_minimalism_desktop_hides_head_and_overrides_context_menu(page, base_url
     page.hover(_bubble("assistant", "message"))
     assert page.locator(head).evaluate("el => getComputedStyle(el).display") == "none", "Hover darf den Bubble-Head im Minimalismus nicht einblenden"
 
-    # Minimalismus: Textauswahl bleibt aktiv (kein user-select:none)
+    # Textauswahl bleibt aktiv, ist aber auf die Bubble beschraenkt (user-select:all auf .bubbleBody)
     bubble_sel = _bubble("assistant", "message")
     body_sel = f"{bubble_sel} .bubbleBody"
-    assert page.locator(body_sel).evaluate("el => getComputedStyle(el).userSelect") in ("text", "auto"), "Textauswahl darf im Minimalismus nicht per CSS deaktiviert sein"
+    assert page.locator(body_sel).evaluate("el => getComputedStyle(el).userSelect") == "all", "Textauswahl muss auf die Bubble beschraenkt sein (user-select:all)"
+    assert page.locator("#header").evaluate("el => getComputedStyle(el).userSelect") != "all", "ausserhalb der Bubbles darf nicht user-select:all gesetzt sein"
     assert page.locator(bubble_sel).evaluate("el => getComputedStyle(el).touchAction") == "manipulation", "touch-action muss im Minimalismus 'manipulation' sein (kein systemeigenes Doppel-Tap-Zoom)"
 
     menu = page.locator('[data-testid="bubble-context-menu"]')
@@ -1804,6 +1792,7 @@ def test_minimalism_desktop_hides_head_and_overrides_context_menu(page, base_url
 
     # Doppel-Tap selektiert nicht das Wort (Firefox-Systemdefault): zweites pointerdown wird preventDefault
     page.wait_for_timeout(400)  # evtl. stale lastTap ablaufen lassen
+    page.evaluate("() => window.getSelection().removeAllRanges()")  # user-select:all der echten Klicks oben zuruecksetzen
     dbl = page.evaluate(
         """(sel) => {
           const el = document.querySelector(sel);

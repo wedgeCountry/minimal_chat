@@ -60,33 +60,6 @@ function renderBubbleBody(b) {
   b._normalTruncated = isClamped(display, "normal") || (mode === "normal" && clipped);
 }
 
-// Inline-Edit: der Bubble-Body wird durch ein Textarea + Speichern/Abbrechen ersetzt.
-export function enterBubbleEdit(b, text) {
-  const body = b.querySelector(".bubbleBody");
-  if (!body || b.dataset.editing === "true") return null;
-  b.dataset.editing = "true";
-  body.classList.remove("clamped");
-  // Hoehe des Bodys merken, damit die Bubble im Edit-Modus nicht springt
-  const bodyH = body.getBoundingClientRect().height;
-  // kein Whitespace zwischen den Tags: .bubbleBody hat white-space:pre-wrap
-  body.innerHTML = `<div class="editRow"><textarea class="editInput" data-testid="bubble-edit-input" rows="1"></textarea><button class="iconBtn editCancelBtn" data-testid="bubble-edit-cancel-btn" title="Abbrechen">${ICONS.x}</button></div>`;
-  const textarea = body.querySelector(".editInput");
-  textarea.value = text ?? b._fullText ?? "";
-  const grow = () => {
-    textarea.style.height = "auto";
-    textarea.style.height = Math.min(Math.max(textarea.scrollHeight, bodyH), 180) + "px";
-  };
-  textarea.addEventListener("input", grow);
-  grow();
-  return { textarea, cancelBtn: body.querySelector(".editCancelBtn") };
-}
-
-export function exitBubbleEdit(b) {
-  if (b.dataset.editing !== "true") return;
-  delete b.dataset.editing;
-  renderBubbleBody(b);
-}
-
 export function bubbleEl(m, handlers = {}, opts = {}) {
   const b = document.createElement("div");
   b._msg = m; // aktuelle Nachricht; renderChat aktualisiert sie bei wiederverwendeten Bubbles

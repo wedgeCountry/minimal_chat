@@ -2,7 +2,7 @@ import { api, openStream } from "./api.js";
 import { activeSession, normalizeMessage, normalizeMessages, state } from "./state.js";
 import { $, isNearBottom, captureScrollAnchor, restoreScrollAnchor, isFinePointer } from "./util.js";
 import { ICONS } from "./icons.js";
-import { bubbleEl, setBubbleMode, setBubbleText, enterBubbleEdit, exitBubbleEdit, syncBubbleTts, syncBubbleDelete, copyBubbleText } from "./bubbles.js";
+import { bubbleEl, setBubbleMode, setBubbleText, syncBubbleTts, syncBubbleDelete, copyBubbleText } from "./bubbles.js";
 import { nextBubbleMode } from "./bubbleMode.js";
 import { loadSessions, newSession, changed } from "./sessions.js";
 import { clearDraft } from "./drafts.js";
@@ -229,8 +229,7 @@ export function inheritedBubbleMode(nodes, m) {
 function updateBubble(b, m, showResend, showEdit) {
   b._msg = m;
   const text = m.text || "";
-  // im Inline-Edit-Modus das Textarea nicht ueberschreiben
-  if (b.dataset.editing !== "true" && b._fullText !== text) setBubbleText(b, text);
+  if (b._fullText !== text) setBubbleText(b, text);
   const inCtx = m.inContext !== false;
   const chk = b.querySelector(".chk");
   if (chk) chk.checked = inCtx;
@@ -429,9 +428,9 @@ function cancelPendingModeTap() {
 
 export function onBubbleTap(e) {
   if (!isToolbarMinimal(state.settings)) return; // ohne Minimalismus normales Klick-Verhalten
-  if (e.target.closest("button, input, textarea, a, .editRow")) return; // interaktive Elemente unveraendert
+  if (e.target.closest("button, input, textarea, a")) return; // interaktive Elemente unveraendert
   const b = e.target.closest?.(".bubble");
-  if (!b || b.dataset.editing === "true") return;
+  if (!b) return;
   if (isFinePointer()) {
     // Desktop: Klick/Doppelklick oeffnen nie das Menue (das kommt vom Rechtsklick/contextmenu);
     // ein Klick bei offenem Menue schliesst es wieder. lastTap wird trotzdem gefuehrt, damit das
@@ -472,6 +471,7 @@ export function onBubbleTap(e) {
   if (dbl) {
     lastTap = null;
     cancelPendingModeTap(); // Doppel-Tap ist eine eigene Aktion: aendert nicht den Expand-Modus
+    window.getSelection()?.removeAllRanges?.(); // user-select:all des ersten Tap nicht stehenlassen
     if (isSpeaking()) stopSpeech(); // Doppel-Tap waehrend Wiedergabe: stoppen statt Menue oeffnen
     else openBubbleCtxMenu(b, e.clientX, e.clientY);
     return;
@@ -480,6 +480,7 @@ export function onBubbleTap(e) {
   // Verzoegert um das Doppel-Tap-Fenster, damit ein Doppel-Tap nicht zusaetzlich den Modus aendert;
   // Scroll-Gesten kommen hier nie an (Bewegung/Zeit siehe oben) und bleiben unberuehrt.
   cancelPendingModeTap();
+  window.getSelection()?.removeAllRanges?.(); // user-select:all des Tap nicht als Auswahl stehenlassen
   pendingModeTap = {
     bubble: b,
     timer: setTimeout(() => {
@@ -533,15 +534,48 @@ export function initBubbleMenu() {
   });
 }
 
-// Edit-Modus: id der Nutzernachricht, die gerade inline in ihrer Bubble bearbeitet wird
+// Edit-Modus: id der Nutzernachricht, die gerade im Edit-Overlay bearbeitet wird
 let editingMessageId = null;
 
 export function cancelEdit() {
   if (editingMessageId == null) return;
-  const mid = editingMessageId;
   editingMessageId = null;
-  const b = document.querySelector(`.bubble[data-msg-id="${mid}"]`);
-  if (b) exitBubbleEdit(b);
+  $("editOverlay").classList.remove("open");
+}
+
+// Edit-Overlay: Modal im Bubble-Stil mit Textarea sowie Senden-/Abbrechen-Buttons
+function openEditOverlay(m) {
+  const ta = $("editInput");
+  ta.value = m.text || "";
+  $("editOverlay").classList.add("open");
+  ta.focus();
+  ta.setSelectionRange(ta.value.length, ta.value.length);
+}
+
+export function initEditOverlay() {
+  const overlay = $("editOverlay");
+  const ta = $("editInput");
+  $("editSendBtn").onclick = () => {
+    if (editingMessageId != null) void submitEdit(editingMessageId, ta.value);
+  };
+  $("editCancelBtn").onclick = () => cancelEdit();
+  overlay.addEventListener("click", (e) => {
+    if (e.target === overlay) cancelEdit();
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && overlay.classList.contains("open")) cancelEdit();
+  });
+  ta.addEventListener("keydown", (e) => {
+    e.stopPropagation();
+    if (e.key === "Escape") {
+      e.preventDefault();
+      cancelEdit();
+    } else if (e.key === "Enter" && !e.shiftKey) {
+      // Enter sendet immer (Shift+Enter = Zeilenumbruch)
+      e.preventDefault();
+      if (editingMessageId != null) void submitEdit(editingMessageId, ta.value);
+    }
+  });
 }
 
 // Bearbeiten und Erneut-senden teilen sich diesen Pfad: patchen, alles danach loeschen
@@ -594,7 +628,7 @@ async function triggerGeneration(s) {
   ensurePolling();
 }
 
-// Speichern aus dem Inline-Edit der Bubble (Save-Button oder Enter)
+// Absenden aus dem Edit-Overlay (Senden-Button oder Enter)
 async function submitEdit(mid, rawText) {
   const s = activeSession();
   if (!s || state.streaming || s.generating || editingMessageId !== mid) return;
@@ -613,29 +647,11 @@ async function submitEdit(mid, rawText) {
 }
 
 const handlers = {
-  onEdit: (m, b) => {
+  onEdit: (m) => {
     if (state.streaming || !m || m.id == null || editingMessageId === m.id) return;
     cancelEdit();
     editingMessageId = m.id;
-    const ui = enterBubbleEdit(b, m.text || "");
-    if (!ui) {
-      editingMessageId = null;
-      return;
-    }
-    ui.cancelBtn.onclick = () => cancelEdit();
-    ui.textarea.addEventListener("keydown", (e) => {
-      e.stopPropagation();
-      if (e.key === "Escape") {
-        e.preventDefault();
-        cancelEdit();
-      } else if (e.key === "Enter" && !e.shiftKey) {
-        // Enter sendet immer (Shift+Enter = Zeilenumbruch)
-        e.preventDefault();
-        submitEdit(m.id, ui.textarea.value);
-      }
-    });
-    ui.textarea.focus();
-    ui.textarea.setSelectionRange(ui.textarea.value.length, ui.textarea.value.length);
+    openEditOverlay(m);
   },
   onToggleContext: (m) => {
     const s = activeSession();

@@ -2,7 +2,7 @@
    Bubble-Styling-System: Auspraegung wird komplett ueber CSS-Variablen
    gesteuert - pro Rolle (user/assistant/system/reasoning/toolcall/toolresult) und
    pro Zustand (collapsed = 1 Zeile, normal = max. 10 Zeilen,
-   full = ungekuerzt, compact = komprimiert, selected/deselected = (ab-)gewaehlt).
+   full = ungekuerzt, selected/deselected = (ab-)gewaehlt).
    ------------------------------------------------------------------ */
 
 #chat{flex:1;min-width:0;overflow-y:auto;padding:18px 14px;display:flex;flex-direction:column;gap:12px;background:var(--chat-bg)}
@@ -82,17 +82,6 @@
 .bubble.normal,.bubble.full{ /* max. 10 Zeilen bzw. ungekuerzt */
   --bubble-min-height:56px;
 }
-.bubble.compact{ /* komprimiert */
-  --bubble-padding:4px 10px;
-  --bubble-min-height:0;
-  --bubble-body-size:12px;
-  --bubble-head-size:10px;
-}
-#chat.compact .bubble{ /* Kompaktansicht fuer alle Bubbles */
-  --bubble-padding:4px 10px;
-  --bubble-min-height:0;
-  --bubble-body-size:12px;
-}
 .bubble.selected{ /* ausgewaehlt (z. B. im Kontext) */
   --bubble-outline:2px solid var(--accent);
 }
@@ -114,7 +103,10 @@
 .bubble.full .collapseBtn{display:inline-flex}
 .bubble:hover .collapseBtn{opacity:.9}
 .collapseBtn svg{width:12px;height:12px;transform:rotate(180deg)} /* Chevron nach oben = Einklappen */
-.bubbleBody{font-size:var(--bubble-body-size);line-height:1.5;white-space:pre-wrap;word-break:break-word;min-height:21px}
+/* Textauswahl ist auf die Bubble beschraenkt: user-select:all selektiert atomar genau
+   den Bubble-Text - Langdruck/Select-All (mobil wie Desktop-Kontextmenue) kann nicht
+   ueber die Bubble hinausgreifen und nicht die ganze App auswaehlen. */
+.bubbleBody{font-size:var(--bubble-body-size);line-height:1.5;white-space:pre-wrap;word-break:break-word;min-height:21px;user-select:all;-webkit-user-select:all}
 .bubbleBody.clamped{cursor:pointer}
 /* Zeilenlimit bezieht sich auf die gerenderten GUI-Zeilen (CSS line-clamp),
    nicht auf Textzeilen: auch eine einzige lange (umgebrochene) Zeile wird
@@ -123,12 +115,18 @@
 .bubble.collapsed .bubbleBody{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:1;overflow:hidden}
 .chev{padding:2px}
 
-/* Inline-Edit innerhalb der Bubble: gleiche Farben wie die Bubble selbst,
-   Abbrechen-Button als schlanke Spalte rechts neben dem Textfeld */
-.bubble .editRow{display:flex;align-items:flex-start;gap:6px}
-.bubble .editInput{flex:1;min-width:0;resize:none;border:none;background:var(--bubble-bg);color:var(--bubble-color);padding:0;font:inherit;font-size:var(--bubble-body-size);line-height:1.5;max-height:180px;outline:none}
-.bubble .editCancelBtn{flex:none;padding:2px;color:var(--bubble-color)}
-.bubble .editCancelBtn svg{width:12px;height:12px}
+/* Edit-Overlay: Modal im Stil einer User-Bubble, nur breiter/standardisiert */
+.editModal{
+  width:min(560px,92vw);
+  background:var(--bubble-user);
+  color:var(--bubble-user-text);
+  border:var(--bubble-user-border);
+  border-radius:12px;
+}
+.editModal h2{color:var(--bubble-user-text)}
+.editModal .editInput{width:100%;min-height:96px;resize:vertical;border:none;outline:none;background:transparent;color:var(--bubble-user-text);font:inherit;font-size:14px;line-height:1.5;padding:2px 0}
+.editModal .btn{border-color:var(--bubble-user-text)}
+.editModal .btn.primary{background:var(--bubble-user-text);border-color:var(--bubble-user-text);color:var(--accent)}
 .chev svg{width:12px;height:12px}
 .bubble.collapsed .chev svg{transform:rotate(-90deg)}
 .bubble.full .chev svg{transform:rotate(180deg)}
@@ -149,6 +147,7 @@ html.bubbles-minimal .bubble .collapseBtn{display:none}
 /* Im Minimalismus weniger Hoehe, da keine Kopfzeile und kein Einklapp-Button Platz brauchen */
 html.bubbles-minimal .bubble{--bubble-min-height:0;padding:8px 12px;touch-action:manipulation}
 html.bubbles-minimal .bubbleBody{min-height:0;line-height:1.4}
-/* Im Minimalismus bleibt Textauswahl nativ (kein user-select:none) — Langdruck selektiert normal. */
+/* Auch im Minimalismus bleibt die Textauswahl auf die Bubble beschraenkt (user-select:all
+   auf .bubbleBody) — Langdruck/Select-All selektiert nur den Bubble-Text. */
 .attachChip{font-size:12px;opacity:.9;display:flex;gap:6px;align-items:center;margin-bottom:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .attachChip svg{width:13px;height:13px}

@@ -4,7 +4,7 @@ import { $ } from "./util.js";
 import { initViewHistory, pushView, replaceView, sessionIdFromPath } from "./visits.js";
 import { goToLogin } from "./auth.js";
 import { loadSessions, renderSessions, newSession } from "./sessions.js";
-import { abortStream, initBubbleMenu, pollOnce, renderChatView, renderHeader, send, setStreamingUI, syncAllBubbleTts } from "./chat.js";
+import { abortStream, initBubbleMenu, initEditOverlay, pollOnce, renderChatView, renderHeader, send, setStreamingUI, syncAllBubbleTts } from "./chat.js";
 import { isToolbarMinimal } from "./visibility.js";
 import { addAttachments } from "./attachments.js";
 import { initSettings, loadSettings, openSettings } from "./settings.js";
@@ -146,10 +146,6 @@ function initEvents() {
     $("burgerMenu").classList.remove("open");
     openSettings("llm");
   };
-  $("compactBtn").onclick = () => {
-    $("burgerMenu").classList.remove("open");
-    $("chat").classList.toggle("compact");
-  };
   $("changePwBtn").onclick = () => {
     $("burgerMenu").classList.remove("open");
     window.location.href = "/auth/change-password";
@@ -220,6 +216,7 @@ function initEvents() {
   // Minimalismus: Tap auf eine Bubble -> Kontextmenue mit den Toolbar-Aktionen
   // (Langdruck/contextmenu bleibt nativ, siehe initBubbleMenu)
   initBubbleMenu();
+  initEditOverlay();
 
   document.addEventListener("leanchat:changed", renderAll);
   // Speech-Verfuegbarkeit hat sich geaendert: Mikrofon-/Speaker-Symbole sofort aus-/einblenden
