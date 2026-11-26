@@ -471,7 +471,6 @@ export function onBubbleTap(e) {
   if (dbl) {
     lastTap = null;
     cancelPendingModeTap(); // Doppel-Tap ist eine eigene Aktion: aendert nicht den Expand-Modus
-    window.getSelection()?.removeAllRanges?.(); // user-select:all des ersten Tap nicht stehenlassen
     if (isSpeaking()) stopSpeech(); // Doppel-Tap waehrend Wiedergabe: stoppen statt Menue oeffnen
     else openBubbleCtxMenu(b, e.clientX, e.clientY);
     return;
@@ -480,7 +479,6 @@ export function onBubbleTap(e) {
   // Verzoegert um das Doppel-Tap-Fenster, damit ein Doppel-Tap nicht zusaetzlich den Modus aendert;
   // Scroll-Gesten kommen hier nie an (Bewegung/Zeit siehe oben) und bleiben unberuehrt.
   cancelPendingModeTap();
-  window.getSelection()?.removeAllRanges?.(); // user-select:all des Tap nicht als Auswahl stehenlassen
   pendingModeTap = {
     bubble: b,
     timer: setTimeout(() => {

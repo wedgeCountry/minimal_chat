@@ -103,10 +103,7 @@
 .bubble.full .collapseBtn{display:inline-flex}
 .bubble:hover .collapseBtn{opacity:.9}
 .collapseBtn svg{width:12px;height:12px;transform:rotate(180deg)} /* Chevron nach oben = Einklappen */
-/* Textauswahl ist auf die Bubble beschraenkt: user-select:all selektiert atomar genau
-   den Bubble-Text - Langdruck/Select-All (mobil wie Desktop-Kontextmenue) kann nicht
-   ueber die Bubble hinausgreifen und nicht die ganze App auswaehlen. */
-.bubbleBody{font-size:var(--bubble-body-size);line-height:1.5;white-space:pre-wrap;word-break:break-word;min-height:21px;user-select:all;-webkit-user-select:all}
+.bubbleBody{font-size:var(--bubble-body-size);line-height:1.5;white-space:pre-wrap;word-break:break-word;min-height:21px}
 .bubbleBody.clamped{cursor:pointer}
 /* Zeilenlimit bezieht sich auf die gerenderten GUI-Zeilen (CSS line-clamp),
    nicht auf Textzeilen: auch eine einzige lange (umgebrochene) Zeile wird
@@ -147,7 +144,6 @@ html.bubbles-minimal .bubble .collapseBtn{display:none}
 /* Im Minimalismus weniger Hoehe, da keine Kopfzeile und kein Einklapp-Button Platz brauchen */
 html.bubbles-minimal .bubble{--bubble-min-height:0;padding:8px 12px;touch-action:manipulation}
 html.bubbles-minimal .bubbleBody{min-height:0;line-height:1.4}
-/* Auch im Minimalismus bleibt die Textauswahl auf die Bubble beschraenkt (user-select:all
-   auf .bubbleBody) — Langdruck/Select-All selektiert nur den Bubble-Text. */
+/* Im Minimalismus bleibt Textauswahl nativ (kein user-select:none) — Langdruck selektiert normal. */
 .attachChip{font-size:12px;opacity:.9;display:flex;gap:6px;align-items:center;margin-bottom:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .attachChip svg{width:13px;height:13px}
