@@ -337,8 +337,9 @@ export function renderChatView() {
 
 // Minimalismus: Kontextmenue je nach Geraet — Desktop (feiner Pointer): RECHTSKLICK
 // (contextmenu) ueberschreibt das Systemmenue und oeffnet das App-Menue; Klick/Doppelklick
-// oeffnen dort nichts. Touch (kein Hover): DOPPEL-Tap oeffnet das App-Menue, Langdruck bleibt
-// nativ (Systemmenue + Textauswahl — Webseiten koennen dem Systemmenue keine Eintraege anhaengen).
+// oeffnen dort nichts. Touch (kein Hover): LANGDRUCK (contextmenu) oeffnet das App-Menue —
+// die Textauswahl ist auf Touch per CSS deaktiviert (bubbles.css), damit dabei kein Wort/"Alles"
+// selektiert wird; der DOPPEL-Tap oeffnet das Menue ebenfalls als eigene Aktion.
 // Einfacher Tap auf Touch schaltet zusaetzlich den Expand-Modus der Bubble zyklisch weiter
 // (normal -> full -> collapsed -> normal), wie der Chevron im Normalmodus (siehe onBubbleTap).
 // Laeuft eine Wiedergabe (TTS), stoppt im Minimalismus ein Doppel-Tap/Doppelklick auf eine
@@ -488,10 +489,10 @@ export function onBubbleTap(e) {
   };
 }
 
-// Desktop: Rechtsklick auf eine Bubble ueberschreibt das System-Kontextmenue durch das App-Menue
+// Rechtsklick (Desktop) bzw. Langdruck (Touch) auf eine Bubble ueberschreibt das
+// System-Kontextmenue durch das App-Menue
 export function onBubbleContextMenu(e) {
   if (!isToolbarMinimal(state.settings)) return;
-  if (!isFinePointer()) return; // Touch: Langdruck bleibt nativ (Systemmenue + Textauswahl)
   const b = e.target.closest?.(".bubble");
   if (!b) return;
   e.preventDefault();
@@ -501,7 +502,7 @@ export function onBubbleContextMenu(e) {
 export function initBubbleMenu() {
   const chat = $("chat");
   chat.addEventListener("click", onBubbleTap); // Touch: Einfach-Tap = Expand-Zyklus, Doppel-Tap-Menue (Desktop: nur Schliessen)
-  chat.addEventListener("contextmenu", onBubbleContextMenu); // Desktop: Rechtsklick-Menue (Touch: nativ)
+  chat.addEventListener("contextmenu", onBubbleContextMenu); // Rechtsklick (Desktop) / Langdruck (Touch) -> App-Menue
   chat.addEventListener("pointerdown", (e) => {
     const b = e.target.closest?.(".bubble");
     if (!b) {

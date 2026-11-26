@@ -178,10 +178,11 @@ def test_minimalism_hides_toolbar_on_touch_and_longpress_opens_menu(mobile_page,
         "Rollen-Label muss im Minimalismus ausgeblendet sein"
     )
 
-    # Touch + Minimalismus: Textauswahl bleibt aktiv (Langdruck = natives Systemmenue),
-    # Doppel-Tap oeffnet das App-Menue, Tap bei offenem Menue schliesst, Scroll-Geste oeffnet nichts
+    # Touch + Minimalismus: Langdruck oeffnet nur das App-Kontextmenue - die Textauswahl ist per
+    # CSS deaktiviert (kein Wort/Select-All durch Langdruck); Doppel-Tap oeffnet das App-Menue,
+    # Tap bei offenem Menue schliesst, Scroll-Geste oeffnet nichts
     body_sel = f"{bubble} .bubbleBody"
-    assert mobile_page.locator(body_sel).evaluate("el => getComputedStyle(el).userSelect") in ("text", "auto"), "Textauswahl darf im Minimalismus nicht per CSS deaktiviert sein"
+    assert mobile_page.locator(body_sel).evaluate("el => getComputedStyle(el).userSelect") == "none", "Textauswahl muss im Minimalismus auf Touch per CSS deaktiviert sein (Langdruck = nur Kontextmenue)"
     # systemeigenes Doppel-Tap-Zoom (Firefox Android) auf den Bubbles abgeschaltet — der
     # Doppel-Tap ist unserer (App-Kontextmenue); Scrollen/Pan bleibt via touch-action:manipulation
     assert mobile_page.locator(bubble).evaluate("el => getComputedStyle(el).touchAction") == "manipulation", "touch-action muss im Minimalismus 'manipulation' sein (kein systemeigenes Doppel-Tap-Zoom)"
@@ -221,36 +222,38 @@ def test_minimalism_hides_toolbar_on_touch_and_longpress_opens_menu(mobile_page,
     mobile_page.touchscreen.tap(box["x"] + 20, box["y"] + 6)
     mobile_page.wait_for_selector('[data-testid="bubble-context-menu"]', state="detached")
 
-    # System-Auswahlmenue offen (aktive Textauswahl): Tap darf kein App-Menue oeffnen
-    mobile_page.evaluate(
+    # Langdruck (contextmenu) oeffnet nur das App-Kontextmenue: preventDefault unterdrueckt das
+    # native Systemmenue, und es wird nichts selektiert (user-select:none auf Touch)
+    lp = mobile_page.evaluate(
         """(sel) => {
           const el = document.querySelector(sel);
-          const r = document.createRange();
-          r.selectNodeContents(el);
-          const s = window.getSelection();
-          s.removeAllRanges();
-          s.addRange(r);
+          const r = el.getBoundingClientRect();
+          const ev = new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: r.x + r.width / 2, clientY: r.y + r.height / 2 });
+          el.dispatchEvent(ev);
+          return { prevented: ev.defaultPrevented, selected: window.getSelection().toString() };
         }""",
         body_sel,
     )
-    mobile_page.touchscreen.tap(cx, cy)
-    mobile_page.wait_for_timeout(300)
-    assert menu.count() == 0, "bei aktiver System-Auswahl darf ein Tap kein App-Menue oeffnen"
-    mobile_page.evaluate("() => window.getSelection().removeAllRanges()")
+    assert lp["prevented"], "Langdruck (contextmenu) muss preventDefault sein - natives Systemmenue bleibt unterdrueckt"
+    assert lp["selected"] == "", "Langdruck darf nichts selektieren (kein Wort, kein Select-All)"
+    menu.wait_for(state="visible")
+    assert menu.count() == 1, "Langdruck muss genau ein App-Kontextmenue oeffnen"
+
+    # Langdruck auf einer ANDEREN Bubble: das bisherige Menue schliesst wieder, das neue oeffnet
+    other = '[data-testid="chat"] .bubble[data-role="user"]'
     mobile_page.evaluate(
         """(sel) => {
           const el = document.querySelector(sel);
           const r = el.getBoundingClientRect();
-          const x = r.x + r.width / 2, y = r.y + r.height / 2;
-          for (let i = 0; i < 2; i++) {
-            el.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, clientX: x, clientY: y }));
-            el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, clientX: x, clientY: y }));
-          }
+          el.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: r.x + r.width / 2, clientY: r.y + r.height / 2 }));
         }""",
-        bubble,
+        other,
     )
-    menu.wait_for(state="visible")
-    mobile_page.keyboard.press("Escape")
+    mobile_page.wait_for_timeout(200)
+    assert menu.count() == 1, "beim Langdruck auf einer anderen Bubble muss das alte Kontextmenue geschlossen sein (genau eines offen)"
+    # Tap auf eine Bubble schliesst das Menue wieder
+    obox = mobile_page.locator(other).bounding_box()
+    mobile_page.touchscreen.tap(obox["x"] + 20, obox["y"] + 6)
     mobile_page.wait_for_selector('[data-testid="bubble-context-menu"]', state="detached")
 
     # Scroll-Geste (Pointer wird bewegt, click landet versetzt) darf kein Menue oeffnen
@@ -266,20 +269,6 @@ def test_minimalism_hides_toolbar_on_touch_and_longpress_opens_menu(mobile_page,
         bubble,
     )
     assert opened is False, "Scroll/Pan-Geste darf kein Kontextmenue oeffnen"
-
-    # Langdruck (contextmenu) bleibt nativ: kein preventDefault, kein eigenes Menue
-    not_prevented = mobile_page.evaluate(
-        """(sel) => {
-          const el = document.querySelector(sel);
-          const ev = new MouseEvent('contextmenu', { bubbles: true, cancelable: true });
-          el.dispatchEvent(ev);
-          return !ev.defaultPrevented;
-        }""",
-        body_sel,
-    )
-    assert not_prevented, "contextmenu (Langdruck) darf nicht preventDefault sein — natives Systemmenue bleibt"
-    mobile_page.wait_for_timeout(300)
-    assert menu.count() == 0, "beim Langdruck darf kein eigenes Kontextmenue erscheinen"
 
 
 def test_minimalism_single_tap_cycles_expansion_mode(mobile_page, base_url, llm_expect):
