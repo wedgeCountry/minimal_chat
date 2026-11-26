@@ -532,6 +532,40 @@ export function initBubbleMenu() {
   });
 }
 
+// Select-All innerhalb einer Bubble (Ctrl/Cmd+A bzw. Systemmenue "Alles auswaehlen") selektiert
+// nur den Bubble-Text, nicht die ganze App; die normale Textauswahl (Ziehen/Langdruck) bleibt nativ.
+let lastBubble = null; // zuletzt per pointerdown beruehrte Bubble (Fallback ohne aktive Auswahl)
+
+function bubbleBodyForSelectAll() {
+  const sel = window.getSelection();
+  const node = sel && sel.anchorNode;
+  const el = node ? (node.nodeType === Node.ELEMENT_NODE ? node : node.parentElement) : null;
+  const body = el && el.closest ? el.closest(".bubble .bubbleBody") : null;
+  return body || (lastBubble ? lastBubble.querySelector(".bubbleBody") : null);
+}
+
+export function initBubbleSelectAll() {
+  document.addEventListener("pointerdown", (e) => {
+    lastBubble = e.target.closest?.(".bubble") || null;
+  }, true);
+  const scopeToBubble = (e) => {
+    const ae = document.activeElement;
+    if (ae && (ae.tagName === "INPUT" || ae.tagName === "TEXTAREA" || ae.tagName === "SELECT" || ae.isContentEditable)) return; // Composer/Overlays: natives Select-All des Feldes
+    const body = bubbleBodyForSelectAll();
+    if (!body) return;
+    e.preventDefault();
+    const range = document.createRange();
+    range.selectNodeContents(body);
+    const sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(range);
+  };
+  document.addEventListener("keydown", (e) => {
+    if (e.key.toLowerCase() === "a" && (e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey) scopeToBubble(e);
+  });
+  document.addEventListener("selectall", scopeToBubble, true); // "Alles auswaehlen" aus dem System-Auswahlmenue (mobil)
+}
+
 // Edit-Modus: id der Nutzernachricht, die gerade im Edit-Overlay bearbeitet wird
 let editingMessageId = null;
 

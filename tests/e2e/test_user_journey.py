@@ -1736,6 +1736,50 @@ def test_stream_end_bubble_never_vanishes(page, base_url, llm_expect):
     assert llm_expect["default"] in body.inner_text()
 
 
+def test_select_all_inside_bubble_scopes_to_bubble_content(page, base_url, llm_expect):
+    """Select-All (Ctrl+A) innerhalb einer Bubble selektiert nur den Bubble-Text, nicht die
+    ganze App; im Composer bleibt das native Select-All des Eingabefeldes erhalten."""
+    if llm_expect["default"] is None:
+        pytest.skip("Select-All-Test braucht den Mock-LLM")
+    email = "selectall-user@example.com"
+    api_client = _register_client(base_url, email, "Geheim-123")
+    _login(page, base_url, email, "Geheim-123")
+    _new_named_session(page, api_client)
+    _chat_once(page, "Select-All-Frage", 1, llm_expect["default"], llm_expect["timeout_ms"])
+
+    bubble = _bubble("assistant", "message")
+    body_sel = f"{bubble} .bubbleBody"
+    bubble_text = page.locator(f'{bubble} [data-testid="bubble-body"]').inner_text()
+
+    # Klick auf die Bubble (noch keine Auswahl aktiv) + Ctrl+A: Selektion landet komplett im Bubble-Text
+    page.click(bubble)
+    page.keyboard.press("Control+a")
+    sel = page.evaluate(
+        """() => {
+          const s = window.getSelection();
+          const node = s.anchorNode;
+          const el = node ? (node.nodeType === 1 ? node : node.parentElement) : null;
+          return { text: s.toString(), inBubble: !!(el && el.closest('.bubble .bubbleBody')) };
+        }"""
+    )
+    assert sel["inBubble"], "Select-All darf nicht ueber die Bubble hinausgreifen"
+    assert sel["text"] == bubble_text, "Select-All muss exakt den Bubble-Text selektieren (nicht die ganze App)"
+
+    # Composer fokussiert: Ctrl+A selektiert nur den Composer-Text (natives Feld-Verhalten)
+    page.fill(T["chat_input"], "Composer-Text")
+    page.click(T["chat_input"])
+    page.keyboard.press("Control+a")
+    composer_sel = page.evaluate(
+        """() => {
+          const t = document.querySelector('[data-testid="chat-input"]');
+          return { active: document.activeElement === t, start: t.selectionStart, end: t.selectionEnd, len: t.value.length, docSel: window.getSelection().toString() };
+        }"""
+    )
+    assert composer_sel["active"], "Composer muss bei Ctrl+A fokussiert bleiben"
+    assert composer_sel["start"] == 0 and composer_sel["end"] == composer_sel["len"], "Composer muss sein eigenes Select-All behalten"
+    assert composer_sel["docSel"] == "", "Composer-Select-All darf nicht die Dokument-Auswahl auf die ganze App ausdehnen"
+
+
 def test_minimalism_desktop_hides_head_and_overrides_context_menu(page, base_url, llm_expect):
     """Minimalismus-Setting (Allgemein), Desktop: Bubble-Head ist komplett ausgeblendet (auch
     beim Hover). Klick/Doppelklick oeffnen kein Menue — der Rechtsklick (contextmenu) ueber-
