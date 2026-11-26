@@ -1748,7 +1748,6 @@ def test_select_all_inside_bubble_scopes_to_bubble_content(page, base_url, llm_e
     _chat_once(page, "Select-All-Frage", 1, llm_expect["default"], llm_expect["timeout_ms"])
 
     bubble = _bubble("assistant", "message")
-    body_sel = f"{bubble} .bubbleBody"
     bubble_text = page.locator(f'{bubble} [data-testid="bubble-body"]').inner_text()
 
     # Klick auf die Bubble (noch keine Auswahl aktiv) + Ctrl+A: Selektion landet komplett im Bubble-Text
