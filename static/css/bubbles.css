@@ -144,11 +144,6 @@ html.bubbles-minimal .bubble .collapseBtn{display:none}
 /* Im Minimalismus weniger Hoehe, da keine Kopfzeile und kein Einklapp-Button Platz brauchen */
 html.bubbles-minimal .bubble{--bubble-min-height:0;padding:8px 12px;touch-action:manipulation}
 html.bubbles-minimal .bubbleBody{min-height:0;line-height:1.4}
-/* Im Minimalismus bleibt Textauswahl auf Desktop nativ (kein user-select:none).
-   Auf Touch-Geraeten (kein Hover) oeffnet der Langdruck nur das App-Kontextmenue (contextmenu
-   in chat.js) - user-select:none verhindert, dass dabei ein Wort/"Alles" selektiert wird. */
-@media(hover:none) and (pointer:coarse){
-  html.bubbles-minimal .bubbleBody{user-select:none;-webkit-user-select:none;-webkit-touch-callout:none}
-}
+/* Im Minimalismus bleibt Textauswahl nativ (kein user-select:none) — Langdruck selektiert normal. */
 .attachChip{font-size:12px;opacity:.9;display:flex;gap:6px;align-items:center;margin-bottom:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .attachChip svg{width:13px;height:13px}
