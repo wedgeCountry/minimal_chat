@@ -173,6 +173,7 @@ export async function speak(text, btn, { onError } = {}) {
     if (audio.__stopped) return; // durch stopSpeech() gewollt beendet -> kein Fehler
     if (activeAudio === audio) activeAudio = null;
     btn?.classList.remove("on");
-    await onError?.(err.message || "Vorlesen fehlgeschlagen.");
+    // Kurze Fehlermeldung (3s) statt blocking-Overlay
+    await onError?.(err.message || "Vorlesen fehlgeschlagen.", 3000);
   }
 }

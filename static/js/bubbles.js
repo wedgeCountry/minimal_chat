@@ -193,7 +193,7 @@ function wireTtsButton(b, tts) {
       stopSpeech();
       return;
     }
-    await speak(b._msg?.text || "", tts, { onError: showError });
+    await speak(b._msg?.text || "", tts, { onError: (msg, ms) => showError(msg, ms) });
   };
 }
 
