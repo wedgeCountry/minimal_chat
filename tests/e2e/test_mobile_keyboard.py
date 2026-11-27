@@ -104,6 +104,45 @@ def test_composer_stays_at_bottom_of_visual_viewport_when_keyboard_open(mobile_p
     assert result["inputBottom"] <= 400 + 0.5, f"Eingabefeld muss vollstaendig sichtbar sein, bottom={result['inputBottom']}"
 
 
+def test_composer_flush_at_bottom_when_keyboard_collapsed(mobile_page, base_url):
+    """Tastatur wieder zu (nach dem Oeffnen): Root-Hoehe wird auf die volle Visual-Viewport-
+    Hoehe zurueckgesetzt, der Pan wird resettet und der Composer klebt am unteren sichtbaren
+    Rand - darunter nur das Composer-Padding (10px; in der Emulation ist die Safe-Area 0)."""
+    email = "kb-closed-user@example.com"
+    _register(base_url, email)
+    _login(mobile_page, base_url, email, "Geheim-123")
+    mobile_page.wait_for_selector(T["chat_input"])
+    mobile_page.locator(T["chat_input"]).click()
+
+    result = mobile_page.evaluate(
+        """async () => {
+          const mod = await import('/js/viewport.js');
+          const apply = (h) => {
+            window.scrollTo(0, 200); // Pan, wie ihn der Browser beim Fokussieren setzt
+            const fakeWin = { visualViewport: { height: h, scale: 1 }, scrollTo: (x, y) => window.scrollTo(x, y) };
+            mod.applyVisualViewport(document.documentElement, fakeWin);
+          };
+          apply(400); // Tastatur offen
+          apply(844); // Tastatur wieder eingeklappt
+          const wrapEl = document.querySelector('[data-testid="composer-wrap"]');
+          const wrap = wrapEl.getBoundingClientRect();
+          const composer = document.querySelector('[data-testid="composer"]').getBoundingClientRect();
+          return {
+            rootHeight: document.documentElement.style.height,
+            scrollY: window.scrollY,
+            wrapBottom: wrap.bottom,
+            composerBottom: composer.bottom,
+            padBottom: getComputedStyle(wrapEl).paddingBottom,
+          };
+        }"""
+    )
+    assert result["rootHeight"] == "844px", f"Root-Hoehe muss nach dem Zuklappen wieder voll sein, got {result['rootHeight']!r}"
+    assert result["scrollY"] == 0, "bestehender Fenster-Pan muss zurueckgesetzt werden"
+    assert abs(result["wrapBottom"] - 844) < 1, f"Composer-Wrap muss am unteren sichtbaren Rand kleben, bottom={result['wrapBottom']}"
+    assert result["padBottom"] == "10px", f"unten nur das Composer-Padding, keine zusaetzliche Safe-Area-Schicht, got {result['padBottom']!r}"
+    assert abs((result["wrapBottom"] - result["composerBottom"]) - 10) < 1, "Abstand Composer-Unterkante -> unterer Rand muss genau dem padding-bottom entsprechen"
+
+
 def test_minimalism_hides_toolbar_on_touch_and_longpress_opens_menu(mobile_page, base_url, llm_expect):
     """Minimalismus auf Touch-Geraet (kein Hover): Bubble-Toolbar ist dauerhaft ausgeblendet —
     auch ohne Hover-Event — und oeffnet sich per Langdruck (contextmenu) als Kontextmenue."""
@@ -180,6 +219,26 @@ def test_minimalism_hides_toolbar_on_touch_and_longpress_opens_menu(mobile_page,
     assert menu.locator('[data-testid="ctx-copy"]').count() == 1, "Menue-Eintrag fehlt: ctx-copy"
     # Tap auf die Bubble (ausserhalb des Menues, das am Doppel-Tap-Punkt oeffnet) schliesst es
     mobile_page.touchscreen.tap(box["x"] + 20, box["y"] + 6)
+    mobile_page.wait_for_selector('[data-testid="bubble-context-menu"]', state="detached")
+
+    # Doppel-Tap auf einer ANDEREN Bubble: das offene App-Menue schliesst wieder (genau eines offen)
+    other = '[data-testid="chat"] .bubble[data-role="user"]'
+    mobile_page.wait_for_timeout(400)  # evtl. stale lastTap ablaufen lassen
+    mobile_page.evaluate(
+        """(sel) => {
+          const el = document.querySelector(sel);
+          const r = el.getBoundingClientRect();
+          const x = r.x + r.width / 2, y = r.y + r.height / 2;
+          for (let i = 0; i < 2; i++) {
+            el.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, clientX: x, clientY: y }));
+            el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, clientX: x, clientY: y }));
+          }
+        }""",
+        other,
+    )
+    menu.wait_for(state="visible")
+    assert menu.count() == 1, "Doppel-Tap auf einer anderen Bubble: das alte Menue muss geschlossen sein (genau eines offen)"
+    mobile_page.keyboard.press("Escape")
     mobile_page.wait_for_selector('[data-testid="bubble-context-menu"]', state="detached")
 
     # System-Auswahlmenue offen (aktive Textauswahl): Tap darf kein App-Menue oeffnen

@@ -24,7 +24,10 @@
 @keyframes sweep{from{transform:translateX(-100%)}to{transform:translateX(100%)}}
 
 /* Composer */
-#composerWrap{background:var(--panel);border-top:1px solid var(--border);padding:10px 12px calc(10px + env(safe-area-inset-bottom,0px))}
+/* Unten nur EINE Schicht Abstand: max(10px, Safe-Area) statt 10px + Safe-Area -
+   sonst entsteht bei eingeklappter Tastatur (Safe-Area voll da, Tastatur verdeckt sie
+   nicht mehr) ein zu grosser Streifen unter der Eingabe-Bubble. */
+#composerWrap{background:var(--panel);border-top:1px solid var(--border);padding:10px 12px max(10px, env(safe-area-inset-bottom,0px))}
 #attachments{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px}
 #attachments:empty{display:none}
 .att{display:flex;align-items:center;gap:6px;font-size:12px;background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:4px 8px;max-width:220px}
@@ -42,6 +45,7 @@
 #overlay{z-index:100}
 #sessionOverlay{z-index:120}
 #modelOverlay{z-index:130}
+#editOverlay{z-index:140}
 #confirmOverlay,#errorOverlay{z-index:150}
 #errorOverlay .modal{width:min(640px,94vw);padding:26px}
 .confirmText{font-size:14px;margin-bottom:4px}
