@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { sortMessagesForRender, findLastUserMessage, hasMessagesAfter, applyLocalMessage, removeLocalMessage, removeLocalMessagesAfter, inheritedBubbleMode, onBubbleTap, initBubbleMenu, closeBubbleCtxMenu, send, stopPolling } from "../../static/js/chat.js";
+import { sortMessagesForRender, findLastUserMessage, hasMessagesAfter, applyLocalMessage, removeLocalMessage, removeLocalMessagesAfter, inheritedBubbleMode, onBubbleTap, initBubbleMenu, initBubbleSelectAll, closeBubbleCtxMenu, send, stopPolling } from "../../static/js/chat.js";
 import { state } from "../../static/js/state.js";
 import { speak, isSpeaking, stopSpeech } from "../../static/js/ttsDetectionService.js";
 import { setBubbleText } from "../../static/js/bubbles.js";
@@ -600,6 +600,184 @@ test("Escape (keydown auf document) stoppt die laufende Wiedergabe; andere Taste
     assert.ok(speech.calls.cancel >= 1, "speechSynthesis.cancel() wurde gerufen");
   } finally {
     speech.restore();
+    dom.cleanup();
+  }
+});
+
+// --- initBubbleSelectAll: Select-All (Ctrl/Cmd+A, selectall-Event, natives Systemmenue) auf die Bubble begrenzt ---
+
+function installSelectAllDom() {
+  const listeners = {};
+  let counter = 0;
+  const makeNode = (name, nodeType = 1, children = []) => {
+    const n = { name, nodeType, childNodes: children, parentElement: null };
+    for (const c of children) c.parentElement = n;
+    return n;
+  };
+  const assignOrder = (n) => {
+    n.pre = counter++;
+    for (const c of n.childNodes) assignOrder(c);
+    n.post = counter++;
+  };
+  const posKey = (container, offset) => {
+    const kids = container.childNodes || [];
+    return offset < kids.length ? kids[offset].pre : container.post;
+  };
+  const makeRange = () => ({
+    startContainer: null,
+    startOffset: 0,
+    endContainer: null,
+    endOffset: 0,
+    selectNodeContents(node) {
+      this.startContainer = node;
+      this.startOffset = 0;
+      this.endContainer = node;
+      this.endOffset = node.childNodes.length;
+    },
+    compareBoundaryPoints(how, other) {
+      const mine = how === 0 ? [this.startContainer, this.startOffset] : [this.endContainer, this.endOffset];
+      const theirs = how === 0 ? [other.startContainer, other.startOffset] : [other.endContainer, other.endOffset];
+      const ka = posKey(mine[0], mine[1]);
+      const kb = posKey(theirs[0], theirs[1]);
+      return ka < kb ? -1 : ka > kb ? 1 : 0;
+    },
+  });
+  const text = makeNode("text", 3);
+  const body = makeNode("bubbleBody", 1, [text]);
+  body.closest = (sel) => (sel === ".bubble .bubbleBody" ? body : null);
+  const bubble = makeNode("bubble", 1, [body]);
+  bubble.closest = (sel) => (sel === ".bubble" ? bubble : null);
+  bubble.querySelector = (sel) => (sel === ".bubbleBody" ? body : null);
+  const chat = makeNode("chat", 1, [bubble]);
+  const html = makeNode("html", 1, [chat]);
+  const docNode = makeNode("document", 9, [html]);
+  assignOrder(docNode);
+  const sel = {
+    anchorNode: null,
+    isCollapsed: true,
+    rangeCount: 0,
+    _ranges: [],
+    getRangeAt(i) {
+      return this._ranges[i];
+    },
+    removeAllRanges() {
+      this._ranges = [];
+      this.rangeCount = 0;
+      this.isCollapsed = true;
+    },
+    addRange(r) {
+      this._ranges = [r];
+      this.rangeCount = 1;
+      this.isCollapsed = false;
+      this.anchorNode = r.startContainer;
+    },
+  };
+  const saved = { document: globalThis.document, window: globalThis.window, Node: globalThis.Node, Range: globalThis.Range };
+  globalThis.Node = { ELEMENT_NODE: 1 };
+  globalThis.Range = { START_TO_START: 0, END_TO_END: 3 };
+  globalThis.document = {
+    documentElement: html,
+    activeElement: null,
+    addEventListener: (type, fn) => {
+      (listeners[type] ??= []).push(fn);
+    },
+    createRange: () => makeRange(),
+  };
+  globalThis.window = { getSelection: () => sel };
+  initBubbleSelectAll();
+  const fire = (type, ev = {}) => {
+    for (const fn of listeners[type] ?? []) fn(ev);
+  };
+  const selectWholeDocument = () => {
+    const r = makeRange();
+    r.startContainer = docNode;
+    r.startOffset = 0;
+    r.endContainer = docNode;
+    r.endOffset = docNode.childNodes.length;
+    sel.removeAllRanges();
+    sel.addRange(r);
+  };
+  const pointerDownOnBubble = () => fire("pointerdown", { target: { closest: (s) => (s === ".bubble" ? bubble : null) } });
+  return {
+    sel,
+    bubble,
+    body,
+    text,
+    docNode,
+    makeRange,
+    fire,
+    selectWholeDocument,
+    pointerDownOnBubble,
+    cleanup() {
+      for (const k of ["document", "window", "Node", "Range"]) {
+        if (saved[k] === undefined) delete globalThis[k];
+        else globalThis[k] = saved[k];
+      }
+    },
+  };
+}
+
+test("initBubbleSelectAll: natives Systemmenue 'Alles auswaehlen' (dokumentweite Auswahl landet ohne cancelbares selectall-Event im selectionchange, z. B. Android/WebView) wird auf die zuletzt beruehrte Bubble begrenzt", () => {
+  const dom = installSelectAllDom();
+  try {
+    dom.pointerDownOnBubble(); // Langdruck auf der Bubble setzt lastBubble
+    dom.selectWholeDocument(); // natives Select-All: Auswahl umfasst das ganze Dokument
+    dom.fire("selectionchange");
+    assert.equal(dom.sel.rangeCount, 1);
+    const r = dom.sel.getRangeAt(0);
+    assert.equal(r.startContainer, dom.body, "Auswahl startet im bubbleBody der Bubble");
+    assert.equal(r.endContainer, dom.body, "Auswahl endet im bubbleBody der Bubble");
+  } finally {
+    dom.cleanup();
+  }
+});
+
+test("initBubbleSelectAll: selectionchange bei normaler Teil-Auswahl (Ziehen/Langdruck) bleibt unangetastet", () => {
+  const dom = installSelectAllDom();
+  try {
+    dom.pointerDownOnBubble();
+    const r = dom.makeRange();
+    r.startContainer = dom.text;
+    r.startOffset = 0;
+    r.endContainer = dom.text;
+    r.endOffset = 5;
+    dom.sel.removeAllRanges();
+    dom.sel.addRange(r);
+    dom.fire("selectionchange");
+    assert.equal(dom.sel.getRangeAt(0), r, "Teilauswahl darf nicht ueberschrieben werden");
+  } finally {
+    dom.cleanup();
+  }
+});
+
+test("initBubbleSelectAll: dokumentweite Auswahl bei Fokus in Eingabefeld (Composer/Overlay) bleibt unangetastet", () => {
+  const dom = installSelectAllDom();
+  try {
+    globalThis.document.activeElement = { tagName: "TEXTAREA", isContentEditable: false };
+    dom.selectWholeDocument();
+    dom.fire("selectionchange");
+    assert.equal(dom.sel.getRangeAt(0).startContainer, dom.docNode, "Feld-Fokus: dokumentweite Auswahl bleibt erhalten (natives Feld-Select-All)");
+  } finally {
+    dom.cleanup();
+  }
+});
+
+test("initBubbleSelectAll: selectall-Event und Ctrl/Cmd+A begrenzen auf die Bubble und preventDefault'en", () => {
+  const dom = installSelectAllDom();
+  try {
+    dom.pointerDownOnBubble();
+    let prevented = 0;
+    const ev = () => ({ preventDefault: () => prevented++ });
+    dom.fire("selectall", ev());
+    assert.equal(prevented, 1, "selectall-Event wird gecancelt");
+    assert.equal(dom.sel.getRangeAt(0).startContainer, dom.body, "selectall selektiert nur den bubbleBody");
+    dom.selectWholeDocument();
+    dom.fire("keydown", { key: "a", ctrlKey: true, ...ev() });
+    assert.equal(prevented, 2, "Ctrl+A wird gecancelt");
+    assert.equal(dom.sel.getRangeAt(0).startContainer, dom.body, "Ctrl+A selektiert nur den bubbleBody");
+    dom.fire("keydown", { key: "a", ctrlKey: true, shiftKey: true, ...ev() });
+    assert.equal(prevented, 2, "Ctrl+Shift+A ist keine Select-All-Taste und wird nicht gecancelt");
+  } finally {
     dom.cleanup();
   }
 });

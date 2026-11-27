@@ -1764,6 +1764,38 @@ def test_select_all_inside_bubble_scopes_to_bubble_content(page, base_url, llm_e
     assert sel["inBubble"], "Select-All darf nicht ueber die Bubble hinausgreifen"
     assert sel["text"] == bubble_text, "Select-All muss exakt den Bubble-Text selektieren (nicht die ganze App)"
 
+    # Natives Systemmenue "Alles auswaehlen" (Android-Browser/WebView): feuert kein cancelbares
+    # selectall-Event, sondern setzt direkt eine dokumentweite Auswahl -> selectionchange muss
+    # sie auf die zuletzt per Tap beruehrte Bubble begrenzen (hier: dieselbe Bubble vom Klick oben)
+    page.evaluate(
+        """() => {
+          const r = document.createRange();
+          r.selectNodeContents(document.documentElement);
+          const s = window.getSelection();
+          s.removeAllRanges();
+          s.addRange(r);
+        }"""
+    )
+    page.wait_for_function(
+        """(expected) => {
+          const s = window.getSelection();
+          const node = s.anchorNode;
+          const el = node ? (node.nodeType === 1 ? node : node.parentElement) : null;
+          return !!(el && el.closest('.bubble .bubbleBody')) && s.toString() === expected;
+        }""",
+        arg=bubble_text,
+    )
+    sel = page.evaluate(
+        """() => {
+          const s = window.getSelection();
+          const node = s.anchorNode;
+          const el = node ? (node.nodeType === 1 ? node : node.parentElement) : null;
+          return { text: s.toString(), inBubble: !!(el && el.closest('.bubble .bubbleBody')) };
+        }"""
+    )
+    assert sel["inBubble"], "natives Select-All (dokumentweite Auswahl) darf nicht ueber die Bubble hinausgreifen"
+    assert sel["text"] == bubble_text, "natives Select-All muss exakt den Bubble-Text selektieren (nicht die ganze App)"
+
     # Composer fokussiert: Ctrl+A selektiert nur den Composer-Text (natives Feld-Verhalten)
     page.fill(T["chat_input"], "Composer-Text")
     page.click(T["chat_input"])
@@ -1776,7 +1808,9 @@ def test_select_all_inside_bubble_scopes_to_bubble_content(page, base_url, llm_e
     )
     assert composer_sel["active"], "Composer muss bei Ctrl+A fokussiert bleiben"
     assert composer_sel["start"] == 0 and composer_sel["end"] == composer_sel["len"], "Composer muss sein eigenes Select-All behalten"
-    assert composer_sel["docSel"] == "", "Composer-Select-All darf nicht die Dokument-Auswahl auf die ganze App ausdehnen"
+    # neuere Chromium-Versionen (ab M127, per-element selectionchange) spiegeln die Feld-Auswahl
+    # in window.getSelection() - entscheidend ist, dass nie die ganze App selektiert wird
+    assert composer_sel["docSel"] in ("", "Composer-Text"), "Composer-Select-All darf nicht die Dokument-Auswahl auf die ganze App ausdehnen"
 
 
 def test_minimalism_desktop_hides_head_and_overrides_context_menu(page, base_url, llm_expect):
