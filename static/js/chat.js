@@ -532,66 +532,6 @@ export function initBubbleMenu() {
   });
 }
 
-// Select-All innerhalb einer Bubble (Ctrl/Cmd+A bzw. Systemmenue "Alles auswaehlen") selektiert
-// nur den Bubble-Text, nicht die ganze App; die normale Textauswahl (Ziehen/Langdruck) bleibt nativ.
-let lastBubble = null; // zuletzt per pointerdown beruehrte Bubble (Fallback ohne aktive Auswahl)
-
-function bubbleBodyForSelectAll() {
-  const sel = window.getSelection();
-  const node = sel && sel.anchorNode;
-  const el = node ? (node.nodeType === Node.ELEMENT_NODE ? node : node.parentElement) : null;
-  const body = el && el.closest ? el.closest(".bubble .bubbleBody") : null;
-  return body || (lastBubble ? lastBubble.querySelector(".bubbleBody") : null);
-}
-
-function isFieldActive() {
-  const ae = document.activeElement;
-  return !!(ae && (ae.tagName === "INPUT" || ae.tagName === "TEXTAREA" || ae.tagName === "SELECT" || ae.isContentEditable)); // Composer/Overlays: natives Select-All des Feldes
-}
-
-function selectBubbleBody(body) {
-  const range = document.createRange();
-  range.selectNodeContents(body);
-  const sel = window.getSelection();
-  sel.removeAllRanges();
-  sel.addRange(range);
-}
-
-// Das native "Alles auswaehlen" (Android-Systemmenue/WebView) feuert kein zuverlaessig
-// cancelbares selectall-Event, sondern setzt direkt eine dokumentweite Auswahl, die im
-// selectionchange landet - deshalb die Rueckbegrenzung auf die Bubble auch dort.
-function isWholeDocumentSelection(sel) {
-  if (!sel || sel.isCollapsed || sel.rangeCount === 0) return false;
-  const docRange = document.createRange();
-  docRange.selectNodeContents(document.documentElement);
-  const r = sel.getRangeAt(0);
-  return r.compareBoundaryPoints(Range.START_TO_START, docRange) <= 0 && r.compareBoundaryPoints(Range.END_TO_END, docRange) >= 0;
-}
-
-export function initBubbleSelectAll() {
-  document.addEventListener("pointerdown", (e) => {
-    lastBubble = e.target.closest?.(".bubble") || null;
-  }, true);
-  const scopeToBubble = (e) => {
-    if (isFieldActive()) return;
-    const body = bubbleBodyForSelectAll();
-    if (!body) return;
-    e.preventDefault();
-    selectBubbleBody(body);
-  };
-  document.addEventListener("keydown", (e) => {
-    if (e.key.toLowerCase() === "a" && (e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey) scopeToBubble(e);
-  });
-  document.addEventListener("selectall", scopeToBubble, true); // "Alles auswaehlen" aus dem System-Auswahlmenue (mobil), soweit das Event feuert
-  document.addEventListener("selectionchange", () => {
-    if (isFieldActive()) return;
-    const sel = window.getSelection();
-    if (!isWholeDocumentSelection(sel)) return; // normale Textauswahl (Ziehen/Langdruck) bleibt unangetastet
-    const body = bubbleBodyForSelectAll();
-    if (body) selectBubbleBody(body);
-  });
-}
-
 // Edit-Modus: id der Nutzernachricht, die gerade im Edit-Overlay bearbeitet wird
 let editingMessageId = null;
 

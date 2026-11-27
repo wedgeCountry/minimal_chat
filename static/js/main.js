@@ -4,7 +4,7 @@ import { $ } from "./util.js";
 import { initViewHistory, pushView, replaceView, sessionIdFromPath } from "./visits.js";
 import { goToLogin } from "./auth.js";
 import { loadSessions, renderSessions, newSession } from "./sessions.js";
-import { abortStream, initBubbleMenu, initBubbleSelectAll, initEditOverlay, pollOnce, renderChatView, renderHeader, send, setStreamingUI, syncAllBubbleTts } from "./chat.js";
+import { abortStream, initBubbleMenu, initEditOverlay, pollOnce, renderChatView, renderHeader, send, setStreamingUI, syncAllBubbleTts } from "./chat.js";
 import { isToolbarMinimal } from "./visibility.js";
 import { addAttachments } from "./attachments.js";
 import { initSettings, loadSettings, openSettings } from "./settings.js";
@@ -216,7 +216,6 @@ function initEvents() {
   // Minimalismus: Tap auf eine Bubble -> Kontextmenue mit den Toolbar-Aktionen
   // (Langdruck/contextmenu bleibt nativ, siehe initBubbleMenu)
   initBubbleMenu();
-  initBubbleSelectAll();
   initEditOverlay();
 
   document.addEventListener("leanchat:changed", renderAll);
